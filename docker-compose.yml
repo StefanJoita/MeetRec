@@ -1,0 +1,379 @@
+# ============================================================
+# docker-compose.yml — Orchestratorul tuturor serviciilor
+# ============================================================
+# YAML 101:
+#   - Indentarea contează (folosim 2 spații, NU tab-uri!)
+#   - "services:" = lista containerelor noastre
+#   - "volumes:" = unde stocăm datele persistent
+#   - "networks:" = cum comunică containerele între ele
+# ============================================================
+
+version: "3.9"   # versiunea sintaxei Docker Compose
+
+# ===========================================================
+# SERVICES — Fiecare bloc = un container independent
+# ===========================================================
+services:
+
+  # ---------------------------------------------------------
+  # 🗄️ POSTGRESQL — Baza de date relațională
+  # ---------------------------------------------------------
+  # De ce PostgreSQL și nu MySQL/SQLite?
+  #   - Full-text search nativ (pentru căutare în transcrieri)
+  #   - pgvector pentru viitor (embeddings AI)
+  #   - JSONB pentru date flexibile (metadata audio)
+  #   - Cel mai robust RDBMS open-source
+  postgres:
+    image: postgres:15-alpine   # alpine = imagine minimală (~70MB vs ~400MB)
+    container_name: mt-postgres
+    restart: unless-stopped     # repornește automat dacă cade, EXCEPȚIE: dacă tu îl oprești manual
+    environment:
+      # Aceste variabile sunt citite de imaginea oficială PostgreSQL
+      POSTGRES_DB: ${POSTGRES_DB}           # citit din fișierul .env
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      # Setăm timezone-ul pentru timestamps corecte
+      TZ: Europe/Bucharest
+    volumes:
+      # Datele DB sunt stocate PERSISTENT pe disc (nu dispar când containerul se oprește)
+      # Format: "volum_local:cale_in_container"
+      - postgres_data:/var/lib/postgresql/data
+      # Script-ul de inițializare rulează O SINGURĂ DATĂ la primul start
+      - ./database/init.sql:/docker-entrypoint-initdb.d/init.sql:ro  # :ro = read-only
+    ports:
+      # Format: "port_pe_calculatorul_tau:port_in_container"
+      # ⚠️ ATENȚIE: în producție, NU expune 5432 afară din rețeaua internă!
+      - "5432:5432"
+    networks:
+      - backend-network    # PostgreSQL e vizibil DOAR în rețeaua internă
+    healthcheck:
+      # Docker verifică periodic dacă serviciul e sănătos
+      # Dacă healthcheck pică, serviciile dependente NU pornesc
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s      # verifică la fiecare 10 secunde
+      timeout: 5s        # dacă nu răspunde în 5s = eșec
+      retries: 5         # după 5 eșecuri consecutive = "unhealthy"
+      start_period: 30s  # dă-i 30s la start înainte să înceapă verificările
+
+  # ---------------------------------------------------------
+  # 🔴 REDIS — Queue pentru joburi asincrone
+  # ---------------------------------------------------------
+  # De ce Redis și nu RabbitMQ/Kafka?
+  #   - Mult mai simplu de configurat și înțeles
+  #   - Suficient pentru volumul nostru (sute, nu milioane de joburi/zi)
+  #   - Poate servi și ca cache în viitor
+  #   - Ecosistem Python excelent (RQ, Celery)
+  redis:
+    image: redis:7-alpine
+    container_name: mt-redis
+    restart: unless-stopped
+    command: >
+      redis-server
+      --appendonly yes
+      --appendfsync everysec
+    # --appendonly yes = activează persistența (joburile nu se pierd la restart)
+    # --appendfsync everysec = scrie pe disc o dată pe secundă (echilibru perf/siguranță)
+    volumes:
+      - redis_data:/data    # datele Redis persistă între restartări
+    ports:
+      - "6379:6379"         # expunem pentru debugging (în prod: elimină această linie)
+    networks:
+      - backend-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+
+  # ---------------------------------------------------------
+  # 🔌 API BACKEND — FastAPI (orchestratorul central)
+  # ---------------------------------------------------------
+  # "build:" înseamnă că Docker construiește imaginea din codul nostru
+  # vs "image:" care descarcă o imagine gata-făcută
+  api:
+    build:
+      context: ./services/api     # folderul cu Dockerfile și codul
+      dockerfile: Dockerfile
+    container_name: mt-api
+    restart: unless-stopped
+    environment:
+      # Transmitem variabilele de mediu din .env în container
+      DATABASE_URL: ${DATABASE_URL}
+      REDIS_URL: ${REDIS_URL}
+      REDIS_TRANSCRIPTION_QUEUE: ${REDIS_TRANSCRIPTION_QUEUE}
+      AUDIO_STORAGE_PATH: ${AUDIO_STORAGE_PATH}
+      EXPORT_PATH: ${EXPORT_PATH}
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY}
+      JWT_ALGORITHM: ${JWT_ALGORITHM}
+      JWT_EXPIRE_MINUTES: ${JWT_EXPIRE_MINUTES}
+      APP_ENV: ${APP_ENV}
+      LOG_LEVEL: ${LOG_LEVEL}
+      TZ: Europe/Bucharest
+    volumes:
+      # Fișierele audio procesate (NFS montat ca volum local)
+      - audio_storage:/data/processed
+      - export_storage:/data/exports
+      # În development: montăm codul live (hot-reload fără rebuild)
+      # În producție: codul e copiat în imagine la build
+      - ./services/api/src:/app/src
+    ports:
+      - "8080:8080"    # expunem pentru debugging direct (în prod: doar prin nginx)
+    networks:
+      - backend-network
+      - frontend-network   # trebuie să fie vizibil și pentru nginx (frontend zone)
+    depends_on:
+      postgres:
+        condition: service_healthy   # pornește DOAR după ce postgres e healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # ---------------------------------------------------------
+  # 📥 INGEST SERVICE — Monitorizează inbox-ul de fișiere
+  # ---------------------------------------------------------
+  ingest:
+    build:
+      context: ./services/ingest
+      dockerfile: Dockerfile
+    container_name: mt-ingest
+    restart: unless-stopped
+    environment:
+      INBOX_PATH: ${INBOX_PATH}
+      AUDIO_STORAGE_PATH: ${AUDIO_STORAGE_PATH}
+      REDIS_URL: ${REDIS_URL}
+      REDIS_TRANSCRIPTION_QUEUE: ${REDIS_TRANSCRIPTION_QUEUE}
+      DATABASE_URL: ${DATABASE_URL}
+      MAX_FILE_SIZE_BYTES: ${MAX_FILE_SIZE_BYTES}
+      LOG_LEVEL: ${LOG_LEVEL}
+      TZ: Europe/Bucharest
+    volumes:
+      # Inbox: unde vin fișierele noi (montat de pe disc/NFS real)
+      - ./data/inbox:/data/inbox
+      # Processed: unde mută fișierele validate
+      - audio_storage:/data/processed
+      - ./services/ingest/src:/app/src    # live code în dev
+    networks:
+      - backend-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      api:
+        condition: service_healthy
+
+  # ---------------------------------------------------------
+  # 🎙️ STT WORKER — Whisper Speech-to-Text
+  # ---------------------------------------------------------
+  # ⚠️ Atenție: Aceasta este cea mai "grea" componentă
+  #   - Imaginea Docker: ~3-5GB (include CUDA, PyTorch, Whisper)
+  #   - RAM necesar: 4GB pentru modelul "medium"
+  #   - CPU: transcriere 1h audio ≈ 30-60 minute pe CPU
+  #   - GPU (opțional): transcriere 1h audio ≈ 3-5 minute
+  stt-worker:
+    build:
+      context: ./services/stt-worker
+      dockerfile: Dockerfile
+    container_name: mt-stt-worker
+    restart: unless-stopped
+    environment:
+      REDIS_URL: ${REDIS_URL}
+      REDIS_TRANSCRIPTION_QUEUE: ${REDIS_TRANSCRIPTION_QUEUE}
+      AUDIO_STORAGE_PATH: ${AUDIO_STORAGE_PATH}
+      WHISPER_MODEL: ${WHISPER_MODEL}
+      WHISPER_PRIMARY_LANGUAGE: ${WHISPER_PRIMARY_LANGUAGE}
+      WHISPER_MODEL_PATH: ${WHISPER_MODEL_PATH}
+      API_URL: http://api:8080    # comunică intern cu API-ul
+      LOG_LEVEL: ${LOG_LEVEL}
+      TZ: Europe/Bucharest
+    volumes:
+      - audio_storage:/data/processed:ro   # :ro = citește audio, nu modifică
+      # Modelele Whisper (descărcate o singură dată, stocate persistent)
+      - whisper_models:/app/models
+      - ./services/stt-worker/src:/app/src
+    networks:
+      - backend-network
+    depends_on:
+      redis:
+        condition: service_healthy
+      api:
+        condition: service_healthy
+    # Dacă ai GPU NVIDIA, decomentează:
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: 1
+    #           capabilities: [gpu]
+
+  # ---------------------------------------------------------
+  # 🌐 NGINX — Reverse Proxy + HTTPS termination
+  # ---------------------------------------------------------
+  # "Reverse Proxy" = nginx stă în față și direcționează traficul
+  # Utilizatorul vede: https://meeting-transcriber.local
+  # Nginx direcționează: /api/* → container API, /* → container Frontend
+  #
+  # De ce nginx și nu expunem direct API-ul?
+  #   - HTTPS în un singur loc (nu în fiecare serviciu)
+  #   - Rate limiting (protecție împotriva abuzurilor)
+  #   - Gzip compression (răspunsuri mai mici)
+  #   - Servire fișiere statice eficientă
+  nginx:
+    image: nginx:1.25-alpine
+    container_name: mt-nginx
+    restart: unless-stopped
+    ports:
+      - "${NGINX_HTTPS_PORT:-443}:443"    # HTTPS
+      - "80:80"                            # HTTP → redirecționează automat la HTTPS
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/conf.d:/etc/nginx/conf.d:ro
+      - ./nginx/ssl:/etc/nginx/ssl:ro
+    networks:
+      - frontend-network    # vede frontend-ul și API-ul
+    depends_on:
+      - api
+      - frontend
+
+  # ---------------------------------------------------------
+  # 🖥️ FRONTEND — React App
+  # ---------------------------------------------------------
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: mt-frontend
+    restart: unless-stopped
+    networks:
+      - frontend-network
+    depends_on:
+      - api
+
+  # ---------------------------------------------------------
+  # 📋 AUDIT & RETENTION SERVICE
+  # ---------------------------------------------------------
+  audit-retention:
+    build:
+      context: ./services/audit-retention
+      dockerfile: Dockerfile
+    container_name: mt-audit
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      RETENTION_DAYS: ${RETENTION_DAYS}
+      AUDIT_LOG_RETENTION_DAYS: ${AUDIT_LOG_RETENTION_DAYS}
+      AUDIO_STORAGE_PATH: ${AUDIO_STORAGE_PATH}
+      LOG_LEVEL: ${LOG_LEVEL}
+      TZ: Europe/Bucharest
+    volumes:
+      - audio_storage:/data/processed
+      - ./services/audit-retention/src:/app/src
+    networks:
+      - backend-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  # ---------------------------------------------------------
+  # 📊 MONITORING — Grafana + Loki (loguri centralizate)
+  # ---------------------------------------------------------
+  # Loki = agregator de loguri (ca Elasticsearch dar mai simplu)
+  # Grafana = vizualizare loguri și metrici
+  loki:
+    image: grafana/loki:2.9.0
+    container_name: mt-loki
+    restart: unless-stopped
+    ports:
+      - "3100:3100"
+    volumes:
+      - ./monitoring/loki/loki-config.yaml:/etc/loki/local-config.yaml:ro
+      - loki_data:/loki
+    command: -config.file=/etc/loki/local-config.yaml
+    networks:
+      - monitoring-network
+
+  promtail:
+    image: grafana/promtail:2.9.0
+    container_name: mt-promtail
+    restart: unless-stopped
+    volumes:
+      - ./monitoring/promtail/promtail-config.yaml:/etc/promtail/config.yml:ro
+      # Promtail citește logurile Docker direct de pe disc
+      - /var/log:/var/log:ro
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+    command: -config.file=/etc/promtail/config.yml
+    networks:
+      - monitoring-network
+      - backend-network
+
+  grafana:
+    image: grafana/grafana:10.0.0
+    container_name: mt-grafana
+    restart: unless-stopped
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD}
+      GF_USERS_ALLOW_SIGN_UP: "false"   # nimeni nu se poate înregistra singur
+    ports:
+      - "${GRAFANA_PORT:-3000}:3000"
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./monitoring/grafana/dashboards:/etc/grafana/provisioning/dashboards:ro
+    networks:
+      - monitoring-network
+    depends_on:
+      - loki
+
+# ===========================================================
+# VOLUMES — Stocarea persistentă a datelor
+# ===========================================================
+# Un "volum" Docker = un folder special gestionat de Docker
+# care supraviețuiește opririi/ștergerii containerelor
+#
+# Fără volume: toate datele se pierd când containerul se oprește!
+# Cu volume: datele persistă pe disc-ul serverului
+volumes:
+  postgres_data:      # toate datele bazei de date
+    driver: local
+  redis_data:         # cozile și cache-ul Redis
+    driver: local
+  audio_storage:      # fișierele audio procesate
+    driver: local
+  export_storage:     # fișierele exportate (PDF, DOCX)
+    driver: local
+  whisper_models:     # modelele AI (~1.5GB) — descărcate o dată
+    driver: local
+  loki_data:          # logurile centralizate
+    driver: local
+  grafana_data:       # configurația și dashboards Grafana
+    driver: local
+
+# ===========================================================
+# NETWORKS — Izolarea rețelelor
+# ===========================================================
+# De ce multiple rețele? Principiul "least privilege":
+# Un serviciu trebuie să vadă DOAR ce are nevoie
+#
+# backend-network:  PostgreSQL, Redis, API, Workers
+#   → Frontend NU poate accesa direct baza de date!
+#
+# frontend-network: Nginx, Frontend, API
+#   → Utilizatorul comunică DOAR prin nginx
+#
+# monitoring-network: Loki, Promtail, Grafana
+#   → Izolat, nu afectează traficul aplicației
+networks:
+  backend-network:
+    driver: bridge    # rețea virtuală privată între containere
+    name: mt-backend
+  frontend-network:
+    driver: bridge
+    name: mt-frontend
+  monitoring-network:
+    driver: bridge
+    name: mt-monitoring
