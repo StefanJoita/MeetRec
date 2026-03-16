@@ -1,0 +1,68 @@
+# services/ingest/requirements.txt
+# ============================================================
+# Dependențele Python ale Ingest Service
+# ============================================================
+# Instalare: pip install -r requirements.txt
+# Versiunile sunt fixate (==) pentru reproducibilitate:
+# Fără versiune fixată, mâine s-ar putea instala o versiune
+# nouă care strică ceva. Cu versiune fixată, totul e previzibil.
+
+# --- FILE WATCHING ---
+watchdog==3.0.0
+# Monitorizează sistemul de fișiere pentru modificări.
+# Folosește API-uri native ale OS (inotify pe Linux)
+# → mult mai eficient decât polling la fiecare secundă
+
+# --- AUDIO PROCESSING ---
+mutagen==1.47.0
+# Citește metadata din fișiere audio (durată, bitrate, format)
+# fără să încarce tot fișierul în memorie
+# Suportă: MP3, WAV, FLAC, M4A, OGG, WEBM
+
+pydub==0.25.1
+# Verifică dacă un fișier audio se poate deschide (nu e corupt)
+# Wrapper peste ffmpeg
+
+# --- DATABASE ---
+asyncpg==0.29.0
+# Driver PostgreSQL async — mai rapid decât psycopg2 clasic
+# "async" = nu blochează programul în timp ce așteaptă DB
+
+sqlalchemy==2.0.23
+# ORM (Object-Relational Mapper): scrii Python, generează SQL
+# Ex: Recording(title="Ședința") → INSERT INTO recordings...
+
+alembic==1.13.0
+# Gestionează migrațiile DB (modificări incrementale la schemă)
+
+# --- REDIS / QUEUE ---
+redis==5.0.1
+# Client Python pentru Redis — publicare joburi în coadă
+
+# --- HTTP CLIENT ---
+httpx==0.26.0
+# Apeluri HTTP async către REST API
+# Mai modern decât requests (suportă async/await)
+
+# --- UTILITIES ---
+python-dotenv==1.0.0
+# Citește variabilele din fișierul .env
+
+pydantic==2.10.6
+pydantic-settings==2.7.1
+# Config management și validare tipuri pentru Settings
+
+structlog==24.1.0
+# Logging structurat în format JSON
+# În loc de: "ERROR: fișier invalid"
+# Produce: {"level": "error", "file": "sedinta.mp3", "reason": "corrupt"}
+# Mult mai ușor de căutat în Grafana/Loki
+
+tenacity==8.2.3
+# Retry automat pentru operații care pot eșua temporar
+# Ex: dacă DB e momentan indisponibilă, încearcă din nou de 3 ori
+
+# --- TESTING ---
+pytest==7.4.3
+pytest-asyncio==0.23.2
+pytest-mock==3.12.0
