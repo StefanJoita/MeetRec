@@ -1,105 +1,147 @@
 # MeetRec
 
-MeetRec este un MVP pentru ingestie, procesare si transcriere de inregistrari de sedinte.
+MeetRec este un MVP pentru ingestie, procesare si transcriere de inregistrari audio.
 
-## Ce include acum
+Acest repository contine structura completa a proiectului, inclusiv directoarele goale necesare pentru dezvoltare. Directoarele goale sunt pastrate in Git cu fisiere `.gitkeep`.
 
-- Ingest service: monitorizeaza inbox-ul, valideaza audio, stocheaza fisierul si publica job in Redis.
-- API service (schelet): configurare + modele SQLAlchemy de baza.
-- PostgreSQL schema initiala.
-- Nginx reverse proxy config.
-- Stack de observabilitate Loki + Promtail.
+## Stack
 
-## Structura proiect
+- PostgreSQL
+- Redis
+- Nginx
+- Ingest service (Python)
+- API service (schelet)
+- Monitoring (Loki + Promtail)
+
+## Structura proiect (snapshot)
 
 ```text
 meeting-transcriber/
+	.env.example
+	docker-compose.yml
+	Makefile
+	README.md
+
+	data/
+		exports/.gitkeep
+		inbox/.gitkeep
+		processed/.gitkeep
+
 	database/
 		init.sql
+		migrations/.gitkeep
+		seeds/.gitkeep
+
+	frontend/
+		src/
+			api/.gitkeep
+			components/.gitkeep
+			hooks/.gitkeep
+			pages/.gitkeep
+
 	monitoring/
+		dashboards/.gitkeep
+		grafana/.gitkeep
 		loki/loki-config.yaml
 		promtail/promtail-config.yaml
+
 	nginx/
 		nginx.conf
 		conf.d/meeting.transcriber.conf
+		ssl/.gitkeep
+
 	services/
 		api/
 			requirements.txt
+			tests/.gitkeep
 			src/
+				config.py
+				middleware/.gitkeep
+				models/
+					base.py
+					recording.py
+				routers/.gitkeep
+				services/.gitkeep
+
+		audit-retention/
+			src/.gitkeep
+
 		ingest/
 			Dockerfile
 			requirements.txt
 			src/
+				config.py
+				database.py
+				logger.py
+				main.py
+				processor.py
+				publisher.py
+				storage.py
+				validator.py
+				watcher.py
+			tests/
+				test_validator.py
+
+		search-indexer/
+			src/.gitkeep
+
+		stt-worker/
+			models/.gitkeep
 ```
 
-## Prerequisites
+## Setup rapid
 
-- Docker Desktop
-- Git
-- Windows PowerShell (comenzile de mai jos sunt pentru PowerShell)
-
-## Cum rulezi local
-
-In workspace-ul curent, fisierul `docker-compose.yml` este in folderul parinte (`d:/MeetRec_MVP`).
-
-1. Creeaza `.env` in `d:/MeetRec_MVP` (daca nu exista deja), pornind de la template-ul tau local.
-2. Ruleaza stack-ul minim pentru ingest:
+1. Clone repository.
+2. Copiaza template-ul de env:
 
 ```powershell
-docker compose --project-directory "d:\MeetRec_MVP\meeting-transcriber" --env-file "d:\MeetRec_MVP\.env" -f "d:\MeetRec_MVP\docker-compose.yml" up -d postgres redis ingest
+Copy-Item .env.example .env
 ```
 
-3. Verifica status:
+3. Completeaza valorile din `.env`.
+
+## Rulare (stack minim pentru ingest)
 
 ```powershell
-docker compose --project-directory "d:\MeetRec_MVP\meeting-transcriber" --env-file "d:\MeetRec_MVP\.env" -f "d:\MeetRec_MVP\docker-compose.yml" ps ingest redis postgres
+docker compose up -d postgres redis ingest
+docker compose ps ingest redis postgres
+docker compose logs -f ingest
 ```
 
-4. Verifica loguri ingest:
+## Smoke test ingest
+
+Genereaza un fisier audio de test direct in inbox:
 
 ```powershell
-docker compose --project-directory "d:\MeetRec_MVP\meeting-transcriber" --env-file "d:\MeetRec_MVP\.env" -f "d:\MeetRec_MVP\docker-compose.yml" logs -f ingest
+docker compose exec -T ingest sh -lc "ffmpeg -f lavfi -i sine=frequency=440:duration=6 -ar 16000 -ac 1 /data/inbox/smoke_test.wav -y"
 ```
 
-## Smoke test pentru ingest
-
-Genereaza un WAV valid direct in inbox:
+Verificari:
 
 ```powershell
-docker compose --project-directory "d:\MeetRec_MVP\meeting-transcriber" --env-file "d:\MeetRec_MVP\.env" -f "d:\MeetRec_MVP\docker-compose.yml" exec -T ingest sh -lc "ffmpeg -f lavfi -i sine=frequency=440:duration=6 -ar 16000 -ac 1 /data/inbox/smoke_test.wav -y"
+docker compose logs --tail=120 ingest
+docker compose exec -T redis redis-cli LLEN transcription_jobs
 ```
 
-Verifica rezultatul:
-
-```powershell
-docker compose --project-directory "d:\MeetRec_MVP\meeting-transcriber" --env-file "d:\MeetRec_MVP\.env" -f "d:\MeetRec_MVP\docker-compose.yml" logs --tail=120 ingest
-docker compose --project-directory "d:\MeetRec_MVP\meeting-transcriber" --env-file "d:\MeetRec_MVP\.env" -f "d:\MeetRec_MVP\docker-compose.yml" exec -T redis redis-cli LLEN transcription_jobs
-```
-
-Semnale de succes in logs:
+Semnale de succes in loguri:
 
 - `validation_success`
 - `recording_created`
 - `job_published`
 - `processing_completed`
 
-## Fisiere cheie
+## Comenzi utile (Makefile)
 
-- `database/init.sql`: schema initiala (recordings, transcripts, audit_logs).
-- `services/ingest/src/main.py`: bootstrapping ingest.
-- `services/ingest/src/watcher.py`: monitorizare inbox + dispatch procesare.
-- `services/ingest/src/processor.py`: orchestrare validator/storage/db/publisher.
-- `services/ingest/src/database.py`: operatii DB pentru ingest.
-- `services/ingest/src/publisher.py`: publicare joburi in Redis.
+```powershell
+make setup
+make build
+make start
+make logs
+make ps
+```
 
-## Troubleshooting rapid
+## Status actual
 
-- Daca `ingest` este in restart loop: verifica `docker compose ... logs --tail=200 ingest`.
-- Daca push-ul in GitHub este respins cu `fetch first`: fa `git pull origin main --allow-unrelated-histories`, apoi `git push`.
-- Daca lipsesc variabile in compose: completeaza `.env` in `d:/MeetRec_MVP`.
-
-## Status curent
-
-- Ingest startup: functional.
-- Ingest smoke test (WAV -> DB + Redis queue): functional.
-- API: schelet in lucru (necesita completari pentru runtime complet).
+- Ingest startup: functional
+- Ingest smoke test (WAV -> storage + DB + Redis): functional
+- API: schelet in lucru
