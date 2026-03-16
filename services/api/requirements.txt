@@ -1,0 +1,68 @@
+# services/api/requirements.txt
+
+# --- WEB FRAMEWORK ---
+fastapi==0.111.0
+# FastAPI = framework modern Python pentru REST API
+# Avantaje vs Flask/Django:
+#   - async nativ (perfect pentru I/O intensiv)
+#   - validare automată cu Pydantic
+#   - documentație OpenAPI generată automat (/docs)
+#   - performanță: printre cele mai rapide framework-uri Python
+
+uvicorn[standard]==0.29.0
+# ASGI server — rulează FastAPI
+# "standard" include watchgfiles (hot-reload în dev)
+
+# --- VALIDARE DATE ---
+pydantic==2.7.1
+pydantic-settings==2.2.1
+# Pydantic = validare și serializare date cu type hints Python
+# Ex: dacă trimiți "abc" pentru un câmp int → eroare automată clară
+
+# --- DATABASE ---
+sqlalchemy==2.0.30
+# ORM: scriem Python, SQLAlchemy generează SQL
+# Ex: session.query(Recording).filter(Recording.status == "queued")
+# → SELECT * FROM recordings WHERE status = 'queued'
+
+asyncpg==0.29.0
+# Driver PostgreSQL async (cel mai rapid disponibil)
+
+alembic==1.13.1
+# Migrații DB: modificări incrementale la schemă
+
+# --- AUTENTIFICARE ---
+python-jose[cryptography]==3.3.0
+# JWT (JSON Web Tokens) pentru autentificare stateless
+# Un JWT conține: {user_id, rol, expiră_la} + semnătură criptografică
+
+passlib[bcrypt]==1.7.4
+# Hashing parole cu bcrypt (algoritm lent intenționat — protecție brute force)
+
+# --- REDIS ---
+redis==5.0.4
+
+# --- FIȘIERE ---
+python-multipart==0.0.9
+# Necesar pentru upload fișiere (multipart/form-data)
+
+aiofiles==23.2.1
+# Citire/scriere fișiere async
+
+# --- EXPORT ---
+reportlab==4.1.0
+# Generare PDF pentru export transcrieri
+
+python-docx==1.1.0
+# Generare DOCX pentru export transcrieri
+
+# --- UTILITIES ---
+python-dotenv==1.0.1
+structlog==24.2.0
+tenacity==8.3.0
+httpx==0.27.0   # pentru apeluri HTTP async între servicii
+
+# --- TESTING ---
+pytest==8.2.0
+pytest-asyncio==0.23.7
+httpx==0.27.0   # TestClient pentru FastAPI
