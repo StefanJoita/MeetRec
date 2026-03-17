@@ -1,0 +1,57 @@
+# ── Python ────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+*.egg
+.eggs/
+
+# ── Virtual environments ──────────────────────────────────────
+venv/
+.venv/
+env/
+.env_dir/
+
+# ── Secrets — NICIODATĂ în Git! ───────────────────────────────
+.env
+*.pem
+*.key
+*.cert
+secrets/
+
+# ── Docker ────────────────────────────────────────────────────
+.docker/
+
+# ── Modele Whisper (prea mari pentru Git) ─────────────────────
+services/stt-worker/models/
+*.pt
+*.bin
+
+# ── Date audio (nu le comitem) ────────────────────────────────
+data/inbox/*
+data/processed/*
+data/exports/*
+!data/inbox/.gitkeep
+!data/processed/.gitkeep
+!data/exports/.gitkeep
+
+# ── IDE ───────────────────────────────────────────────────────
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# ── Pytest ────────────────────────────────────────────────────
+.pytest_cache/
+.coverage
+htmlcov/
+
+# ── Logs ──────────────────────────────────────────────────────
+*.log
+logs/
