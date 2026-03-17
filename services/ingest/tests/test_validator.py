@@ -103,7 +103,7 @@ class TestFileSizeValidation:
         f.write_bytes(b"")  # gol
         result = validator.validate(f)
         assert result.is_valid is False
-        assert result.error_code == "EMPTY_FILE"
+        assert result.error_code == "FILE_EMPTY"
 
     def test_file_too_large_rejected(self, validator, large_audio_file):
         """Fișier > 500MB trebuie respins."""
