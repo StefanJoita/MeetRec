@@ -1,0 +1,37 @@
+# services/stt-worker/requirements.txt
+# ============================================================
+# Dependențele STT Worker
+# ============================================================
+# ATENȚIE la torch:
+#   pip install torch             → descarcă versiunea CUDA (~2.5GB!)
+#   pip install torch --index-url https://download.pytorch.org/whl/cpu
+#                                 → descarcă versiunea CPU-only (~800MB)
+#
+# Versiunea CPU-only se specifică în Dockerfile cu --extra-index-url.
+# Dacă rulezi pip local (fără Docker) și nu ai GPU, adaugă manual:
+#   pip install torch==2.1.0+cpu --index-url https://download.pytorch.org/whl/cpu
+# ============================================================
+
+# --- STT ---
+openai-whisper          # Whisper STT (include ffmpeg-python ca dep.)
+# torch e instalat separat în Dockerfile cu --extra-index-url pentru CPU-only
+
+# --- DATABASE ---
+asyncpg==0.29.0         # Driver PostgreSQL async (cel mai rapid disponibil)
+
+# --- QUEUE ---
+redis==5.0.1            # Include redis.asyncio — clientul async necesar pentru BRPOP
+
+# --- CONFIG / LOGGING ---
+pydantic-settings==2.7.1
+pydantic==2.10.6
+structlog==24.1.0
+python-dotenv==1.0.0
+
+# --- RETRY ---
+tenacity==8.2.3         # Decorator @retry pentru resilience (ex: reconectare Redis)
+
+# --- TESTING ---
+pytest==7.4.3
+pytest-asyncio==0.23.2
+pytest-mock==3.12.0

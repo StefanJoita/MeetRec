@@ -62,7 +62,7 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
     FastAPI dependency care furnizează o sesiune DB per request.
     Sesiunea se închide automat după ce request-ul e gata.
     """
-    async with AsyncSessionLocal() as session:
+    async with session_factory() as session:
         try:
             yield session
             await session.commit()   # commit automat dacă nu a fost excepție

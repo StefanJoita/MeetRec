@@ -170,9 +170,8 @@ class AudioValidator:
             if audio is None:
                 #mutagen nu a recunoscut fisierul
                 return self._reject(
-                    "UNREADABLE_AUDIO"
-                    "Fisierul nu poate fi citit ca audio"
-                    "Posibil corupt sau extensie gresita"
+                    "UNREADABLE_AUDIO",
+                    "Fisierul nu poate fi citit ca audio. Posibil corupt sau extensie gresita.",
                 )
             #Extragem durata in secunde
             duration=getattr(audio.info,"length",None)

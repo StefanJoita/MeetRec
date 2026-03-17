@@ -10,17 +10,16 @@
 #dict (json) - jsonb
 #====================================================================
 
-from ctypes import ARRAY
-import uuid 
+import uuid
 from datetime import datetime, date, timezone
 from typing import Optional, List
 from sqlalchemy import String, Integer, BigInteger, Date, Text
 from sqlalchemy import TIMESTAMP, Enum as SAEnum, JSON, SmallInteger
-from sqlalchemy.dialects.postgresql import UUID as PG_UUID
+from sqlalchemy.dialects.postgresql import UUID as PG_UUID, ARRAY
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
 
-from src.models.base import base
+from src.models.base import Base
 
 #Enumurile din Python - sincronizate cu enumurile din init.sql
 import enum
@@ -42,7 +41,7 @@ class AudioFormat(str, enum.Enum):
     FLAC = "flac"
     WEBM = "webm"
 
-class Recording(base):
+class Recording(Base):
     """
     Modelul principal - o inregistrare audio a unei sedinte
     Relatii:
