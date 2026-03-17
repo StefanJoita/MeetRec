@@ -195,6 +195,9 @@ class TestProcessJob:
         processed_segs = [make_segment(0, "ședința")]  # diacritice fixate
 
         mocks["transcriber"].transcribe.return_value = raw_segs
+        # IMPORTANT: side_effect are prioritate față de return_value în MagicMock.
+        # Trebuie să anulăm side_effect înainte de a seta return_value.
+        mocks["postprocessor"].process.side_effect = None
         mocks["postprocessor"].process.return_value = processed_segs
 
         await consumer._process_job(make_job())
