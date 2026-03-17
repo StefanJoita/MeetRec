@@ -66,6 +66,13 @@ class Settings(BaseSettings):
 
     # ── Validatoare ──────────────────────────────────────────
 
+    @field_validator("database_url")
+    @classmethod
+    def normalize_database_url(cls, v: str) -> str:
+        # SQLAlchemy folosește "postgresql+asyncpg://" dar asyncpg direct
+        # acceptă doar "postgresql://" — normalizăm pentru compatibilitate
+        return v.replace("postgresql+asyncpg://", "postgresql://")
+
     @field_validator("audio_storage_path")
     @classmethod
     def audio_path_must_exist(cls, v: Path) -> Path:

@@ -188,6 +188,7 @@ services:
       WHISPER_MODEL: ${WHISPER_MODEL}
       WHISPER_PRIMARY_LANGUAGE: ${WHISPER_PRIMARY_LANGUAGE}
       WHISPER_MODEL_PATH: ${WHISPER_MODEL_PATH}
+      DATABASE_URL: ${DATABASE_URL}
       API_URL: http://api:8080    # comunică intern cu API-ul
       LOG_LEVEL: ${LOG_LEVEL}
       TZ: Europe/Bucharest
