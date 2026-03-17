@@ -4,7 +4,7 @@ import enum
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import String, Boolean, Text, TIMESTAMP, Index
+from sqlalchemy import String, Boolean, Text, TIMESTAMP, Index, Enum as SAEnum
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID, INET, JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.sql import func
@@ -42,11 +42,13 @@ class AuditLog(Base):
     user_id: Mapped[Optional[uuid.UUID]] = mapped_column(
         PG_UUID(as_uuid=True), nullable=True   # NULL = request neautentificat
     )
-    user_ip: Mapped[str] = mapped_column(String(45), nullable=False)
+    user_ip: Mapped[str] = mapped_column(INET, nullable=False)
     user_agent: Mapped[Optional[str]] = mapped_column(String(500))
 
     # Ce acțiune
-    action: Mapped[str] = mapped_column(String(30), nullable=False)
+    action: Mapped[str] = mapped_column(
+        SAEnum(AuditAction, name="audit_action", create_type=False), nullable=False
+    )
     resource_type: Mapped[Optional[str]] = mapped_column(String(100))
     resource_id: Mapped[Optional[uuid.UUID]] = mapped_column(
         PG_UUID(as_uuid=True), nullable=True
