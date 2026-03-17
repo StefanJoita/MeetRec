@@ -23,7 +23,6 @@
 # ============================================================
 
 import re
-from copy import replace
 from typing import List
 
 from src.transcriber import TranscriptSegment

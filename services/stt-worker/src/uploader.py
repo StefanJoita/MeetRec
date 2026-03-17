@@ -127,11 +127,10 @@ class DatabaseUploader:
                     UPDATE transcripts
                     SET status = 'processing',
                         started_at = NOW(),
-                        model_used = $3
+                        model_used = $2
                     WHERE id = $1
                     """,
                     transcript_id,
-                    recording_id,   # $2 — nefolosit în acest query, dar păstrat pentru consistență
                     model_name,
                 )
                 await conn.execute(
