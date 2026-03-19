@@ -55,3 +55,9 @@ htmlcov/
 # ── Logs ──────────────────────────────────────────────────────
 *.log
 logs/
+node_modules/
+frontend/dist/
+sedinta2.mp3
+.claude/
+curent _problems
+eventual-squishing-starlight.md
