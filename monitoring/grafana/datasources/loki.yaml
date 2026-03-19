@@ -1,0 +1,14 @@
+# monitoring/grafana/datasources/loki.yaml
+# Configurare automată a sursei de date Loki în Grafana
+# Grafana citește acest fișier la startup și adaugă datasource-ul automat.
+
+apiVersion: 1
+
+datasources:
+  - name: Loki
+    type: loki
+    access: proxy
+    url: http://loki:3100
+    isDefault: true
+    version: 1
+    editable: false
