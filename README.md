@@ -1,290 +1,816 @@
-# MeetRec — Sistem de Transcriere Automată a Ședințelor
+# MeetRec — Technical Documentation
 
-Microservicii pentru înregistrarea, transcrierea și căutarea în procesele-verbale ale ședințelor de consiliu local. Audio intră în sistem, Whisper transcrie automat, textul devine căutabil în secunde.
+> **Meeting Recording & Transcription Platform**
+> Auto-ingests audio files, transcribes them with OpenAI Whisper, and exposes a searchable REST API.
 
 ---
 
-## Arhitectură
+## Table of Contents
+
+1. [Project Overview](#1-project-overview)
+2. [Architecture Overview](#2-architecture-overview)
+3. [Project Structure](#3-project-structure)
+4. [Key Modules Explanation](#4-key-modules-explanation)
+5. [Important Classes and Functions](#5-important-classes-and-functions)
+6. [Data Structures](#6-data-structures)
+7. [Dependencies](#7-dependencies)
+8. [Setup and Installation](#8-setup-and-installation)
+9. [Usage](#9-usage)
+10. [Configuration](#10-configuration)
+11. [Error Handling and Logging](#11-error-handling-and-logging)
+12. [Possible Improvements](#12-possible-improvements)
+13. [Summary](#13-summary)
+
+---
+
+## 1. Project Overview
+
+### What is MeetRec?
+
+MeetRec is a **self-hosted meeting transcription platform** designed for organizations that need to automatically transcribe, store, and search audio recordings of meetings (e.g., local government sessions, board meetings, town halls).
+
+### What problem does it solve?
+
+Organizations often generate large volumes of meeting recordings that are impossible to search through manually. MeetRec automates the full pipeline:
+
+- **Ingest** audio files automatically (drop-folder model) or via API upload
+- **Validate** files for format, size, duration, and integrity
+- **Transcribe** speech to text using OpenAI Whisper (local, no cloud dependency)
+- **Store** transcripts with per-sentence timestamps for audio synchronization
+- **Search** across all transcripts using PostgreSQL full-text search
+- **Audit** every access, view, search, and export for legal compliance
+
+### Main Functionality
+
+| Feature | Description |
+|---|---|
+| Automatic file ingestion | Drop an audio file into `/data/inbox` — it's processed automatically |
+| API upload | Upload via `POST /api/v1/recordings/{id}/upload` |
+| Speech-to-text | OpenAI Whisper (medium model, ~85% accuracy on Romanian) |
+| Full-text search | PostgreSQL TSVECTOR + GIN index, returns snippets with highlighted terms |
+| Transcript segments | Each sentence stored with `start_time` / `end_time` for audio sync |
+| Language detection | Automatic detection from the first 30 seconds of audio |
+| Diacritics correction | Post-processor normalizes Romanian diacritics (cedilla → comma-below) |
+| Audit log | Every action (upload, view, search, delete, export) is recorded |
+| Export | PDF, DOCX, TXT (via ReportLab and python-docx) |
+| Retention policy | Configurable auto-deletion after N days |
+| JWT authentication | HS256 JWT tokens, bcrypt password hashing |
+| Monitoring | Grafana + Loki + Promtail centralized logging stack |
+
+---
+
+## 2. Architecture Overview
+
+MeetRec is a **microservices system** orchestrated with Docker Compose. The three core Python services communicate through a PostgreSQL database and a Redis queue.
 
 ```
-                        ┌─────────────────────────────────┐
-Fișier audio            │          BACKEND NETWORK         │
-  ↓ (NFS/local)         │                                  │
-┌──────────┐  LPUSH  ┌──────────┐  asyncpg  ┌───────────┐ │
-│  Ingest  │────────▶│  Redis   │           │ PostgreSQL │ │
-│  (M2)    │         │  Queue   │           │    (DB)    │ │
-└──────────┘         └──────────┘           └───────────┘ │
-                          │ BRPOP                 ↑        │
-                     ┌────▼─────┐           asyncpg │      │
-                     │  STT     │─────────────────  │      │
-                     │  Worker  │  Whisper medium    │      │
-                     │  (M4)    │                   │      │
-                     └──────────┘                   │      │
-                                                    │      │
-                     ┌──────────┐  SQLAlchemy        │      │
-                     │  API     │───────────────────┘      │
-                     │  (M3)    │ :8080                    │
-                     └──────────┘                         │
-                          ↑                               │
-                     ┌────┴────┐     ┌──────────────────┐ │
-                     │  Nginx  │     │  Grafana + Loki   │ │
-                     │  :443   │     │  (monitoring)     │ │
-                     └─────────┘     └──────────────────┘ │
-                          ↑                               └─
-                     ┌────┴────┐
-                     │Frontend │  (în lucru)
-                     │  React  │
-                     └─────────┘
+                        ┌─────────────────────────────────────┐
+                        │          Docker Network              │
+                        │                                      │
+ Audio File             │  ┌─────────┐   LPUSH   ┌──────────┐ │
+  (inbox)  ──────────▶  │  │  Ingest │──────────▶│  Redis   │ │
+                        │  │ Service │           │  Queue   │ │
+                        │  └────┬────┘           └────┬─────┘ │
+                        │       │                     │BRPOP  │
+                        │       │ INSERT              ▼       │
+                        │       │         ┌───────────────┐   │
+                        │  ┌────▼─────┐   │  STT Worker   │   │
+  REST Client ────────▶ │  │PostgreSQL│◀──│  (Whisper)    │   │
+   (Browser / API)      │  │   DB     │   └───────────────┘   │
+         ▲              │  └────▲─────┘                       │
+         │              │       │                             │
+         │              │  ┌────┴─────┐                       │
+         └──────────────│──│   API    │                       │
+          (via Nginx)   │  │ FastAPI  │                       │
+                        │  └──────────┘                       │
+                        │                                      │
+                        │  ┌──────────────────────────────┐   │
+                        │  │  Grafana + Loki + Promtail   │   │
+                        │  └──────────────────────────────┘   │
+                        └─────────────────────────────────────┘
+```
+
+### Component Roles
+
+| Component | Technology | Role |
+|---|---|---|
+| **API Service** | FastAPI + SQLAlchemy | REST API, business logic, JWT auth, audit |
+| **Ingest Service** | watchdog + asyncpg | File system watcher, validator, queue publisher |
+| **STT Worker** | OpenAI Whisper + asyncpg | Speech-to-text transcription engine |
+| **PostgreSQL** | postgres:15-alpine | Primary data store (recordings, transcripts, audit) |
+| **Redis** | redis:7-alpine | FIFO job queue between Ingest and STT Worker |
+| **Nginx** | nginx:1.25-alpine | Reverse proxy, HTTPS termination, rate limiting |
+| **Frontend** | React (not explored) | Web UI |
+| **Audit-Retention** | Python service | Scheduled cleanup of expired recordings |
+| **Grafana / Loki / Promtail** | Grafana stack | Log aggregation and dashboards |
+
+### Data Flow
+
+```
+1. Audio file appears in /data/inbox/
+       │
+       ▼
+2. Ingest Service detects file (inotify)
+   ├── Validates: format, size, duration, SHA256 hash
+   ├── Checks for duplicate (by hash in DB)
+   ├── Moves to /data/processed/YYYY/MM/DD/{uuid}.ext
+   ├── Creates rows in: recordings + transcripts (status=pending)
+   └── Publishes job to Redis queue (LPUSH)
+       │
+       ▼
+3. STT Worker picks up job (BRPOP)
+   ├── Marks transcript → "processing"
+   ├── Detects language (first 30s via Whisper)
+   ├── Transcribes entire file (Whisper medium model)
+   ├── Post-processes: fixes diacritics, normalizes whitespace
+   └── Saves results to DB: bulk INSERT transcript_segments
+       │                     UPDATE transcripts → "completed"
+       │                     UPDATE recordings  → "completed"
+       ▼
+4. API serves results
+   ├── GET /api/v1/recordings/{id}
+   ├── GET /api/v1/transcripts/recording/{id}
+   └── GET /api/v1/search?q=buget+2024
 ```
 
 ---
 
-## Status Implementare
+## 3. Project Structure
 
-| Modul | Serviciu | Status | Teste |
-|-------|---------|--------|-------|
-| M1 | Infrastructură (DB schema, docker-compose) | ✅ complet | — |
-| M2 | Ingest (file watcher, validator, Redis publisher) | ✅ complet | ✅ 38 teste |
-| M3 | REST API (FastAPI, SQLAlchemy, CRUD, FTS) | ✅ complet | ✅ 24 teste |
-| M4 | STT Worker (Whisper, asyncpg, consumer loop) | ✅ complet | ✅ 78 teste |
-| M5 | Search Indexer | 🔲 neimplementat | — |
-| M6 | Audit & Retention | 🔲 neimplementat | — |
-| M7 | Frontend React | 🔲 neimplementat | — |
-| M8 | Nginx + HTTPS | 🔲 lipsă configurare | — |
-
-**Pipeline funcțional end-to-end:** audio → ingest → Redis → STT Worker → PostgreSQL → API REST
+```
+MeetRec/
+│
+├── docker-compose.yml          # Orchestrates all 10+ containers
+├── .env.example                # Environment variable template
+├── Makefile                    # Convenience commands (make start, make logs)
+│
+├── database/
+│   ├── init.sql                # Full PostgreSQL schema with ENUMs, indexes, triggers
+│   └── migrations/             # Placeholder for future Alembic migrations
+│
+├── services/
+│   │
+│   ├── api/                    # FastAPI REST backend
+│   │   ├── Dockerfile
+│   │   ├── requirements.txt
+│   │   └── src/
+│   │       ├── main.py         # App entry, lifespan, CORS, global error handler
+│   │       ├── config.py       # Pydantic Settings (reads from .env)
+│   │       ├── database.py     # SQLAlchemy async engine + session dependency
+│   │       ├── models/
+│   │       │   ├── base.py         # SQLAlchemy declarative Base
+│   │       │   ├── recording.py    # Recording ORM model + enums
+│   │       │   ├── transcript.py   # Transcript + TranscriptSegment ORM models
+│   │       │   └── audit_log.py    # AuditLog + User ORM models
+│   │       ├── routers/
+│   │       │   ├── recordings.py   # CRUD endpoints: /api/v1/recordings
+│   │       │   ├── transcript.py   # /api/v1/transcripts/recording/{id}
+│   │       │   └── search.py       # /api/v1/search?q=...
+│   │       ├── schemas/
+│   │       │   └── recording.py    # All Pydantic request/response schemas
+│   │       ├── services/
+│   │       │   ├── recording_service.py  # Recording CRUD business logic
+│   │       │   ├── transcript_service.py # Transcript retrieval + retry
+│   │       │   └── search_service.py     # PostgreSQL FTS query logic
+│   │       └── middleware/
+│   │           ├── audit.py        # log_audit() helper function
+│   │           └── auth.py         # JWT encode/decode, get_current_user dependency
+│   │
+│   ├── ingest/                 # File watcher and ingest pipeline
+│   │   ├── Dockerfile
+│   │   ├── requirements.txt
+│   │   └── src/
+│   │       ├── main.py         # Entry point: startup, signal handlers, shutdown
+│   │       ├── config.py       # Pydantic Settings for ingest
+│   │       ├── logger.py       # structlog setup
+│   │       ├── watcher.py      # InboxWatcher + AudioFileHandler (watchdog)
+│   │       ├── processor.py    # FileProcessor: orchestrates validate→store→db→publish
+│   │       ├── validator.py    # AudioValidator: format, size, hash, mutagen metadata
+│   │       ├── storage.py      # StorageManager: date-organized file placement
+│   │       ├── publisher.py    # JobPublisher: LPUSH to Redis with retry
+│   │       └── database.py     # DatabaseClient: asyncpg connection + recording insert
+│   │
+│   └── stt-worker/             # Whisper speech-to-text worker
+│       ├── Dockerfile
+│       ├── requirements.txt
+│       └── src/
+│           ├── main.py             # Entry point: load model, start consumer, SIGTERM
+│           ├── config.py           # Pydantic Settings for stt-worker
+│           ├── consumer.py         # JobConsumer: BRPOP loop, pipeline orchestration
+│           ├── transcriber.py      # WhisperTranscriber: load model, transcribe (thread pool)
+│           ├── language_detector.py# LanguageDetector: detect language from first 30s
+│           ├── postprocessor.py    # PostProcessor: fix diacritics, normalize whitespace
+│           └── uploader.py         # DatabaseUploader: asyncpg bulk insert results
+│
+├── monitoring/
+│   ├── loki/loki-config.yaml       # Loki log aggregator config
+│   └── promtail/promtail-config.yaml # Promtail log shipper config
+│
+├── nginx/                      # Nginx reverse proxy config (referenced, not shown)
+├── frontend/                   # React frontend (referenced, not explored)
+└── data/
+    └── inbox/                  # Drop-folder for audio files (mounted as volume)
+```
 
 ---
 
-## Cerințe preliminare
+## 4. Key Modules Explanation
 
-- **Docker Desktop** ≥ 24.0 (cu Compose v2)
-- **RAM:** minim 6 GB liberi (4 GB pentru modelul Whisper medium + overhead)
-- **Spațiu disc:** ~5 GB pentru imaginea stt-worker + ~1.5 GB pentru modelul Whisper
-- **CPU:** orice x86-64 modern (transcriere ~2-4× timp real pe CPU)
+### 4.1 API Service — `services/api/src/`
+
+The API is the **central hub** for all client interactions and for managing state transitions of recordings.
+
+| Module | Purpose | Interacts With |
+|---|---|---|
+| `main.py` | FastAPI app factory, middleware, lifecycle | All routers |
+| `config.py` | Typed settings from environment | All modules |
+| `database.py` | Async SQLAlchemy engine, `get_db()` dependency | Services, routers |
+| `models/` | ORM models (Recording, Transcript, AuditLog, User) | Services, DB |
+| `schemas/` | Pydantic schemas for request/response validation | Routers |
+| `routers/` | HTTP route handlers (thin layer, delegates to services) | Services, middleware |
+| `services/` | Business logic (query building, file handling, Redis publish) | Models, Redis, filesystem |
+| `middleware/audit.py` | Writes audit log entries via the current DB session | AuditLog model |
+| `middleware/auth.py` | JWT generation/validation, user lookup, bcrypt hashing | User model |
+
+### 4.2 Ingest Service — `services/ingest/src/`
+
+A **background daemon** that watches `/data/inbox/` and triggers the full ingestion pipeline for any new audio file found.
+
+| Module | Purpose |
+|---|---|
+| `main.py` | Async entry point; wires components, registers SIGTERM/SIGINT handlers |
+| `watcher.py` | `InboxWatcher` wraps watchdog `Observer`; `AudioFileHandler` handles `on_created` / `on_moved` events. Waits for file stability before processing. |
+| `processor.py` | `FileProcessor` — Facade pattern. Calls validator → storage → database → publisher in sequence with rollback on failure |
+| `validator.py` | `AudioValidator` — validates extension, size, hash, duration using `mutagen` |
+| `storage.py` | `StorageManager` — moves files to `/data/processed/YYYY/MM/DD/{uuid}.ext` |
+| `publisher.py` | `JobPublisher` — serializes `TranscriptionJob` to JSON and `LPUSH`es to Redis with exponential-backoff retry |
+| `database.py` | `DatabaseClient` — asyncpg-based; creates recording + transcript rows; checks duplicate by SHA256 hash |
+
+### 4.3 STT Worker — `services/stt-worker/src/`
+
+A **background worker** that consumes transcription jobs from Redis, runs Whisper inference in a thread pool, and writes results to PostgreSQL.
+
+| Module | Purpose |
+|---|---|
+| `main.py` | Startup: connect DB → load model → start consumer. Handles SIGTERM gracefully |
+| `consumer.py` | `JobConsumer` — BRPOP loop; orchestrates the 7-step pipeline per job |
+| `transcriber.py` | `WhisperTranscriber` — wraps Whisper in `run_in_executor` to avoid blocking the async event loop |
+| `language_detector.py` | `LanguageDetector` — uses the already-loaded Whisper model to detect language from the first 30 seconds |
+| `postprocessor.py` | `PostProcessor` — fixes Romanian diacritics (cedilla→comma-below), normalizes whitespace |
+| `uploader.py` | `DatabaseUploader` — asyncpg bulk INSERT for segments + UPDATE for transcript/recording status |
+| `config.py` | Pydantic Settings; validates that `audio_storage_path` exists (read-only mount) |
 
 ---
 
-## Setup la primul start
+## 5. Important Classes and Functions
 
-### 1. Clonare și configurare
+### `RecordingService` (`services/api/src/services/recording_service.py`)
 
+Central business logic for recordings. The router calls this; it never touches HTTP directly.
+
+| Method | Description |
+|---|---|
+| `list_recordings()` | Paginated, filterable, sortable query using SQLAlchemy ORM. Counts before slicing. |
+| `get_by_id()` | Fetches one recording; SQLAlchemy auto-loads the related transcript via `lazy="selectin"` |
+| `create()` | Creates a `Recording` row and an associated `Transcript` row (status=pending) in one flush |
+| `process_upload()` | Reads uploaded file bytes, computes SHA256, saves to disk, updates recording, publishes Redis job |
+| `update()` | PATCH semantics: `model_dump(exclude_unset=True)` applies only the provided fields |
+| `delete()` | Removes the physical file from disk + the DB row (CASCADE removes transcript + segments) |
+| `_publish_job()` | Opens an async Redis connection, `LPUSH`es the job JSON, closes connection |
+
+### `FileProcessor` (`services/ingest/src/processor.py`)
+
+**Facade** that wires together four injected dependencies.
+
+```
+process(file_path)
+  ├── Step 1: validator.validate(file_path)         → ValidationResult
+  ├── Step 2: database.check_duplicate(hash)        → existing_id or None
+  ├── Step 3: storage.store_file(metadata)          → stored_path
+  ├── Step 4: database.create_recording(metadata)   → recording_id
+  └── Step 5: publisher.publish_transcription_job() → bool
+```
+
+Errors in step 3 return `False` and leave the inbox file untouched. Errors in step 5 leave the recording in DB with status `queued` for a future retry — the file is not rolled back.
+
+### `JobConsumer` (`services/stt-worker/src/consumer.py`)
+
+Implements the main worker loop. Uses `redis.asyncio` (non-blocking `BRPOP`) so the asyncio event loop stays free while waiting for jobs.
+
+**Per-job pipeline:**
+```
+_process_job(job)
+  ├── Step 1: get_transcript_id(recording_id)
+  ├── Step 2: mark_processing(transcript_id)           → DB status = 'processing'
+  ├── Step 3: detector.detect(file_path)               → language code ("ro")
+  ├── Step 4: transcriber.transcribe(file_path, lang)  → List[TranscriptSegment]
+  ├── Step 5: postprocessor.process(segments)          → List[TranscriptSegment]
+  ├── Step 6: _compute_metadata(segments)              → TranscriptMetadata
+  └── Step 7: uploader.save_results(...)               → DB status = 'completed'
+```
+
+On any exception: `mark_failed()` is called with the error message. The worker **does not crash** — it continues to the next job.
+
+### `WhisperTranscriber` (`services/stt-worker/src/transcriber.py`)
+
+Wraps the synchronous Whisper library to be safe in an async context.
+
+- **`load_model()`** — calls `whisper.load_model()` via `run_in_executor()` (blocking, 5–30 s)
+- **`transcribe()`** — calls `_run_whisper_sync()` via `run_in_executor()` (blocking, minutes)
+- **`_convert_segment()`** — converts Whisper's raw dict to `TranscriptSegment`; converts `avg_logprob` (log-probability) to a linear confidence score `[0.0, 1.0]` clamped for the `DECIMAL(4,3)` DB column
+
+### `AudioValidator` (`services/ingest/src/validator.py`)
+
+Applies "cheapest check first" strategy:
+
+1. File exists and is a regular file
+2. Extension is in the allowed set
+3. File size is between 1 byte and 500 MB
+4. SHA256 hash computed (streaming, 8 MB chunks — memory-efficient for large files)
+5. `mutagen.File()` reads audio headers — extracts duration, sample rate, channels, bitrate
+6. Duration must be between 5 seconds and 12 hours
+
+### `SearchService` (`services/api/src/services/search_service.py`)
+
+Executes a raw SQL query against the PostgreSQL full-text search index:
+
+- Uses `plainto_tsquery('romanian', :query)` — accepts natural language (no operator syntax required)
+- Ranks results by `ts_rank` (relevance score)
+- Returns `ts_headline` — a text snippet with the matched term wrapped in `<b>...</b>`
+- Filters on `transcripts.status = 'completed'` and `search_vector @@ tsquery`
+
+### `log_audit()` (`services/api/src/middleware/audit.py`)
+
+A simple async function called explicitly in each router after important operations. Extracts the real client IP from `X-Real-IP` / `X-Forwarded-For` headers (Nginx sets these). The audit log entry is added to the **same DB session** so it's committed atomically with the business operation.
+
+### `DatabaseUploader.save_results()` (`services/stt-worker/src/uploader.py`)
+
+Uses `asyncpg.executemany()` for bulk INSERT of transcript segments — typically 60× faster than individual `execute()` calls. All three operations (INSERT segments, UPDATE transcript, UPDATE recording) happen inside a single transaction. Uses `ON CONFLICT DO NOTHING` for idempotency (safe to retry if the worker crashes mid-save).
+
+---
+
+## 6. Data Structures
+
+### Database Schema
+
+```
+recordings (1)──────────────────(1) transcripts (1)────────(N) transcript_segments
+     │                                    │
+     │                                    └── search_vector TSVECTOR
+     └── status: uploaded → validating → queued → transcribing → completed / failed
+```
+
+### `AudioMetadata` (Python dataclass — Ingest Service)
+
+```python
+@dataclass
+class AudioMetadata:
+    filename: str
+    file_path: Path
+    file_size_bytes: int
+    file_hash_sha256: str       # 64-char hex string
+    audio_format: str           # "mp3", "wav", etc.
+    duration_seconds: int
+    sample_rate_hz: Optional[int]
+    channels: Optional[int]
+    bitrate_kbps: Optional[int]
+```
+
+Produced by `AudioValidator.validate()` and passed through the entire ingest pipeline (to `StorageManager`, `DatabaseClient`, `JobPublisher`).
+
+### `TranscriptSegment` (Python dataclass — STT Worker)
+
+```python
+@dataclass
+class TranscriptSegment:
+    segment_index: int       # 0-based order
+    start_time: float        # seconds from start of audio, e.g. 12.500
+    end_time: float          # e.g. 17.320
+    text: str                # "Bună ziua, doamnă primar."
+    confidence: float        # 0.0–1.0 (from Whisper avg_logprob)
+    language: str            # "ro", "en", etc.
+```
+
+### `TranscriptionJob` (published to Redis)
+
+```json
+{
+  "recording_id": "a1b2c3d4-...",
+  "file_path": "/data/processed/2024/01/15/a1b2c3d4.mp3",
+  "audio_format": "mp3",
+  "duration_seconds": 3600,
+  "language_hint": "ro",
+  "priority": 0,
+  "created_at": "2024-01-15T10:00:00+00:00",
+  "estimated_processing_time_minutes": 120
+}
+```
+
+### Status Enumerations
+
+**Recording Status** (linear progression):
+```
+uploaded → validating → queued → transcribing → completed
+                                              → failed
+                                              → archived
+```
+
+**Transcript Status:**
+```
+pending → processing → completed
+                    → failed
+                    → cancelled
+```
+
+### Response Schemas (Pydantic)
+
+| Schema | Used for |
+|---|---|
+| `RecordingCreate` | `POST /recordings` — validates title, meeting_date (not future), participants |
+| `RecordingUpdate` | `PATCH /recordings/{id}` — all fields optional (PATCH semantics) |
+| `RecordingResponse` | Full recording detail. Excludes `file_path` (security) |
+| `RecordingListItem` | Compact list item with transcript status |
+| `PaginatedRecordings` | Wraps list + total + page + pages |
+| `TranscriptResponse` | Full transcript with `List[SegmentResponse]` and `full_text` |
+| `SearchResult` | One hit: timestamps, text snippet, `headline` with `<b>` tags, `rank` |
+| `SearchResponse` | Wraps results + `total_results` + `search_time_ms` |
+| `UploadResponse` | Returned on `POST /{id}/upload` — includes estimated processing time |
+
+---
+
+## 7. Dependencies
+
+### API Service
+
+| Library | Version | Purpose |
+|---|---|---|
+| `fastapi` | 0.111.0 | Async REST framework with automatic OpenAPI docs |
+| `uvicorn[standard]` | 0.29.0 | ASGI server; `standard` adds hot-reload support |
+| `pydantic` | 2.7.1 | Data validation and serialization |
+| `pydantic-settings` | 2.2.1 | Loads `Settings` from `.env` and environment variables |
+| `sqlalchemy` | 2.0.30 | Async ORM (declarative, typed with `Mapped[]`) |
+| `asyncpg` | 0.29.0 | Fast async PostgreSQL driver |
+| `alembic` | 1.13.1 | Database migrations (not yet used in production) |
+| `python-jose[cryptography]` | 3.3.0 | JWT token generation and verification (HS256) |
+| `passlib[bcrypt]` | 1.7.4 | Password hashing with bcrypt |
+| `redis` | 5.0.4 | Async Redis client (for publishing transcription jobs) |
+| `python-multipart` | 0.0.9 | Enables file upload parsing in FastAPI |
+| `aiofiles` | 23.2.1 | Async file I/O |
+| `reportlab` | 4.1.0 | PDF generation for transcript export |
+| `python-docx` | 1.1.0 | DOCX generation for transcript export |
+| `structlog` | 24.2.0 | Structured JSON logging |
+| `tenacity` | 8.3.0 | Retry decorator with exponential backoff |
+| `httpx` | 0.27.0 | Async HTTP client for inter-service calls |
+
+### Ingest Service
+
+| Library | Version | Purpose |
+|---|---|---|
+| `watchdog` | 3.0.0 | OS-native file system event monitoring (inotify on Linux) |
+| `mutagen` | 1.47.0 | Audio metadata extraction (format, duration, sample rate) without full decoding |
+| `pydub` | 0.25.1 | Additional audio file validation (wraps ffmpeg) |
+| `asyncpg` | 0.29.0 | Async PostgreSQL driver |
+| `redis` | 5.0.1 | Redis client for LPUSH |
+| `tenacity` | 8.2.3 | Retry for Redis publish |
+| `structlog` | 24.1.0 | JSON logging |
+
+### STT Worker
+
+| Library | Version | Purpose |
+|---|---|---|
+| `openai-whisper` | latest | Core STT engine — multilingual transformer model |
+| `numpy` | <2.0 | Required by PyTorch/Whisper (numpy 2.x incompatible with torch 2.1.0) |
+| `torch` | 2.1.0+cpu | Deep learning runtime (CPU-only build for servers without GPU) |
+| `asyncpg` | 0.29.0 | Async PostgreSQL for bulk INSERT of segments |
+| `redis` | 5.0.1 | Async Redis client (`redis.asyncio`) for BRPOP |
+| `structlog` | 24.1.0 | JSON logging |
+| `tenacity` | 8.2.3 | Retry for connection resilience |
+
+---
+
+## 8. Setup and Installation
+
+### Prerequisites
+
+- Docker ≥ 24.0
+- Docker Compose v2 (`docker compose` command)
+- 6 GB free disk space (Whisper medium model: ~1.5 GB, Docker images: ~3-5 GB)
+- 6 GB RAM minimum (Whisper medium needs ~5 GB during transcription)
+
+### Step-by-step Installation
+
+**1. Clone the repository**
 ```bash
-git clone https://github.com/StefanJoita/MeetRec.git
-cd MeetRec/meeting-transcriber
+git clone <repository-url>
+cd MeetRec
+```
 
-# Creează fișierul de configurare (nu se commitează în Git!)
+**2. Create environment file**
+```bash
 cp .env.example .env
 ```
 
-Editează `.env` și schimbă obligatoriu:
-```bash
-JWT_SECRET_KEY=<string-random-minim-32-caractere>
-POSTGRES_PASSWORD=<parola-ta-sigura>
-# Actualizează și în DATABASE_URL cu aceeași parolă:
-DATABASE_URL=postgresql+asyncpg://mt_user:<parola-ta>@postgres:5432/meeting_transcriber
-```
-
-### 2. Pornire servicii (subset funcțional)
-
-> **Notă:** La primul start, `stt-worker` descarcă ~1.5 GB modelul Whisper medium.
-> Așteptați mesajul `model_loaded` în log-uri înainte să trimiteți audio.
+**3. Edit `.env` with your values** (see [Section 10](#10-configuration))
 
 ```bash
-# Pornire infrastructură + servicii implementate
-docker compose up -d postgres redis api ingest stt-worker
+# Required — set a strong secret
+JWT_SECRET_KEY=your-very-secret-key-at-least-32-chars
 
-# Urmărire log-uri (Ctrl+C pentru a ieși, serviciile rămân pornite)
-docker compose logs -f
+# Required — PostgreSQL credentials
+POSTGRES_USER=meetrec
+POSTGRES_PASSWORD=strongpassword123
+POSTGRES_DB=meetrec_db
+DATABASE_URL=postgresql+asyncpg://meetrec:strongpassword123@postgres:5432/meetrec_db
 ```
 
-### 3. Verificare startup
+**4. Create the inbox directory**
+```bash
+mkdir -p data/inbox
+```
 
+**5. Build and start all services**
+```bash
+docker compose up --build -d
+```
+
+This will:
+- Build Docker images for `api`, `ingest`, `stt-worker`
+- Pull images for PostgreSQL, Redis, Nginx, Grafana, Loki, Promtail
+- Run `database/init.sql` to create the schema (first start only)
+- Download the Whisper medium model (~1.5 GB) on first STT Worker startup
+
+**6. Verify services are healthy**
 ```bash
 docker compose ps
-# Toate serviciile trebuie să fie "healthy" sau "running"
+# All services should show "healthy" or "running"
 
 curl http://localhost:8080/health
-# → {"status":"healthy","service":"meeting-transcriber-api","version":"1.0.0"}
+# {"status":"healthy","service":"meeting-transcriber-api","version":"1.0.0","environment":"development"}
+```
+
+**7. Open API documentation** (development mode only)
+```
+http://localhost:8080/docs
 ```
 
 ---
 
-## Testare manuală end-to-end
+## 9. Usage
 
-### Pas 1 — Verificare infrastructură
+### Automatic Ingestion (Drop-Folder)
+
+Simply copy a supported audio file into the inbox directory:
 
 ```bash
-# PostgreSQL: verifică că schema e creată
-docker compose exec postgres psql -U mt_user -d meeting_transcriber -c "\dt"
-# → 5 tabele: recordings, transcripts, transcript_segments, audit_logs, users
-
-# Redis: verifică conectivitatea
-docker compose exec redis redis-cli PING
-# → PONG
-
-# API Swagger UI (doar în APP_ENV=development)
-# Browser: http://localhost:8080/docs
+cp /path/to/meeting.mp3 data/inbox/
 ```
 
-### Pas 2 — Trimite un fișier audio
-
-Copiază orice fișier `.mp3`, `.wav`, `.m4a`, `.ogg` sau `.flac` în inbox:
+The Ingest Service detects the file within seconds, validates it, moves it to `/data/processed/`, creates DB records, and dispatches a transcription job. Monitor progress:
 
 ```bash
-# Opțiunea A: docker compose cp
-docker compose cp sedinta.mp3 mt-ingest:/data/inbox/sedinta.mp3
-
-# Opțiunea B: copiez direct în directorul montat (dacă data/inbox/ e vizibil pe host)
-cp sedinta.mp3 ./data/inbox/
+docker compose logs -f ingest stt-worker
 ```
 
-Urmărești log-urile ingest:
+### REST API
+
+All endpoints are prefixed with `/api/v1`.
+
+**Create a recording (metadata only):**
 ```bash
-docker compose logs -f ingest
-# → file_detected  path=sedinta.mp3
-# → audio_validated  duration=3612s  format=mp3
-# → recording_created  recording_id=uuid...
-# → job_published  queue=transcription_jobs
+curl -X POST http://localhost:8080/api/v1/recordings/ \
+  -H "Content-Type: application/json" \
+  -d '{
+    "title": "City Council Meeting — January 15 2024",
+    "meeting_date": "2024-01-15",
+    "location": "Main Hall",
+    "participants": ["Ion Ionescu", "Maria Pop"]
+  }'
 ```
 
-### Pas 3 — Verifică că recording-ul a apărut în API
-
+**Upload audio file:**
 ```bash
-curl http://localhost:8080/api/v1/recordings | python -m json.tool
-# → {"items":[{"id":"<uuid>","filename":"sedinta.mp3","status":"queued",...}]}
-
-# Salvează ID-ul pentru pașii următori
-RECORDING_ID="<uuid-din-raspuns>"
+curl -X POST http://localhost:8080/api/v1/recordings/{id}/upload \
+  -F "file=@/path/to/meeting.mp3"
 ```
 
-### Pas 4 — Urmărești transcriere (STT Worker)
-
+**List recordings:**
 ```bash
-docker compose logs -f stt-worker
-# → job_received  recording_id=...
-# → mark_processing  model=whisper-medium
-# → language_detected  lang=ro
-# → transcribing  file=sedinta.mp3
-# → save_results  segments=287  word_count=4312
-# (durează 1-30 min în funcție de lungimea audio)
+# With pagination and status filter
+curl "http://localhost:8080/api/v1/recordings/?page=1&page_size=20&status=completed"
 
-# Verifică statusul din API
-curl http://localhost:8080/api/v1/recordings/$RECORDING_ID | python -m json.tool
-# status progresează: queued → transcribing → completed
+# Search by title
+curl "http://localhost:8080/api/v1/recordings/?search=council"
 ```
 
-### Pas 5 — Citește transcrierea
-
+**Get recording details:**
 ```bash
-curl http://localhost:8080/api/v1/transcripts/$RECORDING_ID | python -m json.tool
-# → {
-#     "id": "...",
-#     "status": "completed",
-#     "word_count": 4312,
-#     "segments": [
-#       {"segment_index": 0, "start_time": 0.0, "end_time": 4.8,
-#        "text": "Ședința ordinară a consiliului local...", "confidence": 0.91},
-#       ...
-#     ]
-#   }
+curl http://localhost:8080/api/v1/recordings/{id}
 ```
 
-### Pas 6 — Căutare full-text
-
+**Get transcript with segments:**
 ```bash
-curl "http://localhost:8080/api/v1/search?q=buget" | python -m json.tool
-# → {"results":[{"recording_id":"...","headline":"...aprobarea <b>bugetului</b>...",
-#                "rank":0.75,"matched_at":"2024-03-15T10:30:00"}]}
-
-# Cu mai mulți termeni
-curl "http://localhost:8080/api/v1/search?q=buget+infrastructura&limit=5"
+curl http://localhost:8080/api/v1/transcripts/recording/{id}
 ```
 
-### Pas 7 — Test caz de eroare (fișier invalid)
+**Full-text search:**
+```bash
+curl "http://localhost:8080/api/v1/search?q=buget+2024"
+curl "http://localhost:8080/api/v1/search?q=vote&language=en&limit=10"
+```
+
+**Retry failed transcription:**
+```bash
+curl -X POST http://localhost:8080/api/v1/transcripts/recording/{id}/retry
+```
+
+**Update recording metadata:**
+```bash
+curl -X PATCH http://localhost:8080/api/v1/recordings/{id} \
+  -H "Content-Type: application/json" \
+  -d '{"title": "Updated Title"}'
+```
+
+**Delete a recording:**
+```bash
+curl -X DELETE http://localhost:8080/api/v1/recordings/{id}
+# Returns 204 No Content on success
+```
+
+### Monitoring
 
 ```bash
-echo "acesta nu este audio" > fals.mp3
-docker compose cp fals.mp3 mt-ingest:/data/inbox/fals.mp3
+# View real-time logs
+docker compose logs -f
 
-docker compose logs ingest --tail=10
-# → validation_failed  reason=INVALID_AUDIO  file=fals.mp3
+# Access Grafana dashboards
+open http://localhost:3000
+# Default credentials: admin / (value of GRAFANA_ADMIN_PASSWORD in .env)
 ```
 
 ---
 
-## API Reference
+## 10. Configuration
 
-Documentație interactivă Swagger: **http://localhost:8080/docs**
+All configuration is managed through environment variables loaded from a `.env` file. The Pydantic `Settings` classes in each service validate types at startup — if a required variable is missing, the service **refuses to start** with a clear error message.
 
-| Endpoint | Metodă | Descriere |
-|----------|--------|-----------|
-| `/health` | GET | Status serviciu |
-| `/api/v1/recordings` | GET | Listă înregistrări (paginat) |
-| `/api/v1/recordings/{id}` | GET | Detalii înregistrare |
-| `/api/v1/recordings/{id}` | DELETE | Șterge înregistrare |
-| `/api/v1/recordings/{id}` | PATCH | Actualizează metadate |
-| `/api/v1/transcripts/{recording_id}` | GET | Transcript cu segmente |
-| `/api/v1/transcripts/{recording_id}/retry` | POST | Re-trimite la transcriere |
-| `/api/v1/search` | GET | Căutare full-text (`?q=termen`) |
+### Core Variables (`.env`)
+
+| Variable | Default | Required | Description |
+|---|---|---|---|
+| `DATABASE_URL` | — | ✅ | PostgreSQL connection string. Format: `postgresql+asyncpg://user:pass@host:port/db` |
+| `POSTGRES_USER` | — | ✅ | PostgreSQL username (used by the postgres container) |
+| `POSTGRES_PASSWORD` | — | ✅ | PostgreSQL password |
+| `POSTGRES_DB` | — | ✅ | PostgreSQL database name |
+| `JWT_SECRET_KEY` | — | ✅ | HS256 signing key (min. 32 chars recommended) |
+| `REDIS_URL` | `redis://redis:6379` | | Redis connection URL |
+| `REDIS_TRANSCRIPTION_QUEUE` | `transcription_jobs` | | Redis list name for the job queue |
+| `APP_ENV` | `development` | | `development` enables `/docs`, permissive CORS |
+| `LOG_LEVEL` | `INFO` | | Logging verbosity: `DEBUG`, `INFO`, `WARNING`, `ERROR` |
+
+### Storage Variables
+
+| Variable | Default | Description |
+|---|---|---|
+| `INBOX_PATH` | `/data/inbox` | Directory watched by Ingest Service |
+| `AUDIO_STORAGE_PATH` | `/data/processed` | Organized storage for validated audio files |
+| `EXPORT_PATH` | `/data/exports` | Output directory for PDF/DOCX exports |
+| `MAX_FILE_SIZE_BYTES` | `524288000` | 500 MB upload limit |
+
+### Auth Variables
+
+| Variable | Default | Description |
+|---|---|---|
+| `JWT_ALGORITHM` | `HS256` | JWT signing algorithm |
+| `JWT_EXPIRE_MINUTES` | `480` | Token lifetime (8 hours) |
+
+### Whisper Variables
+
+| Variable | Default | Description |
+|---|---|---|
+| `WHISPER_MODEL` | `medium` | Model size: `tiny`, `base`, `small`, `medium`, `large` |
+| `WHISPER_PRIMARY_LANGUAGE` | `ro` | Default language hint passed to Whisper |
+| `WHISPER_MODEL_PATH` | `/app/models` | Persistent directory for cached model files |
+
+### Retention Variables
+
+| Variable | Default | Description |
+|---|---|---|
+| `RETENTION_DAYS` | `1095` | 3 years — how long to keep recordings |
+| `AUDIT_LOG_RETENTION_DAYS` | (service default) | How long to keep audit log entries |
+
+### Grafana
+
+| Variable | Default | Description |
+|---|---|---|
+| `GRAFANA_ADMIN_PASSWORD` | — | Admin password for Grafana UI |
+| `GRAFANA_PORT` | `3000` | Host port for Grafana |
+| `NGINX_HTTPS_PORT` | `443` | Host port for Nginx HTTPS |
 
 ---
 
-## Rulare teste unitare
+## 11. Error Handling and Logging
 
-```bash
-# M2 — Ingest
-cd services/ingest && pip install -r requirements.txt && pytest tests/ -v
+### Error Handling Strategy
 
-# M3 — API
-cd services/api && pip install -r requirements.txt && pytest tests/ -v
+**Ingest Service:**
+- Files that fail validation are moved to `/data/inbox/errors/` for manual inspection (not deleted)
+- Duplicate files (same SHA256 hash) are silently deleted from inbox
+- If storage fails (step 3), the function returns `False` and leaves the inbox file in place
+- If DB fails (step 4), the stored file is deleted (manual rollback) to maintain consistency
+- If Redis publish fails (step 5), the recording stays in DB with status `queued` — a recovery job can re-publish later
+- Redis publish retries with exponential backoff (1s → 2s → 4s, max 3 attempts) using `tenacity`
 
-# M4 — STT Worker (nu necesită Whisper instalat — totul e mock-uit)
-cd services/stt-worker && pip install pytest pytest-asyncio asyncpg redis pydantic-settings && pytest tests/ -v
+**STT Worker:**
+- Any exception during job processing triggers `mark_failed()` — records the error message in `transcripts.error_message`
+- The worker **never stops** due to a single job failure — it logs the error and continues with the next job
+- If Redis is temporarily unavailable, `_poll_once()` sleeps 5 seconds and retries (avoids log spam)
+- Graceful shutdown: `consumer.stop()` sets `_running = False`; the current transcription is allowed to finish before the process exits
+
+**API Service:**
+- A global `@app.exception_handler(Exception)` catches any unhandled exception and returns `500` with a generic message (no stack trace exposed to the client)
+- `HTTPException` is used for expected errors (404 not found, 400 bad request, 401 unauthorized, 403 forbidden)
+- DB session in `get_db()` auto-commits on success and auto-rollbacks on exception
+- Audit log entries are written in the same transaction as the business operation — either both succeed or both fail
+
+### Logging
+
+All services use **`structlog`** with JSON output format:
+
+```json
+{
+  "timestamp": "2024-01-15T10:30:00+00:00",
+  "level": "info",
+  "event": "job_completed",
+  "recording_id": "a1b2-...",
+  "segments": 142,
+  "words": 2341,
+  "processing_sec": 312
+}
 ```
 
-Rezultate așteptate:
-```
-services/ingest:      38 passed
-services/api:         24 passed
-services/stt-worker:  78 passed (20 consumer + 20 postprocessor + 16 transcriber + 22 uploader)
-```
+Structured logs (key=value fields, not free-form strings) allow **Loki / Grafana** to filter and aggregate by any field:
+- `event = "job_failed"` → alert on transcription failures
+- `event = "file_rejected"` → monitor for bad file uploads
+- `event = "redis_brpop_error"` → alert on queue connectivity issues
+
+Log levels used:
+- `DEBUG` — detailed query info (SQL echo in development mode)
+- `INFO` — normal flow events (file detected, job started, job completed)
+- `WARNING` — recoverable issues (duplicate file, language override, file stability timeout)
+- `ERROR` — failures requiring attention (DB error, storage failure, unhandled exception)
 
 ---
 
-## Probleme frecvente
+## 12. Possible Improvements
 
-| Problemă | Cauză | Soluție |
-|----------|-------|---------|
-| Build stt-worker durează 15-30 min | PyTorch CPU ~800 MB | Normal la primul build, cache-uit ulterior |
-| `stt-worker` descarcă modelul la start | Whisper medium ~1.5 GB | Normal, o singură dată (volum persistent) |
-| `password authentication failed` | Volum postgres vechi cu altă parolă | `docker volume rm meeting-transcriber_postgres_data` și restart |
-| Port 8080 ocupat | Alt serviciu local | Schimbă `API_PORT` în `.env` |
-| `audio_storage_path does not exist` | Volumul Docker nu e montat | `docker compose down && docker compose up -d` |
-| Transcriere blocată la `transcribing` | Whisper încă încarcă modelul | Așteaptă `model_loaded` în `docker compose logs stt-worker` |
+### Architecture
+
+1. **Message broker durability** — Redis `BRPOP` is not truly reliable: if the worker crashes between `BRPOP` and `mark_processing`, the job is lost. Consider using Redis Streams (with consumer groups and `XACK`) or a dedicated message broker like RabbitMQ for at-least-once delivery guarantees.
+
+2. **Worker concurrency** — The STT Worker processes one job at a time (`stt_worker_concurrency = 1`). The `config.py` already includes this setting. Scale horizontally by running multiple `stt-worker` containers (Redis BRPOP distributes jobs automatically between consumers).
+
+3. **Speaker diarization** — The `speaker_id` column exists in `transcript_segments` but is never populated. Integrate `pyannote-audio` (speaker diarization) to identify who speaks each segment.
+
+4. **GPU support** — The Docker Compose file includes commented-out GPU configuration. With an NVIDIA GPU and the CUDA-enabled Whisper build, transcription would be 10–20× faster.
+
+5. **Export service** — Export functionality (PDF, DOCX) is referenced in `requirements.txt` but not yet implemented in the routers.
+
+### Code Quality
+
+6. **Authentication enforcement** — The `get_current_user` dependency exists in `middleware/auth.py` but is **not applied** to any router endpoint. All API endpoints are currently unauthenticated. Apply `Depends(get_current_user)` to routers as needed.
+
+7. **Login endpoint** — There is no `POST /auth/login` endpoint implemented yet. The `authenticate_user()` and `create_access_token()` helpers are ready in `middleware/auth.py` but no router registers them.
+
+8. **Alembic migrations** — The `database/migrations/` directory is empty. All schema is defined in `init.sql` (runs once). For production use, introduce Alembic to manage schema evolution safely.
+
+9. **Redis connection reuse** — `RecordingService._publish_job()` opens and closes a Redis connection on every upload. This should use a shared connection pool (injectable via FastAPI dependency) for efficiency.
+
+10. **`ingest/database.py`** — This module is referenced in the ingest service but was not fully explored. Ensure it handles the connection lifecycle properly (connection pooling, reconnection on failure).
+
+### Operational
+
+11. **Health endpoints** — The API has `/health`. The Ingest Service and STT Worker have no health endpoints — Docker can only rely on process liveness. Add simple TCP or HTTP health probes.
+
+12. **Metrics** — No Prometheus metrics are exported. Expose metrics (queue depth, transcription duration, failure rate) for better observability beyond log scanning.
+
+13. **File deduplication race condition** — Between `check_duplicate()` and `create_recording()`, a second identical file could pass the duplicate check. Add a database-level `UNIQUE` constraint on `file_hash_sha256` (it already exists!) and handle the `UniqueViolation` exception instead of doing an application-level check.
 
 ---
 
-## Structura proiectului
+## 13. Summary
 
-```
-meeting-transcriber/
-├── database/
-│   └── init.sql              — Schema PostgreSQL completă (tabele, trigger FTS, enum-uri)
-├── services/
-│   ├── ingest/               — M2: file watcher + validator + Redis publisher
-│   │   ├── src/              — config, watcher, validator, processor, publisher, database
-│   │   └── tests/            — 38 teste unitare
-│   ├── api/                  — M3: FastAPI REST API
-│   │   ├── src/              — routers, services, models, schemas, middleware
-│   │   └── tests/            — 24 teste
-│   ├── stt-worker/           — M4: Whisper STT consumer
-│   │   ├── src/              — consumer, transcriber, uploader, language_detector, postprocessor
-│   │   └── tests/            — 78 teste unitare
-│   ├── search-indexer/       — M5: neimplementat
-│   ├── audit-retention/      — M6: neimplementat
-│   └── frontend/             — M7: neimplementat
-├── docker-compose.yml        — Orchestrare completă (13 servicii)
-├── .env.example              — Template configurare
-└── README.md                 — Acest fișier
-```
+MeetRec is a well-structured **event-driven microservices system** for automated meeting audio transcription. Its core design decisions are:
+
+- **Drop-folder ingest** via OS-native file system events (`inotify`) — zero polling overhead
+- **Redis FIFO queue** decouples ingest from transcription — ingest is fast (milliseconds), transcription is slow (minutes)
+- **OpenAI Whisper** runs entirely locally — no cloud API keys or data privacy concerns
+- **PostgreSQL full-text search** with `TSVECTOR` and GIN index — sub-millisecond search across thousands of transcripts
+- **`asyncio.run_in_executor()`** isolates the blocking Whisper CPU work from the async event loop
+- **Fail-fast configuration** — Pydantic Settings validates all environment variables at startup; missing secrets cause immediate startup failure
+- **Comprehensive audit trail** — every view, search, upload, delete is recorded for legal compliance
+- **Structured JSON logging** — all services emit machine-readable logs consumed by Grafana Loki
+
+The system is production-ready in its data pipeline (ingest → validate → store → transcribe → search) but requires additional work in **authentication enforcement**, **login endpoint**, and **Alembic migrations** before deployment in a public-facing environment.
+
+---
+
