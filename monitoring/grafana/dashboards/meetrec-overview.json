@@ -1,0 +1,248 @@
+{
+  "__inputs": [],
+  "__requires": [
+    { "type": "grafana", "id": "grafana", "name": "Grafana", "version": "10.0.0" },
+    { "type": "datasource", "id": "loki", "name": "Loki", "version": "1.0.0" }
+  ],
+  "annotations": { "list": [] },
+  "description": "Monitorizare MeetRec — loguri servicii, erori, transcrieri",
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 0,
+  "id": null,
+  "links": [],
+  "panels": [
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 },
+      "id": 1,
+      "title": "Activitate generală",
+      "type": "row"
+    },
+    {
+      "datasource": { "type": "loki", "uid": "${DS_LOKI}" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "red", "value": 1 }
+            ]
+          },
+          "mappings": [],
+          "unit": "short"
+        }
+      },
+      "gridPos": { "h": 4, "w": 4, "x": 0, "y": 1 },
+      "id": 2,
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "orientation": "auto", "textMode": "auto", "colorMode": "background" },
+      "title": "Erori API (1h)",
+      "type": "stat",
+      "targets": [
+        {
+          "datasource": { "type": "loki", "uid": "${DS_LOKI}" },
+          "expr": "sum(count_over_time({container_name=\"mt-api\"} |= \"ERROR\" [1h]))",
+          "legendFormat": "erori"
+        }
+      ]
+    },
+    {
+      "datasource": { "type": "loki", "uid": "${DS_LOKI}" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "blue", "value": null }
+            ]
+          },
+          "unit": "short"
+        }
+      },
+      "gridPos": { "h": 4, "w": 4, "x": 4, "y": 1 },
+      "id": 3,
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background" },
+      "title": "Transcrieri finalizate (24h)",
+      "type": "stat",
+      "targets": [
+        {
+          "datasource": { "type": "loki", "uid": "${DS_LOKI}" },
+          "expr": "sum(count_over_time({container_name=\"mt-stt-worker\"} |= \"results_saved\" [24h]))",
+          "legendFormat": "transcrieri"
+        }
+      ]
+    },
+    {
+      "datasource": { "type": "loki", "uid": "${DS_LOKI}" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 1 },
+              { "color": "red", "value": 5 }
+            ]
+          },
+          "unit": "short"
+        }
+      },
+      "gridPos": { "h": 4, "w": 4, "x": 8, "y": 1 },
+      "id": 4,
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background" },
+      "title": "Job-uri eșuate (24h)",
+      "type": "stat",
+      "targets": [
+        {
+          "datasource": { "type": "loki", "uid": "${DS_LOKI}" },
+          "expr": "sum(count_over_time({container_name=\"mt-stt-worker\"} |= \"job_failed\" [24h]))",
+          "legendFormat": "eșuate"
+        }
+      ]
+    },
+    {
+      "datasource": { "type": "loki", "uid": "${DS_LOKI}" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [{ "color": "purple", "value": null }]
+          },
+          "unit": "short"
+        }
+      },
+      "gridPos": { "h": 4, "w": 4, "x": 12, "y": 1 },
+      "id": 5,
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background" },
+      "title": "Login-uri (24h)",
+      "type": "stat",
+      "targets": [
+        {
+          "datasource": { "type": "loki", "uid": "${DS_LOKI}" },
+          "expr": "sum(count_over_time({container_name=\"mt-api\"} |= \"/auth/login\" |= \"200\" [24h]))",
+          "legendFormat": "login-uri"
+        }
+      ]
+    },
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 5 },
+      "id": 10,
+      "title": "API — loguri recente",
+      "type": "row"
+    },
+    {
+      "datasource": { "type": "loki", "uid": "${DS_LOKI}" },
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 6 },
+      "id": 11,
+      "options": {
+        "dedupStrategy": "none",
+        "enableLogDetails": true,
+        "prettifyLogMessage": false,
+        "showCommonLabels": false,
+        "showLabels": false,
+        "showTime": true,
+        "sortOrder": "Descending",
+        "wrapLogMessage": true
+      },
+      "title": "Loguri API (erori și avertismente)",
+      "type": "logs",
+      "targets": [
+        {
+          "datasource": { "type": "loki", "uid": "${DS_LOKI}" },
+          "expr": "{container_name=\"mt-api\"} |= \"ERROR\" or {container_name=\"mt-api\"} |= \"WARNING\" | json",
+          "legendFormat": ""
+        }
+      ]
+    },
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 14 },
+      "id": 20,
+      "title": "STT Worker — transcrieri",
+      "type": "row"
+    },
+    {
+      "datasource": { "type": "loki", "uid": "${DS_LOKI}" },
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 15 },
+      "id": 21,
+      "options": {
+        "dedupStrategy": "none",
+        "enableLogDetails": true,
+        "prettifyLogMessage": false,
+        "showCommonLabels": false,
+        "showLabels": false,
+        "showTime": true,
+        "sortOrder": "Descending",
+        "wrapLogMessage": true
+      },
+      "title": "Loguri STT Worker",
+      "type": "logs",
+      "targets": [
+        {
+          "datasource": { "type": "loki", "uid": "${DS_LOKI}" },
+          "expr": "{container_name=\"mt-stt-worker\"}",
+          "legendFormat": ""
+        }
+      ]
+    },
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 23 },
+      "id": 30,
+      "title": "Ingest — fișiere primite",
+      "type": "row"
+    },
+    {
+      "datasource": { "type": "loki", "uid": "${DS_LOKI}" },
+      "gridPos": { "h": 6, "w": 24, "x": 0, "y": 24 },
+      "id": 31,
+      "options": {
+        "dedupStrategy": "none",
+        "enableLogDetails": true,
+        "prettifyLogMessage": false,
+        "showCommonLabels": false,
+        "showLabels": false,
+        "showTime": true,
+        "sortOrder": "Descending",
+        "wrapLogMessage": true
+      },
+      "title": "Loguri Ingest (fișiere detectate)",
+      "type": "logs",
+      "targets": [
+        {
+          "datasource": { "type": "loki", "uid": "${DS_LOKI}" },
+          "expr": "{container_name=\"mt-ingest\"}",
+          "legendFormat": ""
+        }
+      ]
+    }
+  ],
+  "refresh": "30s",
+  "schemaVersion": 38,
+  "tags": ["meetrec", "overview"],
+  "templating": {
+    "list": [
+      {
+        "hide": 2,
+        "includeAll": false,
+        "name": "DS_LOKI",
+        "options": [],
+        "query": "loki",
+        "refresh": 1,
+        "type": "datasource"
+      }
+    ]
+  },
+  "time": { "from": "now-1h", "to": "now" },
+  "timepicker": {},
+  "timezone": "Europe/Bucharest",
+  "title": "MeetRec — Overview",
+  "uid": "meetrec-overview",
+  "version": 1
+}
