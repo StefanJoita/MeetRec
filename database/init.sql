@@ -47,12 +47,13 @@ CREATE TYPE transcription_status AS ENUM (
 
 -- Formatele audio suportate
 CREATE TYPE audio_format AS ENUM (
-    'wav',   -- cel mai bun pentru STT (fără compresie)
-    'mp3',   -- comprimat, mai mic
-    'm4a',   -- format Apple
-    'ogg',   -- open source
-    'flac',  -- compresie fără pierderi
-    'webm'   -- format web
+    'wav',     -- cel mai bun pentru STT (fără compresie)
+    'mp3',     -- comprimat, mai mic
+    'm4a',     -- format Apple
+    'ogg',     -- open source
+    'flac',    -- compresie fără pierderi
+    'webm',    -- format web
+    'unknown'  -- placeholder până la upload fișier
 );
 
 -- Tipuri de acțiuni pentru audit
@@ -300,6 +301,27 @@ CREATE TABLE users (
     is_admin        BOOLEAN DEFAULT FALSE,
     created_at      TIMESTAMPTZ DEFAULT NOW(),
     last_login      TIMESTAMPTZ
+);
+
+-- Utilizatori de test (SCHIMBĂ parolele în producție!)
+-- admin123  → hash bcrypt mai jos
+-- operator123 → hash bcrypt mai jos
+INSERT INTO users (username, email, full_name, password_hash, is_active, is_admin) VALUES
+(
+    'admin',
+    'admin@meetrec.local',
+    'Administrator',
+    '$2b$12$gx/JCPvsqzV45DZK4/0YOeJLI0AlTHlHpyt2kLsGMgA3.dLoOMe5.',
+    TRUE,
+    TRUE
+),
+(
+    'operator',
+    'operator@meetrec.local',
+    'Operator Ședințe',
+    '$2b$12$bLhDb8uFQTKUqrCj6KP0LOplCIEvt6hTe9ChX7asGbVZbhl6L1kZe',
+    TRUE,
+    FALSE
 );
 
 -- Comentariu vizibil în DB pentru documentare
