@@ -38,6 +38,8 @@ python-jose[cryptography]==3.3.0
 
 passlib[bcrypt]==1.7.4
 # Hashing parole cu bcrypt (algoritm lent intenționat — protecție brute force)
+bcrypt==4.0.1
+# Pinăm bcrypt 4.0.1 — versiunile 4.1+ sunt incompatibile cu passlib 1.7.4
 
 # --- REDIS ---
 redis==5.0.4

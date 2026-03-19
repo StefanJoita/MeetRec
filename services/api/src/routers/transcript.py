@@ -1,15 +1,16 @@
 # services/api/src/routers/transcripts.py
 import uuid
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request  # noqa: F401
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.database import get_db
 from sqlalchemy.ext.asyncio import AsyncSession
+from src.middleware.auth import get_current_user
 from src.schemas.recording import TranscriptResponse
 from src.services.transcript_service import TranscriptService
 from src.middleware.audit import log_audit
 
-router = APIRouter(prefix="/transcripts", tags=["transcripts"])
+router = APIRouter(prefix="/transcripts", tags=["transcripts"], dependencies=[Depends(get_current_user)])
 
 
 def get_service(db: AsyncSession = Depends(get_db)) -> TranscriptService:

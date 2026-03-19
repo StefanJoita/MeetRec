@@ -34,12 +34,13 @@ class RecordingStatus(str, enum.Enum):
     ARCHIVED = "archived"
 
 class AudioFormat(str, enum.Enum):
-    WAV  = "wav"
-    MP3  = "mp3"
-    M4A  = "m4a"
-    OGG  = "ogg"
-    FLAC = "flac"
-    WEBM = "webm"
+    WAV     = "wav"
+    MP3     = "mp3"
+    M4A     = "m4a"
+    OGG     = "ogg"
+    FLAC    = "flac"
+    WEBM    = "webm"
+    UNKNOWN = "unknown"
 
 class Recording(Base):
     """
@@ -76,14 +77,19 @@ class Recording(Base):
     file_path: Mapped[str] = mapped_column(String(1000), nullable=False)
     file_size_bytes: Mapped[int] = mapped_column(BigInteger, nullable=False)
     file_hash_sha256: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
-    audio_format: Mapped[str] = mapped_column(String(10), nullable=False)
+    audio_format: Mapped[str] = mapped_column(
+        SAEnum(AudioFormat, name="audio_format", create_type=False,
+               values_callable=lambda obj: [e.value for e in obj]),
+        nullable=False,
+    )
     duration_seconds: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     sample_rate_hz: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     channels: Mapped[Optional[int]] = mapped_column(SmallInteger, nullable=True)
 
     # ── Status și erori ────────────────────────────────────
     status: Mapped[str] = mapped_column(
-        String(20),
+        SAEnum(RecordingStatus, name="recording_status", create_type=False,
+               values_callable=lambda obj: [e.value for e in obj]),
         nullable=False,
         default=RecordingStatus.UPLOADED.value,
     )

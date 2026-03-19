@@ -13,8 +13,9 @@ from datetime import datetime, date, timezone
 from pathlib import Path
 from typing import Optional, List
 
-from fastapi import UploadFile
+from fastapi import HTTPException, UploadFile
 from sqlalchemy import select, func, or_, desc, asc
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.config import settings
@@ -143,6 +144,7 @@ class RecordingService:
         self.db.add(transcript)
         await self.db.flush()
 
+        await self.db.refresh(recording, attribute_names=["transcript"])
         return recording
 
     # ── PROCESS UPLOAD ───────────────────────────────────────
@@ -195,7 +197,14 @@ class RecordingService:
         recording.audio_format = extension
         recording.status = RecordingStatus.QUEUED.value
 
-        await self.db.flush()
+        try:
+            await self.db.flush()
+        except IntegrityError:
+            await self.db.rollback()
+            raise HTTPException(
+                status_code=409,
+                detail="Acest fișier audio a mai fost uploadat anterior.",
+            )
 
         # Publicăm job în Redis
         await self._publish_job(recording)

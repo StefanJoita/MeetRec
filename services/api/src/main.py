@@ -10,7 +10,7 @@ from fastapi.responses import JSONResponse
 import structlog
 
 from src.config import settings
-from src.routers import recordings, transcript, search
+from src.routers import recordings, transcript, search, auth, export, audit
 
 logger = structlog.get_logger()
 
@@ -65,9 +65,12 @@ app.add_middleware(
 # ── Routers ──────────────────────────────────────────────────
 # prefix="/api/v1" = toate endpoint-urile vor fi la /api/v1/recordings etc.
 # Versioning (/v1/) = în viitor poți adăuga /v2/ fără să strici /v1/
+app.include_router(auth.router, prefix="/api/v1")
 app.include_router(recordings.router, prefix="/api/v1")
 app.include_router(transcript.router, prefix="/api/v1")
 app.include_router(search.router, prefix="/api/v1")
+app.include_router(export.router, prefix="/api/v1")
+app.include_router(audit.router, prefix="/api/v1")
 
 # ── Health Check ─────────────────────────────────────────────
 @app.get("/health", tags=["system"])
