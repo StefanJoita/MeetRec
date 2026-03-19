@@ -66,6 +66,7 @@ class SearchService:
             WHERE
                 t.status = 'completed'
                 AND t.search_vector @@ plainto_tsquery('romanian', :query)
+                AND to_tsvector('romanian', seg.text) @@ plainto_tsquery('romanian', :query)
                 {lang_filter}
             ORDER BY rank DESC, r.meeting_date DESC
             LIMIT :limit OFFSET :offset
