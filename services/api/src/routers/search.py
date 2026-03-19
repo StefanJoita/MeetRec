@@ -24,11 +24,12 @@ from fastapi import APIRouter, Depends, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.database import get_db
+from src.middleware.auth import get_current_user
 from src.schemas.recording import SearchResponse
 from src.services.search_service import SearchService
 from src.middleware.audit import log_audit
 
-router = APIRouter(prefix="/search", tags=["search"])
+router = APIRouter(prefix="/search", tags=["search"], dependencies=[Depends(get_current_user)])
 
 
 @router.get(

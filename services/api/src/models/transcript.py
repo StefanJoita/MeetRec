@@ -4,7 +4,7 @@ import enum
 from datetime import datetime
 from typing import Optional, List
 
-from sqlalchemy import String, Integer, Text, Numeric, ForeignKey, TIMESTAMP, Index
+from sqlalchemy import String, Integer, Text, Numeric, ForeignKey, TIMESTAMP, Index, Enum as SAEnum
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID, TSVECTOR
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
@@ -42,7 +42,10 @@ class Transcript(Base):
 
     # ── Status și limbă ────────────────────────────────────
     status: Mapped[str] = mapped_column(
-        String(20), nullable=False, default=TranscriptStatus.PENDING.value
+        SAEnum(TranscriptStatus, name="transcription_status", create_type=False,
+               values_callable=lambda obj: [e.value for e in obj]),
+        nullable=False,
+        default=TranscriptStatus.PENDING.value,
     )
     language: Mapped[Optional[str]] = mapped_column(String(10), default="ro")
     model_used: Mapped[Optional[str]] = mapped_column(String(100))

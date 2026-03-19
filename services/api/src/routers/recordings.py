@@ -6,12 +6,19 @@
 # Toate endpoint-urile de mai jos vor fi la /recordings/...
 # ============================================================
 
+import mimetypes
 import uuid
+from pathlib import Path
 from typing import Optional
-from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File, status, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File, status, Request  # noqa: F401
+from fastapi.responses import FileResponse
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.database import get_db
+from src.middleware.auth import decode_token, get_current_user
+from src.models.audit_log import User
+from src.models.recording import Recording
 from src.schemas.recording import (
     RecordingCreate, RecordingUpdate, RecordingResponse,
     PaginatedRecordings, UploadResponse,
@@ -23,6 +30,7 @@ from src.middleware.audit import log_audit
 router = APIRouter(
     prefix="/recordings",
     tags=["recordings"],        # grupare în documentația /docs
+    dependencies=[Depends(get_current_user)],
 )
 
 
@@ -199,3 +207,50 @@ async def delete_recording(
     await log_audit(request, db, action="DELETE", resource_type="recording",
                     resource_id=recording_id)
     # 204 = returnăm nimic (body gol)
+
+
+# ── GET /recordings/{id}/audio ───────────────────────────────
+@router.get(
+    "/{recording_id}/audio",
+    summary="Streaming fișier audio",
+    tags=["recordings"],
+)
+async def stream_audio(
+    recording_id: uuid.UUID,
+    token: str = Query(description="JWT token pentru autentificare"),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Servește fișierul audio al unei înregistrări.
+    Autentificarea se face prin query param ?token=JWT
+    (necesar deoarece <audio> HTML nu trimite header-uri custom).
+    """
+    # Validare token manual (nu prin Depends — vine ca query param)
+    user_id = decode_token(token)
+    if not user_id:
+        raise HTTPException(status_code=401, detail="Token invalid sau expirat.")
+
+    result = await db.execute(
+        select(User).where(User.id == user_id, User.is_active == True)
+    )
+    if not result.scalar_one_or_none():
+        raise HTTPException(status_code=401, detail="Utilizator inexistent.")
+
+    # Obținem înregistrarea direct (cu file_path)
+    rec_result = await db.execute(
+        select(Recording).where(Recording.id == recording_id)
+    )
+    recording = rec_result.scalar_one_or_none()
+    if not recording or not recording.file_path:
+        raise HTTPException(status_code=404, detail="Fișierul audio nu există.")
+
+    path = Path(recording.file_path)
+    if not path.exists():
+        raise HTTPException(status_code=404, detail="Fișierul audio nu a fost găsit pe disc.")
+
+    media_type, _ = mimetypes.guess_type(str(path))
+    return FileResponse(
+        path=str(path),
+        media_type=media_type or "audio/mpeg",
+        filename=path.name,
+    )
