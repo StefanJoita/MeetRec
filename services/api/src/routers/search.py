@@ -61,7 +61,7 @@ async def search_transcripts(
     start = time.time()
 
     service = SearchService(db)
-    results = await service.search(
+    results, total = await service.search(
         query=q,
         limit=limit,
         offset=offset,
@@ -72,12 +72,15 @@ async def search_transcripts(
 
     await log_audit(
         request, db, action="SEARCH",
-        details={"query": q, "results": len(results), "ms": elapsed_ms}
+        details={"query": q, "total": total, "returned": len(results), "ms": elapsed_ms}
     )
 
     return SearchResponse(
         query=q,
         results=results,
-        total_results=len(results),
+        total_results=total,
+        offset=offset,
+        limit=limit,
+        pages=service.pages(total, limit),
         search_time_ms=elapsed_ms,
     )

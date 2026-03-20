@@ -91,7 +91,7 @@ class WhisperTranscriber:
         """
         logger.info("model_loading", model=self._model_name, path=str(self._model_path))
 
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         self._model = await loop.run_in_executor(
             None,  # None = folosește thread pool-ul default (ThreadPoolExecutor)
             self._load_model_sync,
@@ -129,9 +129,9 @@ class WhisperTranscriber:
             raise RuntimeError("Model neîncărcat. Apelați load_model() înainte.")
 
         logger.info("transcription_started", file=file_path, language=language_hint)
-        start_time = asyncio.get_event_loop().time()
+        loop = asyncio.get_running_loop()
+        start_time = loop.time()
 
-        loop = asyncio.get_event_loop()
         segments = await loop.run_in_executor(
             None,
             self._run_whisper_sync,
@@ -139,7 +139,7 @@ class WhisperTranscriber:
             language_hint,
         )
 
-        elapsed = asyncio.get_event_loop().time() - start_time
+        elapsed = loop.time() - start_time
         logger.info(
             "transcription_done",
             file=file_path,

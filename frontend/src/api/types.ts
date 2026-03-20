@@ -115,28 +115,14 @@ export interface SearchResult {
 export interface SearchResponse {
   query: string
   results: SearchResult[]
-  total_results: number
+  total_results: number   // total înainte de LIMIT (pentru paginare)
+  offset: number
+  limit: number
+  pages: number
   search_time_ms: number
 }
 
-// ── Upload response (202 Accepted) ───────────────────────────
-export interface UploadResponse {
-  recording_id: string
-  title: string
-  status: string
-  message: string
-  estimated_processing_minutes: number
-}
-
 // ── Input schemas ────────────────────────────────────────────
-export interface RecordingCreate {
-  title: string
-  meeting_date: string          // "YYYY-MM-DD"
-  description?: string
-  location?: string
-  participants?: string[]
-}
-
 export interface RecordingUpdate {
   title?: string
   description?: string

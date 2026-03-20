@@ -52,9 +52,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 #   pentru versiunile +cpu (CPU-only, fără CUDA)
 # Fără acest flag: pip descarcă torch cu CUDA (~2.5GB) chiar și fără GPU!
 COPY requirements.txt .
+# Instalăm torch + numpy împreună ca pip să rezolve versiunile corect.
+# numpy==1.26.4 e obligatoriu: torch 2.1.0 nu e compatibil cu numpy 2.x.
 RUN pip install --no-cache-dir \
     --extra-index-url https://download.pytorch.org/whl/cpu \
-    torch==2.1.0+cpu && \
+    "torch==2.1.0+cpu" "numpy==1.26.4" && \
     pip install --no-cache-dir -r requirements.txt
 
 # ── Directoare pentru volume ──────────────────────────────────

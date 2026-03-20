@@ -17,7 +17,7 @@
 import uuid
 from datetime import datetime, date
 from typing import Optional, List
-from pydantic import BaseModel, Field, field_validator, ConfigDict
+from pydantic import BaseModel, Field, ConfigDict
 
 
 # ── SEGMENT ─────────────────────────────────────────────────
@@ -66,45 +66,6 @@ class TranscriptSummary(BaseModel):
     completed_at: Optional[datetime]
 
     model_config = ConfigDict(from_attributes=True)
-
-
-# ── RECORDING — INPUT ────────────────────────────────────────
-
-class RecordingCreate(BaseModel):
-    """
-    Ce trimite clientul când creează manual o înregistrare.
-    (Alternativ la ingestia automată din /inbox)
-    """
-    title: str = Field(
-        min_length=3,
-        max_length=500,
-        description="Titlul ședinței",
-        examples=["Ședința Consiliului Local — 15 Ianuarie 2024"]
-    )
-    meeting_date: date = Field(description="Data ședinței")
-    description: Optional[str] = Field(None, max_length=5000)
-    location: Optional[str] = Field(None, max_length=255)
-    participants: Optional[List[str]] = Field(
-        None,
-        description="Lista participanților",
-        examples=[["Ion Ionescu", "Maria Pop"]]
-    )
-
-    @field_validator("title")
-    @classmethod
-    def title_not_empty(cls, v: str) -> str:
-        """Validare custom: titlul nu poate fi doar spații."""
-        if not v.strip():
-            raise ValueError("Titlul nu poate fi gol sau conține doar spații")
-        return v.strip()
-
-    @field_validator("meeting_date")
-    @classmethod
-    def date_not_future(cls, v: date) -> date:
-        """O ședință nu poate fi în viitor."""
-        if v > date.today():
-            raise ValueError("Data ședinței nu poate fi în viitor")
-        return v
 
 
 class RecordingUpdate(BaseModel):
@@ -198,19 +159,11 @@ class SearchResult(BaseModel):
 class SearchResponse(BaseModel):
     query: str
     results: List[SearchResult]
-    total_results: int
+    total_results: int   # total segmente care corespund query-ului (înainte de LIMIT)
+    offset: int
+    limit: int
+    pages: int
     search_time_ms: int
-
-
-# ── UPLOAD RESPONSE ──────────────────────────────────────────
-
-class UploadResponse(BaseModel):
-    """Răspunsul la upload-ul unui fișier audio."""
-    recording_id: uuid.UUID
-    title: str
-    status: str
-    message: str
-    estimated_processing_minutes: int
 
 
 # ── AUTH ─────────────────────────────────────────────────────

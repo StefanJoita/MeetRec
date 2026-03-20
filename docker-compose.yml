@@ -110,6 +110,8 @@ services:
       LOG_LEVEL: ${LOG_LEVEL}
       TZ: Europe/Bucharest
     volumes:
+      # Inbox: API depune fișierele aici, Ingest le preia
+      - ./data/inbox:/data/inbox
       # Fișierele audio procesate (NFS montat ca volum local)
       - audio_storage:/data/processed
       - export_storage:/data/exports
@@ -277,6 +279,7 @@ services:
       - ./services/audit-retention/src:/app/src
     networks:
       - backend-network
+      - monitoring-network
     depends_on:
       postgres:
         condition: service_healthy
@@ -290,11 +293,13 @@ services:
     image: grafana/loki:2.9.0
     container_name: mt-loki
     restart: unless-stopped
+    user: "0"   # root — Loki are nevoie de permisiuni de scriere pentru WAL
     ports:
       - "3100:3100"
     volumes:
       - ./monitoring/loki/loki-config.yaml:/etc/loki/local-config.yaml:ro
       - loki_data:/loki
+      - loki_wal:/wal
     command: -config.file=/etc/loki/local-config.yaml
     networks:
       - monitoring-network
@@ -350,6 +355,8 @@ volumes:
   whisper_models:     # modelele AI (~1.5GB) — descărcate o dată
     driver: local
   loki_data:          # logurile centralizate
+    driver: local
+  loki_wal:           # Loki Write-Ahead Log
     driver: local
   grafana_data:       # configurația și dashboards Grafana
     driver: local
