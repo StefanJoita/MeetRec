@@ -10,7 +10,8 @@
 #   3. Returnăm segmentele relevante cu headline (fragment evidențiat)
 # ============================================================
 
-from typing import List, Optional
+import math
+from typing import List, Optional, Tuple
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -29,7 +30,11 @@ class SearchService:
         limit: int = 20,
         offset: int = 0,
         language: Optional[str] = None,
-    ) -> List[SearchResult]:
+    ) -> Tuple[List[SearchResult], int]:
+        """
+        Returns (results, total_count).
+        total_count = câte segmente corespund query-ului (înainte de LIMIT/OFFSET).
+        """
         """
         Caută în toate transcripturile completate.
 
@@ -38,12 +43,30 @@ class SearchService:
         - "hotărâre consiliu" → caută ambele cuvinte
         Nu folosim to_tsquery care necesită sintaxă specială (& | !).
         """
-        # Filtru opțional de limbă
-        lang_filter = "AND ts.language = :language" if language else ""
+        # Filtru opțional de limbă (același WHERE folosit în ambele query-uri)
+        lang_filter = "AND t.language = :language" if language else ""
 
-        # Query principal cu full-text search
+        params: dict = {"query": query, "limit": limit, "offset": offset}
+        if language:
+            params["language"] = language
+
+        # ── Query 1: numărul total de rezultate (pentru paginare) ──────────
+        count_sql = text(f"""
+            SELECT COUNT(*)
+            FROM transcript_segments seg
+            JOIN transcripts t ON t.id = seg.transcript_id
+            JOIN recordings  r ON r.id = t.recording_id
+            WHERE
+                t.status = 'completed'
+                AND t.search_vector @@ plainto_tsquery('romanian', :query)
+                AND to_tsvector('romanian', seg.text) @@ plainto_tsquery('romanian', :query)
+                {lang_filter}
+        """)
+        total_count: int = (await self.db.scalar(count_sql, params)) or 0
+
+        # ── Query 2: rezultatele efective cu paginare ──────────────────────
         # ts_rank = scorul de relevanță (mai mare = mai relevant)
-        # ts_headline = extrage fragmentul cu cuvântul evidențiat în <b>...</b>
+        # ts_headline = extrage fragmentul cu termenul evidențiat în <b>...</b>
         sql = text(f"""
             SELECT
                 r.id            AS recording_id,
@@ -72,14 +95,10 @@ class SearchService:
             LIMIT :limit OFFSET :offset
         """)
 
-        params = {"query": query, "limit": limit, "offset": offset}
-        if language:
-            params["language"] = language
-
         result = await self.db.execute(sql, params)
         rows = result.mappings().all()
 
-        return [
+        results = [
             SearchResult(
                 recording_id=row["recording_id"],
                 recording_title=row["recording_title"],
@@ -93,3 +112,9 @@ class SearchService:
             )
             for row in rows
         ]
+
+        return results, total_count
+
+    def pages(self, total: int, limit: int) -> int:
+        """Calculează numărul total de pagini."""
+        return math.ceil(total / limit) if total > 0 else 0

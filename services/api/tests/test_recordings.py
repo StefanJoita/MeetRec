@@ -24,6 +24,8 @@ from httpx import AsyncClient, ASGITransport
 
 from src.main import app
 from src.database import get_db
+from src.middleware.auth import get_current_user
+from src.models.audit_log import User
 from src.routers.recordings import get_recording_service
 from src.schemas.recording import (
     PaginatedRecordings,
@@ -31,6 +33,17 @@ from src.schemas.recording import (
     RecordingResponse,
     UploadResponse,
 )
+
+
+# ── User fake pentru teste ────────────────────────────────────
+def make_fake_user(is_admin: bool = False) -> User:
+    """Creează un User SQLAlchemy fake pentru dependency override."""
+    user = MagicMock(spec=User)
+    user.id = uuid.uuid4()
+    user.username = "test_user"
+    user.is_active = True
+    user.is_admin = is_admin
+    return user
 
 
 # ── Helper: date de test ──────────────────────────────────────
@@ -110,23 +123,24 @@ from contextlib import asynccontextmanager
 
 
 @asynccontextmanager
-async def override_service(mock_svc):
+async def override_service(mock_svc, user: User = None):
     """
-    Context manager care override-uiește ambele dependency-uri
-    (get_recording_service + get_db) pentru durata testului.
-
-    De ce override-uim și get_db?
-    Router-ul apelează log_audit(request, db, ...) care are nevoie de
-    o sesiune DB. Mock-ul previne erori de conexiune reală.
+    Context manager care override-uiește dependency-urile pentru teste:
+    - get_recording_service → mock service
+    - get_db → mock sesiune DB (evită conexiune reală PostgreSQL)
+    - get_current_user → user fake (evită validare JWT reală)
     """
     mock_db = AsyncMock()
     mock_db.add = MagicMock()
+
+    fake_user = user or make_fake_user()
 
     async def _mock_db():
         yield mock_db
 
     app.dependency_overrides[get_recording_service] = lambda: mock_svc
     app.dependency_overrides[get_db] = _mock_db
+    app.dependency_overrides[get_current_user] = lambda: fake_user
     try:
         async with AsyncClient(
             transport=ASGITransport(app=app),

@@ -3,9 +3,11 @@
 # Transcript Service — Business logic pentru transcrieri
 # ============================================================
 
+import json
 import uuid
 from typing import Optional
 
+import redis.asyncio as aioredis
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -62,9 +64,6 @@ class TranscriptService:
 
     async def _publish_job(self, recording: Recording) -> None:
         """Publică job de transcriere în Redis."""
-        import json
-        import redis.asyncio as aioredis
-
         r = aioredis.from_url(settings.redis_url, decode_responses=True)
         job = {
             "recording_id": str(recording.id),
