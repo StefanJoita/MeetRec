@@ -14,7 +14,7 @@
 
 # --- STT ---
 openai-whisper          # Whisper STT (include ffmpeg-python ca dep.)
-numpy<2.0               # torch 2.1.0 is incompatible with numpy 2.x
+numpy==1.26.4           # torch 2.1.0 is incompatible with numpy 2.x
 # torch e instalat separat în Dockerfile cu --extra-index-url pentru CPU-only
 
 # --- DATABASE ---
