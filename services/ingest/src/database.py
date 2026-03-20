@@ -10,7 +10,7 @@
 # ============================================================
 
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
@@ -122,7 +122,7 @@ class DatabaseClient:
                     """,
                     recording_id,
                     title,
-                    datetime.now().date(),
+                    datetime.now(timezone.utc).date(),
                     metadata.filename,
                     str(stored_path),
                     metadata.file_size_bytes,
@@ -188,7 +188,7 @@ class DatabaseClient:
  
         # Prefix dacă titlul e prea scurt sau neclar
         if len(title) < 3:
-            title = f"Înregistrare {datetime.now().strftime('%d %b %Y')}"
+            title = f"Înregistrare {datetime.now(timezone.utc).strftime('%d %b %Y')}"
  
         return title[:500]  # maxim 500 caractere (limita din DB)
        

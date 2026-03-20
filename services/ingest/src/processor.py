@@ -123,10 +123,10 @@ class FileProcessor:
                 recording_id=recording_id,
                 error=str(e),
             )
-            # NU facem rollback: fișierul e în DB cu status='queued'
-            # Un job de recovery poate republica mai târziu
-            # (e mai bine decât să ștergem tot)
- 
+            # NU facem rollback: fișierul e în DB cu status='queued'.
+            # Înregistrarea poate fi repusă în coadă manual sau de un job de recovery.
+            return False
+
         logger.info(
             "processing_completed",
             file=file_path.name,

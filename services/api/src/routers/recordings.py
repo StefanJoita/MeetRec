@@ -10,7 +10,7 @@ import mimetypes
 import uuid
 from pathlib import Path
 from typing import Optional
-from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File, status, Request  # noqa: F401
+from fastapi import APIRouter, Depends, HTTPException, Query, status, Request  # noqa: F401
 from fastapi.responses import FileResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -20,8 +20,8 @@ from src.middleware.auth import decode_token, get_current_user
 from src.models.audit_log import User
 from src.models.recording import Recording
 from src.schemas.recording import (
-    RecordingCreate, RecordingUpdate, RecordingResponse,
-    PaginatedRecordings, UploadResponse,
+    RecordingUpdate, RecordingResponse,
+    PaginatedRecordings,
 )
 from src.services.recording_service import RecordingService
 from src.middleware.audit import log_audit
@@ -105,61 +105,6 @@ async def get_recording(
     await log_audit(request, db, action="VIEW", resource_type="recording",
                     resource_id=recording_id)
     return recording
-
-
-# ── POST /recordings (metadata only) ────────────────────────
-@router.post(
-    "/",
-    response_model=RecordingResponse,
-    status_code=status.HTTP_201_CREATED,   # 201 = Created (nu 200 OK)
-    summary="Creează o înregistrare",
-)
-async def create_recording(
-    data: RecordingCreate,
-    request: Request,
-    service: RecordingService = Depends(get_recording_service),
-    db: AsyncSession = Depends(get_db),
-):
-    """
-    Creează o înregistrare fără fișier audio (metadata only).
-    Fișierul poate fi adăugat ulterior prin /recordings/{id}/upload.
-    """
-    recording = await service.create(data)
-    await log_audit(request, db, action="UPLOAD", resource_type="recording",
-                    resource_id=recording.id)
-    return recording
-
-
-# ── POST /recordings/{id}/upload ─────────────────────────────
-@router.post(
-    "/{recording_id}/upload",
-    response_model=UploadResponse,
-    status_code=status.HTTP_202_ACCEPTED,  # 202 = Accepted (procesare asincronă)
-    summary="Uploadează fișier audio",
-)
-async def upload_audio(
-    recording_id: uuid.UUID,
-    request: Request,
-    file: UploadFile = File(description="Fișierul audio (WAV, MP3, M4A, etc.)"),
-    service: RecordingService = Depends(get_recording_service),
-    db: AsyncSession = Depends(get_db),
-):
-    """
-    Uploadează fișierul audio pentru o înregistrare existentă.
-    Procesarea (transcrierea) e asincronă — verificați status-ul ulterior.
-
-    202 Accepted = "Am primit cererea, procesăm în fundal"
-    (Nu 200 OK — nu e gata imediat!)
-    """
-    recording = await service.get_by_id(recording_id)
-    if not recording:
-        raise HTTPException(status_code=404, detail="Înregistrarea nu există.")
-
-    result = await service.process_upload(recording_id, file)
-    await log_audit(request, db, action="UPLOAD", resource_type="recording",
-                    resource_id=recording_id,
-                    details={"filename": file.filename, "size": file.size})
-    return result
 
 
 # ── PATCH /recordings/{id} ───────────────────────────────────

@@ -46,7 +46,10 @@ COPY src/ ./src/
 
 # User non-root pentru securitate
 # (nu rulăm ca root în producție — risc de securitate)
-RUN useradd -m -u 1000 appuser && chown -R appuser:appuser /app
+RUN useradd -m -u 1000 appuser \
+    && chown -R appuser:appuser /app \
+    && mkdir -p /data/processed /data/exports \
+    && chown -R appuser:appuser /data
 USER appuser
 
 # Portul pe care ascultă API-ul

@@ -18,7 +18,7 @@
 import shutil
 import uuid
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timezone
 
 from src.config import settings
 from src.logger import get_logger
@@ -85,7 +85,7 @@ class StorageManager:
                  destination: data/processed/2024/01/15/a3f4c2b1-uuid-complet.mp3
         Folim un UUID pentru a evita coliziunile de nume (ex: 2 sedinte cu acelasi nume)         
         """
-        now=datetime.now()
+        now=datetime.now(timezone.utc)
         #Structura de directoare: an/luna/zi
         date_path=Path(
             str(now.year),
@@ -128,7 +128,7 @@ class StorageManager:
         destination = error_dir / file_path.name
         # Dacă există deja un fișier cu același nume în errors/, adăugăm timestamp
         if destination.exists():
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
             destination = error_dir / f"{file_path.stem}_{timestamp}{file_path.suffix}"
  
         shutil.move(str(file_path), str(destination))
