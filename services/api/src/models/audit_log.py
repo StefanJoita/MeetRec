@@ -13,6 +13,8 @@ from src.models.base import Base
 
 
 class AuditAction(str, enum.Enum):
+    CREATE           = "CREATE"
+    UPDATE           = "UPDATE"
     UPLOAD           = "UPLOAD"
     VIEW             = "VIEW"
     SEARCH           = "SEARCH"
@@ -21,6 +23,7 @@ class AuditAction(str, enum.Enum):
     TRANSCRIBE       = "TRANSCRIBE"
     LOGIN            = "LOGIN"
     RETENTION_DELETE = "RETENTION_DELETE"
+    SEMANTIC_SEARCH  = "SEMANTIC_SEARCH"
 
 
 class AuditLog(Base):
@@ -78,6 +81,7 @@ class User(Base):
     full_name: Mapped[Optional[str]] = mapped_column(String(255))
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     is_admin: Mapped[bool] = mapped_column(Boolean, default=False)
+    must_change_password: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True), server_default=func.now()
     )

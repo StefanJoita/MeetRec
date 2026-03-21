@@ -9,24 +9,45 @@
 # → Auto-documentare (make help)
 # → Standard în lumea open-source
 
-.PHONY: help start stop restart logs ps build clean setup
+.PHONY: help start start-core stop restart logs ps build clean setup \
+        db-shell redis-cli redis-queue api-shell stt-shell audit-shell \
+        test frontend-test clean-all
 
 # Afișează ajutor (rulat și cu "make" fără argumente)
 help:
 	@echo ""
 	@echo "  Meeting Transcriber — Comenzi disponibile:"
 	@echo ""
-	@echo "  make setup      → Prima configurare (copiază .env, creează foldere)"
-	@echo "  make start      → Pornește toate serviciile"
-	@echo "  make stop       → Oprește toate serviciile"
-	@echo "  make restart    → Repornește toate serviciile"
-	@echo "  make build      → Reconstruiește imaginile Docker"
-	@echo "  make logs       → Afișează logurile în timp real"
-	@echo "  make ps         → Statusul serviciilor"
-	@echo "  make db-shell   → Intră în PostgreSQL"
-	@echo "  make redis-cli  → Intră în Redis CLI"
-	@echo "  make clean      → Oprește și șterge containerele (DATELE RĂMÂN)"
-	@echo "  make clean-all  → Oprește și șterge TOT, inclusiv datele (ATENȚIE!)"
+	@echo "  Configurare & build:"
+	@echo "  make setup           → Prima configurare (copiază .env, creează foldere)"
+	@echo "  make build           → Reconstruiește imaginile Docker"
+	@echo ""
+	@echo "  Pornire & oprire:"
+	@echo "  make start           → Pornește TOATE serviciile"
+	@echo "  make start-core      → Pornește doar serviciile esențiale"
+	@echo "  make stop            → Oprește toate serviciile"
+	@echo "  make restart         → Repornește toate serviciile"
+	@echo ""
+	@echo "  Inspecție:"
+	@echo "  make logs            → Afișează logurile în timp real"
+	@echo "  make logs-<serviciu> → Loguri pentru un serviciu specific (ex: make logs-api)"
+	@echo "  make ps              → Statusul serviciilor"
+	@echo ""
+	@echo "  Shell & debugging:"
+	@echo "  make db-shell        → Intră în PostgreSQL"
+	@echo "  make redis-cli       → Intră în Redis CLI"
+	@echo "  make redis-queue     → Verifică lungimea cozii de transcripție"
+	@echo "  make api-shell       → Shell în containerul API"
+	@echo "  make stt-shell       → Shell în containerul STT Worker"
+	@echo "  make audit-shell     → Shell în containerul Audit & Retention"
+	@echo ""
+	@echo "  Testare:"
+	@echo "  make test            → Rulează testele backend (api, ingest, stt-worker)"
+	@echo "  make frontend-test   → Rulează testele frontend (Vitest)"
+	@echo ""
+	@echo "  Curățare:"
+	@echo "  make clean           → Oprește și șterge containerele (DATELE RĂMÂN)"
+	@echo "  make clean-all       → Oprește și șterge TOT, inclusiv datele (ATENȚIE!)"
 	@echo ""
 
 # Prima configurare
@@ -49,12 +70,20 @@ setup:
 
 # Pornește serviciile
 start:
-	@echo "🚀 Pornind serviciile..."
+	@echo "🚀 Pornind toate serviciile..."
 	docker compose up -d
 	@echo ""
 	@echo "✅ Servicii pornite!"
 	@echo "   🌐 Aplicație:  https://localhost"
-	@echo "   📊 Grafana:    http://localhost:3000"
+	@echo "   🔌 API:        http://localhost:8080/docs"
+
+# Pornește doar serviciile esențiale
+start-core:
+	@echo "🚀 Pornind serviciile esențiale..."
+	docker compose up -d postgres redis api ingest stt-worker nginx frontend
+	@echo ""
+	@echo "✅ Servicii pornite!"
+	@echo "   🌐 Aplicație:  https://localhost"
 	@echo "   🔌 API:        http://localhost:8080/docs"
 
 # Oprește serviciile
@@ -101,10 +130,23 @@ redis-queue:
 api-shell:
 	docker compose exec api /bin/bash
 
+# Intră în containerul STT Worker pentru debugging
+stt-shell:
+	docker compose exec stt-worker /bin/bash
+
+# Intră în containerul Audit & Retention pentru debugging
+audit-shell:
+	docker compose exec audit-retention /bin/bash
+
 # Rulează testele
 test:
 	docker compose exec api pytest tests/ -v
 	docker compose exec ingest pytest tests/ -v
+	docker compose exec stt-worker pytest tests/ -v
+
+# Rulează testele frontend (Vitest)
+frontend-test:
+	docker compose exec frontend npm run test
 
 # Oprește și șterge containerele (volumele cu date rămân!)
 clean:

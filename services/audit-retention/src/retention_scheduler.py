@@ -62,10 +62,12 @@ class RetentionScheduler:
 
         deleted_recordings = 0
         for rec in expired:
-            success = await delete_recording(pool, rec)
-            if success:
+            success = await delete_recording(pool, rec, dry_run=settings.retention_dry_run)
+            if success and not settings.retention_dry_run:
                 await log_retention_delete(pool, rec.id, rec.title)
                 deleted_recordings += 1
+            elif success and settings.retention_dry_run:
+                deleted_recordings += 1  # contorizăm pentru log dry-run
 
         # ── 2. Audit logs vechi ────────────────────────────────────────────
         deleted_logs = await delete_expired_audit_logs(pool)

@@ -4,11 +4,15 @@
 # ============================================================
 
 import io
+import re
 import uuid
 from datetime import datetime
+from urllib.parse import quote
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
+from slowapi import Limiter
+from slowapi.util import get_remote_address
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.database import get_db
@@ -19,6 +23,20 @@ from src.services.transcript_service import TranscriptService
 from sqlalchemy import select
 
 router = APIRouter(prefix="/export", tags=["export"])
+limiter = Limiter(key_func=get_remote_address)
+
+
+def _safe_filename(title: str) -> str:
+    """Sanitizează titlul pentru a fi folosit sigur în header-ul Content-Disposition.
+    Elimină orice caracter care ar putea cauza header injection (CRLF, ghilimele, etc.).
+    """
+    # Eliminăm caracterele de control (inclusiv CR/LF) și ghilimelele
+    safe = re.sub(r'[\x00-\x1f\x7f"\\]', '', title)
+    # Înlocuim spațiile cu underscore
+    safe = safe.strip().replace(' ', '_')
+    # Păstrăm maxim 50 de caractere
+    safe = safe[:50]
+    return safe or 'export'
 
 
 def _format_time(seconds: float) -> str:
@@ -57,7 +75,9 @@ async def _get_transcript_and_recording(
     "/recording/{recording_id}",
     summary="Exportă transcriptul (PDF / DOCX / TXT)",
 )
+@limiter.limit("20/hour")
 async def export_transcript(
+    request: Request,
     recording_id: uuid.UUID,
     format: str = Query(default="txt", pattern="^(pdf|docx|txt)$"),
     db: AsyncSession = Depends(get_db),
@@ -72,7 +92,7 @@ async def export_transcript(
     """
     recording, transcript = await _get_transcript_and_recording(recording_id, db)
 
-    filename_base = recording.title.replace(" ", "_")[:50]
+    filename_base = _safe_filename(recording.title)
 
     if format == "txt":
         return _export_txt(recording, transcript, filename_base)
@@ -102,10 +122,11 @@ def _export_txt(recording, transcript, filename_base: str) -> StreamingResponse:
     content = "\n".join(lines)
     buf = io.BytesIO(content.encode("utf-8"))
 
+    encoded = quote(f"{filename_base}.txt")
     return StreamingResponse(
         buf,
         media_type="text/plain; charset=utf-8",
-        headers={"Content-Disposition": f'attachment; filename="{filename_base}.txt"'},
+        headers={"Content-Disposition": f"attachment; filename*=UTF-8''{encoded}"},
     )
 
 
@@ -190,10 +211,11 @@ def _export_pdf(recording, transcript, filename_base: str) -> StreamingResponse:
     doc.build(story)
     buf.seek(0)
 
+    encoded = quote(f"{filename_base}.pdf")
     return StreamingResponse(
         buf,
         media_type="application/pdf",
-        headers={"Content-Disposition": f'attachment; filename="{filename_base}.pdf"'},
+        headers={"Content-Disposition": f"attachment; filename*=UTF-8''{encoded}"},
     )
 
 
@@ -246,8 +268,9 @@ def _export_docx(recording, transcript, filename_base: str) -> StreamingResponse
     doc.save(buf)
     buf.seek(0)
 
+    encoded = quote(f"{filename_base}.docx")
     return StreamingResponse(
         buf,
         media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-        headers={"Content-Disposition": f'attachment; filename="{filename_base}.docx"'},
+        headers={"Content-Disposition": f"attachment; filename*=UTF-8''{encoded}"},
     )

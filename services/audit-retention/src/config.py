@@ -21,6 +21,10 @@ class Settings(BaseSettings):
     # Default: o dată pe zi (86400s)
     retention_check_interval_seconds: int = 86400
 
+    # Dry-run: setează pe True pentru a loga ce ar fi șters fără să ștergă
+    # Util pentru testare și verificare înainte de prima rulare în producție
+    retention_dry_run: bool = False
+
     log_level: str = "INFO"
 
     @field_validator("database_url")
