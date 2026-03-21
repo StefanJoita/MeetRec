@@ -1,0 +1,13 @@
+asyncpg==0.29.0
+pydantic-settings==2.2.1
+structlog==24.1.0
+
+# HTTP server pentru /embed endpoint
+fastapi==0.111.0
+uvicorn[standard]==0.29.0
+
+# Embeddings semantice — model multilingv 384 dimensiuni (~120MB)
+# torch 2.4.0+cpu: compatibil cu sentence-transformers 3.x si transformers 4.4x
+sentence-transformers==3.0.1
+torch==2.4.0+cpu
+--extra-index-url https://download.pytorch.org/whl/cpu

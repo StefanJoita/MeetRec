@@ -24,7 +24,7 @@ services:
   #   - JSONB pentru date flexibile (metadata audio)
   #   - Cel mai robust RDBMS open-source
   postgres:
-    image: postgres:15-alpine   # alpine = imagine minimală (~70MB vs ~400MB)
+    image: pgvector/pgvector:pg15   # postgres:15 + extensia pgvector pentru embeddings semantice
     container_name: mt-postgres
     restart: unless-stopped     # repornește automat dacă cade, EXCEPȚIE: dacă tu îl oprești manual
     environment:
@@ -279,61 +279,42 @@ services:
       - ./services/audit-retention/src:/app/src
     networks:
       - backend-network
-      - monitoring-network
     depends_on:
       postgres:
         condition: service_healthy
 
   # ---------------------------------------------------------
-  # 📊 MONITORING — Grafana + Loki (loguri centralizate)
+  # 🔍 SEARCH INDEXER — Embeddings semantice
   # ---------------------------------------------------------
-  # Loki = agregator de loguri (ca Elasticsearch dar mai simplu)
-  # Grafana = vizualizare loguri și metrici
-  loki:
-    image: grafana/loki:2.9.0
-    container_name: mt-loki
-    restart: unless-stopped
-    user: "0"   # root — Loki are nevoie de permisiuni de scriere pentru WAL
-    ports:
-      - "3100:3100"
-    volumes:
-      - ./monitoring/loki/loki-config.yaml:/etc/loki/local-config.yaml:ro
-      - loki_data:/loki
-      - loki_wal:/wal
-    command: -config.file=/etc/loki/local-config.yaml
-    networks:
-      - monitoring-network
-
-  promtail:
-    image: grafana/promtail:2.9.0
-    container_name: mt-promtail
-    restart: unless-stopped
-    volumes:
-      - ./monitoring/promtail/promtail-config.yaml:/etc/promtail/config.yml:ro
-      # Promtail citește logurile Docker direct de pe disc
-      - /var/log:/var/log:ro
-      - /var/lib/docker/containers:/var/lib/docker/containers:ro
-    command: -config.file=/etc/promtail/config.yml
-    networks:
-      - monitoring-network
-      - backend-network
-
-  grafana:
-    image: grafana/grafana:10.0.0
-    container_name: mt-grafana
+  # Responsabilități:
+  #   1. La startup: re-indexează transcriptele fără embeddings
+  #   2. LISTEN PostgreSQL NOTIFY → indexează transcriptele noi imediat
+  #   3. Expune POST /embed (port 8001) → API-ul face semantic search
+  #   4. Expune POST /reindex → re-indexare manuală (admin)
+  search-indexer:
+    build:
+      context: ./services/search-indexer
+      dockerfile: Dockerfile
+    container_name: mt-search-indexer
     restart: unless-stopped
     environment:
-      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD}
-      GF_USERS_ALLOW_SIGN_UP: "false"   # nimeni nu se poate înregistra singur
-    ports:
-      - "${GRAFANA_PORT:-3000}:3000"
+      DATABASE_URL: ${DATABASE_URL}
+      EMBEDDING_MODEL: ${EMBEDDING_MODEL:-paraphrase-multilingual-MiniLM-L12-v2}
+      EMBEDDING_MODEL_PATH: /app/models
+      EMBEDDING_BATCH_SIZE: ${EMBEDDING_BATCH_SIZE:-32}
+      LOG_LEVEL: ${LOG_LEVEL}
+      TZ: Europe/Bucharest
     volumes:
-      - grafana_data:/var/lib/grafana
-      - ./monitoring/grafana/dashboards:/etc/grafana/provisioning/dashboards:ro
+      - embedding_models:/app/models     # modele descărcate o singură dată (~120MB)
+      - ./services/search-indexer/src:/app/src
+    ports:
+      - "8001:8001"   # /embed și /reindex (intern, nu expus în prod)
     networks:
-      - monitoring-network
+      - backend-network
     depends_on:
-      - loki
+      postgres:
+        condition: service_healthy
+
 
 # ===========================================================
 # VOLUMES — Stocarea persistentă a datelor
@@ -354,11 +335,7 @@ volumes:
     driver: local
   whisper_models:     # modelele AI (~1.5GB) — descărcate o dată
     driver: local
-  loki_data:          # logurile centralizate
-    driver: local
-  loki_wal:           # Loki Write-Ahead Log
-    driver: local
-  grafana_data:       # configurația și dashboards Grafana
+  embedding_models:   # modelul de embeddings semantice (~120MB) — descărcat o dată
     driver: local
 
 # ===========================================================
@@ -373,8 +350,6 @@ volumes:
 # frontend-network: Nginx, Frontend, API
 #   → Utilizatorul comunică DOAR prin nginx
 #
-# monitoring-network: Loki, Promtail, Grafana
-#   → Izolat, nu afectează traficul aplicației
 networks:
   backend-network:
     driver: bridge    # rețea virtuală privată între containere
@@ -382,6 +357,3 @@ networks:
   frontend-network:
     driver: bridge
     name: mt-frontend
-  monitoring-network:
-    driver: bridge
-    name: mt-monitoring

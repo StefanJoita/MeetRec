@@ -5,7 +5,7 @@
 # Logging clasic (greu de căutat):
 #   "[2024-01-15 10:23:41] ERROR ingest: Fișier invalid sedinta.mp3"
 #
-# Logging structurat JSON (ușor de filtrat în Grafana):
+# Logging structurat JSON — ușor de filtrat cu docker compose logs:
 #   {
 #     "timestamp": "2024-01-15T10:23:41Z",
 #     "level": "error",
@@ -15,9 +15,6 @@
 #     "reason": "format_not_supported",
 #     "format_detected": "pdf"
 #   }
-#
-# Cu al doilea format, poți face query în Grafana:
-#   {service="ingest"} | json | level="error"
 # ==============================================================================
 import logging
 import structlog

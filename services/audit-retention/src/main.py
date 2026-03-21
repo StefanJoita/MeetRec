@@ -15,7 +15,6 @@ from src.config import settings
 from src.database import DatabaseClient
 from src.retention_scheduler import RetentionScheduler
 
-# Configurare structlog — output JSON pentru Loki
 structlog.configure(
     processors=[
         structlog.stdlib.add_log_level,

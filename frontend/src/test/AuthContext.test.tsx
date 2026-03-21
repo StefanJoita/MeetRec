@@ -20,7 +20,9 @@ const FAKE_USER = {
   username: 'admin',
   email: 'admin@meetrec.ro',
   full_name: 'Administrator',
+  is_active: true,
   is_admin: true,
+  must_change_password: false,
 }
 
 const FAKE_TOKEN = {

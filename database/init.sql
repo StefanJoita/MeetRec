@@ -18,6 +18,10 @@ CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 -- Activăm extensia pentru full-text search în română și engleză
 CREATE EXTENSION IF NOT EXISTS "unaccent";  -- elimină diacritice la search (ș=s, ț=t)
 
+-- Activăm pgvector pentru căutare semantică (embeddings)
+-- Necesită imaginea pgvector/pgvector:pg15 în docker-compose
+CREATE EXTENSION IF NOT EXISTS vector;
+
 -- ============================================================
 -- TIPURI CUSTOM (ENUM) — Valori predefinite
 -- ============================================================
@@ -58,6 +62,8 @@ CREATE TYPE audio_format AS ENUM (
 
 -- Tipuri de acțiuni pentru audit
 CREATE TYPE audit_action AS ENUM (
+    'CREATE',         -- utilizator creat
+    'UPDATE',         -- utilizator / resursă actualizată
     'UPLOAD',         -- fișier nou încărcat
     'VIEW',           -- transcript vizualizat
     'SEARCH',         -- căutare efectuată
@@ -65,7 +71,8 @@ CREATE TYPE audit_action AS ENUM (
     'DELETE',         -- înregistrare ștearsă
     'TRANSCRIBE',     -- transcriere pornită
     'LOGIN',          -- autentificare user
-    'RETENTION_DELETE' -- șters automat de politica de retenție
+    'RETENTION_DELETE', -- șters automat de politica de retenție
+    'SEMANTIC_SEARCH'   -- căutare semantică (embeddings)
 );
 
 -- ============================================================
@@ -187,12 +194,25 @@ CREATE TABLE transcript_segments (
     -- Identifică cine vorbește în fiecare segment
     speaker_id      VARCHAR(50),        -- 'SPEAKER_00', 'SPEAKER_01', etc.
 
+    -- Embedding semantic (generat de search-indexer cu sentence-transformers)
+    -- vector(384) = paraphrase-multilingual-MiniLM-L12-v2
+    -- NULL = segmentul nu a fost încă indexat semantic
+    embedding       vector(384),
+
     -- Constrângere: în același transcript, index-ul e unic
     CONSTRAINT unique_segment_index UNIQUE (transcript_id, segment_index)
 );
 
 CREATE INDEX idx_segments_transcript_id ON transcript_segments(transcript_id);
 CREATE INDEX idx_segments_start_time ON transcript_segments(transcript_id, start_time);
+
+-- Index HNSW pentru căutare semantică (cosine distance)
+-- HNSW = Hierarchical Navigable Small World — cel mai rapid pentru ANN search
+-- vector_cosine_ops = optimizat pentru vectori normalizați (cum generăm noi)
+CREATE INDEX idx_segments_embedding ON transcript_segments
+    USING hnsw (embedding vector_cosine_ops)
+    WITH (m = 16, ef_construction = 64);
+-- m=16, ef_construction=64 = echilibru bun între calitate și viteză de build
 
 -- ============================================================
 -- TABELUL: audit_logs
@@ -286,6 +306,35 @@ CREATE TRIGGER update_search_vector_on_segment
     EXECUTE FUNCTION update_transcript_search_vector();
 
 -- ============================================================
+-- TRIGGER: NOTIFY când transcrierea e completă
+-- ============================================================
+-- Când STT Worker setează status='completed' pe un transcript,
+-- triggerul apelează pg_notify('transcript_ready', transcript_id).
+-- Search Indexer ascultă acest canal și generează embeddings imediat.
+--
+-- De ce trigger în DB și nu în codul Python?
+--   - Garantat: chiar dacă STT Worker crape după UPDATE, notificarea
+--     a fost deja trimisă (în aceeași tranzacție → atomicitate)
+--   - Simplu: o linie de SQL vs. cod Python suplimentar în worker
+
+CREATE OR REPLACE FUNCTION notify_transcript_ready()
+RETURNS TRIGGER AS $$
+BEGIN
+    -- Notificăm DOAR când trecem în 'completed' (nu la alte status updates)
+    IF NEW.status = 'completed'
+       AND (OLD.status IS DISTINCT FROM 'completed') THEN
+        PERFORM pg_notify('transcript_ready', NEW.id::text);
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER transcript_completed_notify
+    AFTER UPDATE ON transcripts
+    FOR EACH ROW
+    EXECUTE FUNCTION notify_transcript_ready();
+
+-- ============================================================
 -- DATE INIȚIALE (Seed Data)
 -- ============================================================
 -- Câțiva utilizatori de test (în producție, se creează prin UI)
@@ -299,6 +348,7 @@ CREATE TABLE users (
     full_name       VARCHAR(255),
     is_active       BOOLEAN DEFAULT TRUE,
     is_admin        BOOLEAN DEFAULT FALSE,
+    must_change_password BOOLEAN DEFAULT FALSE,
     created_at      TIMESTAMPTZ DEFAULT NOW(),
     last_login      TIMESTAMPTZ
 );
@@ -306,14 +356,15 @@ CREATE TABLE users (
 -- Utilizatori de test (SCHIMBĂ parolele în producție!)
 -- admin123  → hash bcrypt mai jos
 -- operator123 → hash bcrypt mai jos
-INSERT INTO users (username, email, full_name, password_hash, is_active, is_admin) VALUES
+INSERT INTO users (username, email, full_name, password_hash, is_active, is_admin, must_change_password) VALUES
 (
     'admin',
     'admin@meetrec.local',
     'Administrator',
     '$2b$12$gx/JCPvsqzV45DZK4/0YOeJLI0AlTHlHpyt2kLsGMgA3.dLoOMe5.',
     TRUE,
-    TRUE
+    TRUE,
+    FALSE
 ),
 (
     'operator',
@@ -321,6 +372,7 @@ INSERT INTO users (username, email, full_name, password_hash, is_active, is_admi
     'Operator Ședințe',
     '$2b$12$bLhDb8uFQTKUqrCj6KP0LOplCIEvt6hTe9ChX7asGbVZbhl6L1kZe',
     TRUE,
+    FALSE,
     FALSE
 );
 

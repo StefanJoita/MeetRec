@@ -1,186 +1,273 @@
-# MeetRec
+<div align="center">
 
-**Platformă self-hosted de transcriere automată a ședințelor.**
-Detectează fișiere audio, le transcrie cu OpenAI Whisper (local, fără cloud) și expune un REST API cu căutare full-text.
+# 🎙 MeetRec
 
-> Documentație tehnică detaliată: [technical_docs.md](technical_docs.md)
+**Self-hosted meeting transcription platform — private, fast, and production-ready.**
 
----
+[![Python](https://img.shields.io/badge/Python-3.11-3776AB?style=flat-square&logo=python&logoColor=white)](https://python.org)
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.104-009688?style=flat-square&logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com)
+[![React](https://img.shields.io/badge/React-18-61DAFB?style=flat-square&logo=react&logoColor=black)](https://react.dev)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5-3178C6?style=flat-square&logo=typescript&logoColor=white)](https://typescriptlang.org)
+[![PostgreSQL](https://img.shields.io/badge/PostgreSQL-15-4169E1?style=flat-square&logo=postgresql&logoColor=white)](https://postgresql.org)
+[![Docker](https://img.shields.io/badge/Docker-Compose-2496ED?style=flat-square&logo=docker&logoColor=white)](https://docker.com)
+[![License](https://img.shields.io/badge/License-Proprietary-red?style=flat-square)](LICENSE)
 
-## Ce face
+*Drop an audio file. Get a searchable, exportable transcript. Everything runs on your infrastructure — no cloud, no subscriptions, no data leaving your premises.*
 
-| Funcționalitate | Descriere |
-|---|---|
-| Ingestie automată | Copiați un fișier audio în `/data/inbox` — se procesează automat |
-| Upload web | Interfața web / `POST /api/v1/inbox/upload` — fișierul ajunge în inbox, Ingest preia |
-| Speech-to-text | OpenAI Whisper medium (~85% acuratețe pentru română) |
-| Căutare full-text | PostgreSQL TSVECTOR + index GIN, returnează snippets cu termenul evidențiat |
-| Export transcriere | PDF, DOCX, TXT |
-| Autentificare JWT | HS256, 8h expirare, bcrypt hashing |
-| Interfață web | React SPA cu player audio sincronizat cu transcrierea |
-| Audit log | Fiecare acțiune (upload, vizualizare, căutare, export, ștergere) este înregistrată |
-| Retenție | Ștergere automată configurabilă după N zile |
-| Monitorizare | Grafana + Loki + Promtail |
+</div>
 
 ---
 
-## Arhitectură
+## What is MeetRec?
+
+MeetRec is a fully self-hosted platform that automatically transcribes meeting recordings using **OpenAI Whisper** running locally. It provides a clean web interface for browsing, searching, and exporting transcripts, with a complete REST API for integration with other tools.
+
+**Key principle:** audio never leaves your server. Transcription happens on-premise using Whisper — no third-party API calls, no data sent to the cloud.
+
+---
+
+## Features
+
+| | Feature | Details |
+|---|---|---|
+| 🤖 | **Auto-transcription** | Drop audio in `/data/inbox` — transcription starts automatically |
+| 🌐 | **Web upload** | Drag-and-drop interface or `POST /api/v1/inbox/upload` |
+| 🎯 | **~85% accuracy** | Whisper `medium` model, optimized for Romanian |
+| 🔍 | **Full-text search** | PostgreSQL `TSVECTOR` + GIN index, highlighted snippets |
+| 🧠 | **Semantic search** | pgvector + sentence embeddings for meaning-based queries |
+| 📄 | **Export** | Download transcripts as PDF, DOCX, or plain TXT |
+| 🔐 | **Authentication** | JWT (HS256), bcrypt passwords, role-based access (admin/user) |
+| 📋 | **Audit log** | Every action logged — upload, view, search, export, delete |
+| 🗑️ | **Auto-retention** | Configurable auto-delete after N days (GDPR-friendly) |
+| ⚡ | **Rate limiting** | Brute-force protection on login, throttling on search/export |
+| 🎵 | **Synced player** | Audio player synchronized with transcript segments in real time |
+
+---
+
+## Architecture
 
 ```
-Browser / drop-folder
+Browser / Drop-folder
         │
         ▼
-  POST /inbox/upload          cp fisier.mp3 data/inbox/
+  POST /inbox/upload          cp meeting.mp3 data/inbox/
         │                              │
         ▼                              ▼
-      API  ──── scrie ────▶  /data/inbox/
+      API ────── writes ──────► /data/inbox/
                                        │
-                               Ingest Service   (validare completă: format,
-                                       │         dimensiune, durată, SHA256)
+                               Ingest Service
+                               (validate: format, size,
+                                duration, SHA-256 dedup)
+                                       │
                                        ▼
                                  Redis Queue
                                        │
                                STT Worker (Whisper)
+                               (transcribe → segments
+                                → full-text vectors)
                                        │
-                                 PostgreSQL DB
+                                 PostgreSQL DB ◄─── Search Indexer
+                                       ▲             (pgvector embeddings)
+                                   FastAPI
+                               (CRUD · search · export)
                                        ▲
-                                   FastAPI (API)   (CRUD, căutare, export)
-                                       ▲
-                               Nginx ← Frontend (React)
+                               Nginx ◄─── React SPA
 ```
 
-**Regulă fundamentală:** Ingest Service este **singura** cale prin care audio intră în sistem și face toate validările. API-ul nu atinge fișierele audio — doar le depune în inbox.
+**Golden rule:** Ingest Service is the **only** entry point for audio. It performs all validations. The API never touches audio files directly.
 
-**Servicii:**
+### Services
 
-| Serviciu | Tehnologie |
-|---|---|
-| API | FastAPI + SQLAlchemy async |
-| Ingest | watchdog + asyncpg |
-| STT Worker | OpenAI Whisper + asyncpg |
-| Frontend | React + Vite + TailwindCSS |
-| DB | PostgreSQL 15 |
-| Queue | Redis 7 |
-| Proxy | Nginx 1.25 |
-| Monitorizare | Grafana + Loki + Promtail |
+| Service | Technology | Role |
+|---|---|---|
+| **API** | FastAPI + SQLAlchemy async | REST endpoints, business logic |
+| **Ingest** | Python watchdog + asyncpg | File detection, validation, queuing |
+| **STT Worker** | OpenAI Whisper + asyncpg | Speech-to-text transcription |
+| **Search Indexer** | Sentence Transformers + pgvector | Semantic embedding generation |
+| **Audit Retention** | APScheduler | Scheduled cleanup, GDPR retention |
+| **Frontend** | React 18 + Vite + TailwindCSS | Web interface |
+| **DB** | PostgreSQL 15 + pgvector | Storage, full-text + vector search |
+| **Queue** | Redis 7 | Job queue between Ingest and STT Worker |
+| **Proxy** | Nginx 1.25 | Reverse proxy, static files |
 
 ---
 
-## Instalare rapidă
+## Quick Start
 
-**Cerințe:** Docker ≥ 24.0, Docker Compose v2, 6 GB RAM, 6 GB spațiu liber.
+**Requirements:** Docker ≥ 24.0, Docker Compose v2, 6 GB RAM, 6 GB disk space.
 
 ```bash
-# 1. Clonați repo-ul
-git clone <repository-url>
-cd meeting-transcriber
+# 1. Clone the repository
+git clone https://github.com/StefanJoita/MeetRec.git
+cd MeetRec
 
-# 2. Configurați variabilele de mediu
+# 2. Set up environment variables
 cp .env.example .env
-# Editați .env — setați JWT_SECRET_KEY, POSTGRES_PASSWORD, GRAFANA_ADMIN_PASSWORD
+# Edit .env — set JWT_SECRET_KEY and POSTGRES_PASSWORD
 
-# 3. Creați directorul inbox
-mkdir -p data/inbox
+# 3. Generate a secure JWT secret
+python -c "import secrets; print(secrets.token_hex(32))"
+# Paste the output as JWT_SECRET_KEY in .env
 
-# 4. Porniți toate serviciile
+# 4. Create data directories
+mkdir -p data/inbox data/processed data/exports
+
+# 5. Start all services
 docker compose up --build -d
 
-# 5. Verificați
+# 6. Verify everything is running
 curl http://localhost:8080/health
-# → {"status":"healthy", ...}
+# → {"status": "healthy", "services": {...}}
 ```
 
-Prima pornire descarcă modelul Whisper medium (~1.5 GB) — poate dura câteva minute.
+> **First startup:** Whisper `medium` model (~1.5 GB) will be downloaded automatically. This takes a few minutes on first run only.
 
-**UI web:** `http://localhost` (sau portul Nginx configurat)
-**API docs:** `http://localhost:8080/docs` (doar în `APP_ENV=development`)
-**Grafana:** `http://localhost:3000`
+**Web UI:** `http://localhost`
+**API docs:** `http://localhost:8080/docs` *(development mode only)*
 
 ---
 
-## Utilizare
+## Usage
 
-### Drop-folder
+### Drop-folder (simplest)
 
 ```bash
-cp sedinta.mp3 data/inbox/
-# Ingest Service detectează fișierul, îl validează și îl trimite la transcriere
+cp meeting.mp3 data/inbox/
+# Ingest detects the file, validates it, and queues it for transcription
 docker compose logs -f ingest stt-worker
 ```
+
+### Web Interface
+
+1. Open `http://localhost` and log in
+2. Click **New Recording** → drag-and-drop your audio file
+3. Wait for transcription (progress shown in real time)
+4. Click on any transcript segment to jump to that moment in the audio
+5. Use the **Search** page for full-text or semantic queries
+6. Export to PDF/DOCX/TXT from the recording detail page
 
 ### REST API
 
 ```bash
-# Autentificare
-curl -X POST http://localhost:8080/api/v1/auth/login \
+# Authenticate
+TOKEN=$(curl -s -X POST http://localhost:8080/api/v1/auth/login \
   -H "Content-Type: application/json" \
-  -d '{"username": "admin", "password": "parola"}'
-# → {"access_token": "eyJ...", "token_type": "bearer"}
+  -d '{"username": "admin", "password": "your-password"}' \
+  | jq -r '.access_token')
 
-export TOKEN="eyJ..."
-
-# Upload fișier audio (ajunge în inbox → Ingest preia automat)
+# Upload audio
 curl -X POST http://localhost:8080/api/v1/inbox/upload \
   -H "Authorization: Bearer $TOKEN" \
-  -F "file=@sedinta.mp3"
-# → 202 Accepted: {"message": "Fișierul a fost primit...", "filename": "sedinta.mp3"}
+  -F "file=@meeting.mp3"
+# → 202 Accepted
 
-# Actualizare metadata după ce Ingest creează înregistrarea
-curl -X PATCH http://localhost:8080/api/v1/recordings/{id} \
-  -H "Authorization: Bearer $TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{"title": "Ședința Consiliului — 15 ian 2024", "meeting_date": "2024-01-15"}'
-
-# Căutare full-text
+# List recordings
 curl -H "Authorization: Bearer $TOKEN" \
-  "http://localhost:8080/api/v1/search?q=buget+2024"
+  "http://localhost:8080/api/v1/recordings?page=1&page_size=20"
 
-# Export PDF
+# Full-text search
+curl -H "Authorization: Bearer $TOKEN" \
+  "http://localhost:8080/api/v1/search?q=budget+2024"
+
+# Export as PDF
 curl -H "Authorization: Bearer $TOKEN" \
   "http://localhost:8080/api/v1/export/{id}?format=pdf" \
-  --output transcriere.pdf
+  --output transcript.pdf
+```
+
+Full API reference available at `/docs` when running in development mode.
+
+---
+
+## Configuration
+
+All settings live in `.env`. Copy `.env.example` to get started.
+
+### Required
+
+| Variable | Description |
+|---|---|
+| `JWT_SECRET_KEY` | JWT signing key — **minimum 32 characters, cryptographically random** |
+| `POSTGRES_PASSWORD` | PostgreSQL password |
+| `DATABASE_URL` | `postgresql+asyncpg://meetrec:pass@postgres:5432/meetrec_db` |
+
+### Optional
+
+| Variable | Default | Description |
+|---|---|---|
+| `WHISPER_MODEL` | `medium` | Model size: `tiny` / `base` / `small` / `medium` / `large` |
+| `RETENTION_DAYS` | `1095` | Days to keep recordings (default: 3 years) |
+| `APP_ENV` | `development` | Set to `production` to disable `/docs` and restrict CORS |
+| `MAX_FILE_SIZE_BYTES` | `524288000` | Max upload size (default: 500 MB) |
+| `SEARCH_INDEXER_ENABLED` | `true` | Enable semantic search indexing |
+
+---
+
+## Security
+
+MeetRec is designed with security in mind:
+
+- **JWT authentication** with configurable expiry and forced password change on first login
+- **bcrypt** password hashing (cost factor 12)
+- **Rate limiting** via `slowapi` — 5 req/min on login, 20 req/hour on export
+- **Path traversal protection** on all file operations (validated with `pathlib.Path.resolve()`)
+- **Audit logging** — every user action is recorded with IP, timestamp, and user ID
+- **Input validation** — file type verified by magic bytes, not just extension
+- **CORS** restricted to explicit origins in production
+
+> **Important:** Set `APP_ENV=production` in production. Never use `APP_ENV=development` with public-facing deployments.
+
+---
+
+## Project Structure
+
+```
+MeetRec/
+├── services/
+│   ├── api/                  # FastAPI application
+│   │   ├── src/
+│   │   │   ├── routers/      # auth, recordings, search, export, users
+│   │   │   ├── services/     # business logic
+│   │   │   ├── models/       # SQLAlchemy models
+│   │   │   └── schemas/      # Pydantic schemas
+│   │   └── tests/
+│   ├── ingest/               # File watcher & validator
+│   ├── stt-worker/           # Whisper transcription worker
+│   ├── search-indexer/       # pgvector embedding service
+│   └── audit-retention/      # Scheduled cleanup service
+├── frontend/
+│   └── src/
+│       ├── pages/            # Login, Recordings, Search, Admin
+│       ├── components/       # AudioPlayer, TranscriptViewer, ...
+│       ├── api/              # Typed API client
+│       └── contexts/         # Auth, Toast
+├── database/
+│   ├── init.sql              # Schema
+│   └── migrations/           # SQL migrations
+├── docker-compose.yml
+└── .env.example
 ```
 
 ---
 
-## Configurare
+## Implementation Status
 
-Toate setările sunt în fișierul `.env`. Variabilele obligatorii:
-
-| Variabilă | Descriere |
-|---|---|
-| `JWT_SECRET_KEY` | Cheie semnare JWT (min. 32 caractere) |
-| `POSTGRES_PASSWORD` | Parolă PostgreSQL |
-| `GRAFANA_ADMIN_PASSWORD` | Parolă admin Grafana |
-| `DATABASE_URL` | `postgresql+asyncpg://user:pass@postgres:5432/meetrec_db` |
-
-Variabile opționale importante:
-
-| Variabilă | Default | Descriere |
+| Component | Status | Notes |
 |---|---|---|
-| `WHISPER_MODEL` | `medium` | Dimensiune model: `tiny`, `base`, `small`, `medium`, `large` |
-| `RETENTION_DAYS` | `1095` | Zile de păstrare înregistrări (3 ani) |
-| `APP_ENV` | `development` | `production` dezactivează `/docs` și CORS permisiv |
-| `MAX_FILE_SIZE_BYTES` | `524288000` | Limită upload (500 MB) |
+| Ingest Service | ✅ Complete | Validation: format, size, duration, SHA-256 dedup |
+| STT Worker | ✅ Complete | Whisper medium, retry logic, async processing |
+| API — auth, CRUD, search, export, audit | ✅ Complete | Rate limiting, JWT, role-based access |
+| Frontend | ✅ Complete | Upload, list, detail, search, admin panel |
+| Search Indexer | ✅ Complete | pgvector embeddings + PostgreSQL LISTEN/NOTIFY |
+| Audit Retention | ✅ Complete | APScheduler, GDPR-compliant auto-delete |
+| Database schema + migrations | ✅ Complete | GIN index, HNSW vector index |
+| Full-text search | ✅ Complete | TSVECTOR + GIN, Romanian language support |
+| Semantic search | ✅ Complete | Sentence Transformers + pgvector |
+| Virtual scrolling | ✅ Complete | @tanstack/react-virtual, 1000+ segments |
+| Error boundaries | ✅ Complete | React ErrorBoundary, graceful fallbacks |
 
 ---
 
-## Status implementare
+## License
 
-| Componentă | Status |
-|---|---|
-| Ingest Service | ✅ Complet — singura cale de intrare audio |
-| STT Worker | ✅ Complet — Whisper medium, română |
-| API — CRUD, inbox, căutare, export, auth, audit | ✅ Complet |
-| Frontend React | ✅ Complet — upload, listă, detaliu, căutare, admin |
-| Schema PostgreSQL | ✅ Completă |
-| Monitorizare Grafana/Loki | ✅ Configurată |
-| Audit-Retention Service | ⏳ Dockerfile gata, sursă neimplementată |
-| Search Indexer Service | ⏳ Placeholder |
-| Migrări Alembic | ⏳ Neimplementate |
-
----
-
-## Licență
-
-Proiect intern. Toate drepturile rezervate.
+Proprietary — all rights reserved.

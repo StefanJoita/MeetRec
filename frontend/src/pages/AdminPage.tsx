@@ -1,16 +1,14 @@
-import { useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
-import { ShieldCheck, ChevronLeft, ChevronRight } from 'lucide-react'
-import client from '@/api/client'
-import { Spinner } from '@/components/ui/Spinner'
-import type { PaginatedAuditLogs, AuditLog } from '@/api/types'
-
-async function getAuditLogs(page: number, pageSize: number): Promise<PaginatedAuditLogs> {
-  const { data } = await client.get<PaginatedAuditLogs>('/audit-logs', {
-    params: { page, page_size: pageSize },
-  })
-  return data
-}
+import { FormEvent, useMemo, useState } from 'react'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { ShieldCheck, Activity, AlertTriangle, List, Users, UserPlus, UserX } from 'lucide-react'
+import { SkeletonTable } from '@/components/ui/Skeleton'
+import { Pagination } from '@/components/ui/Pagination'
+import type { AuditLog, UserCreate } from '@/api/types'
+import { getAuditLogs } from '@/api/auditLogs'
+import { createUser, deleteUser, getUsers, updateUser } from '@/api/users'
+import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
+import { useToast } from '@/contexts/ToastContext'
+import { useAuth } from '@/contexts/AuthContext'
 
 const ACTION_COLORS: Record<string, string> = {
   UPLOAD: 'bg-blue-100 text-blue-700',
@@ -24,14 +22,137 @@ const ACTION_COLORS: Record<string, string> = {
 }
 
 export default function AdminPage() {
+  const { user: currentUser } = useAuth()
+  const toast = useToast()
+  const queryClient = useQueryClient()
+
+  const [activeSection, setActiveSection] = useState<'audit' | 'users'>('audit')
+
   const [page, setPage] = useState(1)
+  const [actionFilter, setActionFilter] = useState('')
   const pageSize = 20
 
+  const [userPage, setUserPage] = useState(1)
+  const [userSearch, setUserSearch] = useState('')
+  const [includeInactive, setIncludeInactive] = useState(false)
+  const [showCreateUser, setShowCreateUser] = useState(false)
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false)
+  const [pendingDeleteUserId, setPendingDeleteUserId] = useState<string | null>(null)
+
+  const [newUserForm, setNewUserForm] = useState<UserCreate>({
+    username: '',
+    email: '',
+    full_name: '',
+    password: '',
+    is_admin: false,
+  })
+
+  // Fetch all logs for stats (page 1 with large size) + current page
   const { data, isLoading, isError } = useQuery({
     queryKey: ['audit-logs', page],
     queryFn: () => getAuditLogs(page, pageSize),
     retry: false,
   })
+
+  const { data: allData } = useQuery({
+    queryKey: ['audit-logs-all'],
+    queryFn: () => getAuditLogs(1, 1000),
+    retry: false,
+  })
+
+  const {
+    data: usersData,
+    isLoading: usersLoading,
+    isError: usersError,
+  } = useQuery({
+    queryKey: ['users', userPage, userSearch, includeInactive],
+    queryFn: () => getUsers({ page: userPage, page_size: pageSize, search: userSearch || undefined, include_inactive: includeInactive }),
+    retry: false,
+    enabled: activeSection === 'users',
+  })
+
+  const createUserMutation = useMutation({
+    mutationFn: (payload: UserCreate) => createUser(payload),
+    onSuccess: () => {
+      toast('Utilizator creat. Va trebui să-și schimbe parola la primul login.', 'success')
+      setShowCreateUser(false)
+      setNewUserForm({ username: '', email: '', full_name: '', password: '', is_admin: false })
+      queryClient.invalidateQueries({ queryKey: ['users'] })
+    },
+    onError: (error: any) => {
+      toast(error?.response?.data?.detail ?? 'Nu am putut crea utilizatorul.', 'error')
+    },
+  })
+
+  const updateUserMutation = useMutation({
+    mutationFn: ({ userId, payload }: { userId: string; payload: { is_admin?: boolean; is_active?: boolean } }) => updateUser(userId, payload),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['users'] })
+      toast('Utilizator actualizat.', 'success')
+    },
+    onError: (error: any) => {
+      toast(error?.response?.data?.detail ?? 'Nu am putut actualiza utilizatorul.', 'error')
+    },
+  })
+
+  const deleteUserMutation = useMutation({
+    mutationFn: (userId: string) => deleteUser(userId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['users'] })
+      toast('Utilizator șters definitiv.', 'success')
+    },
+    onError: (error: any) => {
+      toast(error?.response?.data?.detail ?? 'Nu am putut șterge utilizatorul.', 'error')
+    },
+  })
+
+  const stats = useMemo(() => {
+    if (!allData) return null
+    const items = allData.items
+    const total = allData.total
+    const sevenDaysAgo = Date.now() - 7 * 24 * 60 * 60 * 1000
+    const errors = items.filter(l => !l.success && new Date(l.timestamp).getTime() > sevenDaysAgo).length
+    const actionTypes = [...new Set(items.map(l => l.action))].sort()
+    return { total, errors, actionTypes }
+  }, [allData])
+
+  const filteredItems = useMemo(() => {
+    if (!data) return []
+    if (!actionFilter) return data.items
+    return data.items.filter(l => l.action === actionFilter)
+  }, [data, actionFilter])
+
+  const userStats = useMemo(() => {
+    if (!usersData) return null
+    const total = usersData.total
+    const admins = usersData.items.filter(u => u.is_admin && u.is_active).length
+    const inactive = usersData.items.filter(u => !u.is_active).length
+    return { total, admins, inactive }
+  }, [usersData])
+
+  function handleCreateUserSubmit(e: FormEvent) {
+    e.preventDefault()
+    createUserMutation.mutate(newUserForm)
+  }
+
+  function handleToggleAdmin(userId: string, nextValue: boolean) {
+    updateUserMutation.mutate({ userId, payload: { is_admin: nextValue } })
+  }
+
+  function handleToggleActive(userId: string, nextValue: boolean) {
+    updateUserMutation.mutate({ userId, payload: { is_active: nextValue } })
+  }
+
+  function requestDeleteUser(userId: string) {
+    setPendingDeleteUserId(userId)
+    setShowDeleteDialog(true)
+  }
+
+  function confirmDeleteUser() {
+    if (!pendingDeleteUserId) return
+    deleteUserMutation.mutate(pendingDeleteUserId)
+    setPendingDeleteUserId(null)
+  }
 
   return (
     <div className="p-6 max-w-6xl mx-auto">
@@ -41,21 +162,101 @@ export default function AdminPage() {
         </div>
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Administrare</h1>
-          <p className="text-sm text-gray-500">Log de audit — toate acțiunile utilizatorilor</p>
+          <p className="text-sm text-gray-500">Audit și management utilizatori</p>
         </div>
       </div>
 
-      {isLoading && (
-        <div className="flex justify-center py-20"><Spinner className="h-8 w-8" /></div>
+      <div className="flex gap-2 mb-6">
+        <button
+          onClick={() => setActiveSection('audit')}
+          className={`px-4 py-2 rounded-lg text-sm font-medium border ${
+            activeSection === 'audit'
+              ? 'bg-blue-600 text-white border-blue-600'
+              : 'bg-white text-gray-700 border-gray-300'
+          }`}
+        >
+          Audit logs
+        </button>
+        <button
+          onClick={() => setActiveSection('users')}
+          className={`px-4 py-2 rounded-lg text-sm font-medium border ${
+            activeSection === 'users'
+              ? 'bg-blue-600 text-white border-blue-600'
+              : 'bg-white text-gray-700 border-gray-300'
+          }`}
+        >
+          Utilizatori
+        </button>
+      </div>
+
+      {activeSection === 'audit' && stats && (
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 mb-6">
+          <div className="card-padded flex items-center gap-3">
+            <div className="h-9 w-9 bg-blue-50 rounded-lg flex items-center justify-center shrink-0">
+              <List className="h-4 w-4 text-blue-600" />
+            </div>
+            <div>
+              <p className="text-2xl font-bold text-gray-900">{stats.total}</p>
+              <p className="text-xs text-gray-500">Total intrări</p>
+            </div>
+          </div>
+          <div className="card-padded flex items-center gap-3">
+            <div className="h-9 w-9 bg-red-50 rounded-lg flex items-center justify-center shrink-0">
+              <AlertTriangle className="h-4 w-4 text-red-500" />
+            </div>
+            <div>
+              <p className="text-2xl font-bold text-gray-900">{stats.errors}</p>
+              <p className="text-xs text-gray-500">Erori (7 zile)</p>
+            </div>
+          </div>
+          <div className="card-padded flex items-center gap-3">
+            <div className="h-9 w-9 bg-green-50 rounded-lg flex items-center justify-center shrink-0">
+              <Activity className="h-4 w-4 text-green-600" />
+            </div>
+            <div>
+              <p className="text-2xl font-bold text-gray-900">{stats.actionTypes.length}</p>
+              <p className="text-xs text-gray-500">Tipuri acțiuni</p>
+            </div>
+          </div>
+        </div>
       )}
 
-      {isError && (
+      {/* Action filter chips */}
+      {activeSection === 'audit' && stats && stats.actionTypes.length > 0 && (
+        <div className="flex flex-wrap gap-2 mb-4">
+          <button
+            onClick={() => setActionFilter('')}
+            className={[
+              'px-3 py-1.5 rounded-full text-xs font-medium border transition-colors',
+              actionFilter === '' ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-600 border-gray-300 hover:border-gray-400',
+            ].join(' ')}
+          >
+            Toate
+          </button>
+          {stats.actionTypes.map(action => (
+            <button
+              key={action}
+              onClick={() => setActionFilter(action)}
+              className={[
+                'px-3 py-1.5 rounded-full text-xs font-medium border transition-colors',
+                actionFilter === action ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-600 border-gray-300 hover:border-gray-400',
+              ].join(' ')}
+            >
+              {action}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {activeSection === 'audit' && isLoading && <SkeletonTable rows={10} cols={5} />}
+
+      {activeSection === 'audit' && isError && (
         <div className="bg-red-50 border border-red-200 rounded-xl p-6 text-center text-red-600 text-sm">
           Eroare la încărcarea logurilor. Verificați că aveți drepturi de administrator.
         </div>
       )}
 
-      {data && (
+      {activeSection === 'audit' && data && (
         <>
           <div className="bg-white border border-gray-200 rounded-xl overflow-hidden mb-4">
             <table className="min-w-full divide-y divide-gray-100">
@@ -69,14 +270,14 @@ export default function AdminPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-50">
-                {data.items.length === 0 && (
+                {filteredItems.length === 0 && (
                   <tr>
                     <td colSpan={5} className="px-4 py-12 text-center text-gray-400 text-sm">
                       Nicio intrare în log.
                     </td>
                   </tr>
                 )}
-                {data.items.map((log: AuditLog) => (
+                {filteredItems.map((log: AuditLog) => (
                   <tr key={log.id} className="hover:bg-gray-50">
                     <td className="px-4 py-3 text-xs text-gray-500 whitespace-nowrap">
                       {new Date(log.timestamp).toLocaleString('ro-RO')}
@@ -106,29 +307,225 @@ export default function AdminPage() {
             </table>
           </div>
 
-          {data.pages > 1 && (
-            <div className="flex items-center justify-between">
-              <p className="text-sm text-gray-500">Pagina {data.page} din {data.pages} · {data.total} intrări</p>
-              <div className="flex gap-2">
-                <button
-                  onClick={() => setPage(p => Math.max(1, p - 1))}
-                  disabled={page === 1}
-                  className="p-2 rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-50 disabled:opacity-40"
-                >
-                  <ChevronLeft className="h-4 w-4" />
-                </button>
-                <button
-                  onClick={() => setPage(p => Math.min(data.pages, p + 1))}
-                  disabled={page === data.pages}
-                  className="p-2 rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-50 disabled:opacity-40"
-                >
-                  <ChevronRight className="h-4 w-4" />
-                </button>
+          <Pagination
+            page={data.page}
+            pages={data.pages}
+            total={data.total}
+            onPageChange={setPage}
+          />
+        </>
+      )}
+
+      {activeSection === 'users' && (
+        <>
+          {userStats && (
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 mb-6">
+              <div className="card-padded flex items-center gap-3">
+                <div className="h-9 w-9 bg-blue-50 rounded-lg flex items-center justify-center shrink-0">
+                  <Users className="h-4 w-4 text-blue-600" />
+                </div>
+                <div>
+                  <p className="text-2xl font-bold text-gray-900">{userStats.total}</p>
+                  <p className="text-xs text-gray-500">Total utilizatori</p>
+                </div>
+              </div>
+              <div className="card-padded flex items-center gap-3">
+                <div className="h-9 w-9 bg-green-50 rounded-lg flex items-center justify-center shrink-0">
+                  <ShieldCheck className="h-4 w-4 text-green-600" />
+                </div>
+                <div>
+                  <p className="text-2xl font-bold text-gray-900">{userStats.admins}</p>
+                  <p className="text-xs text-gray-500">Admini activi</p>
+                </div>
+              </div>
+              <div className="card-padded flex items-center gap-3">
+                <div className="h-9 w-9 bg-red-50 rounded-lg flex items-center justify-center shrink-0">
+                  <UserX className="h-4 w-4 text-red-600" />
+                </div>
+                <div>
+                  <p className="text-2xl font-bold text-gray-900">{userStats.inactive}</p>
+                  <p className="text-xs text-gray-500">Inactivi (pagină curentă)</p>
+                </div>
               </div>
             </div>
           )}
+
+          <div className="flex flex-col sm:flex-row gap-3 mb-4">
+            <input
+              value={userSearch}
+              onChange={(e) => setUserSearch(e.target.value)}
+              placeholder="Caută după username sau email"
+              className="flex-1 px-3.5 py-2.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+            <button
+              onClick={() => setIncludeInactive(v => !v)}
+              className={`px-4 py-2 rounded-lg border text-sm font-medium ${includeInactive ? 'bg-blue-50 border-blue-300 text-blue-700' : 'bg-white border-gray-300 text-gray-700'}`}
+            >
+              {includeInactive ? 'Ascunde inactivii' : 'Afișează inactivii'}
+            </button>
+            <button
+              onClick={() => setShowCreateUser(v => !v)}
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium"
+            >
+              <UserPlus className="h-4 w-4" />
+              Utilizator nou
+            </button>
+          </div>
+
+          {showCreateUser && (
+            <form onSubmit={handleCreateUserSubmit} className="bg-white border border-gray-200 rounded-xl p-4 mb-4 grid grid-cols-1 md:grid-cols-2 gap-3">
+              <input
+                value={newUserForm.username}
+                onChange={(e) => setNewUserForm(prev => ({ ...prev, username: e.target.value }))}
+                placeholder="Username"
+                className="px-3.5 py-2.5 border border-gray-300 rounded-lg text-sm"
+                required
+              />
+              <input
+                value={newUserForm.email}
+                onChange={(e) => setNewUserForm(prev => ({ ...prev, email: e.target.value }))}
+                placeholder="Email"
+                type="email"
+                className="px-3.5 py-2.5 border border-gray-300 rounded-lg text-sm"
+                required
+              />
+              <input
+                value={newUserForm.full_name}
+                onChange={(e) => setNewUserForm(prev => ({ ...prev, full_name: e.target.value }))}
+                placeholder="Nume complet (opțional)"
+                className="px-3.5 py-2.5 border border-gray-300 rounded-lg text-sm"
+              />
+              <input
+                value={newUserForm.password}
+                onChange={(e) => setNewUserForm(prev => ({ ...prev, password: e.target.value }))}
+                placeholder="Parolă temporară"
+                type="password"
+                className="px-3.5 py-2.5 border border-gray-300 rounded-lg text-sm"
+                required
+                minLength={8}
+              />
+              <label className="md:col-span-2 flex items-center gap-2 text-sm text-gray-700">
+                <input
+                  type="checkbox"
+                  checked={newUserForm.is_admin}
+                  onChange={(e) => setNewUserForm(prev => ({ ...prev, is_admin: e.target.checked }))}
+                />
+                Creează ca administrator
+              </label>
+              <div className="md:col-span-2 text-xs text-gray-500">
+                Utilizatorul nou va fi obligat să schimbe parola la primul login.
+              </div>
+              <div className="md:col-span-2 flex justify-end gap-2">
+                <button type="button" onClick={() => setShowCreateUser(false)} className="btn-secondary">Anulează</button>
+                <button type="submit" className="btn-primary" disabled={createUserMutation.isPending}>Creează</button>
+              </div>
+            </form>
+          )}
+
+          {usersLoading && <SkeletonTable rows={8} cols={6} />}
+
+          {usersError && (
+            <div className="bg-red-50 border border-red-200 rounded-xl p-6 text-center text-red-600 text-sm">
+              Eroare la încărcarea utilizatorilor.
+            </div>
+          )}
+
+          {usersData && (
+            <>
+              <div className="bg-white border border-gray-200 rounded-xl overflow-hidden mb-4">
+                <table className="min-w-full divide-y divide-gray-100">
+                  <thead className="bg-gray-50">
+                    <tr>
+                      <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Username</th>
+                      <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider hidden md:table-cell">Email</th>
+                      <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Rol</th>
+                      <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Status</th>
+                      <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Acțiuni</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-50">
+                    {usersData.items.length === 0 && (
+                      <tr>
+                        <td colSpan={5} className="px-4 py-12 text-center text-gray-400 text-sm">Niciun utilizator găsit.</td>
+                      </tr>
+                    )}
+                    {usersData.items.map(u => {
+                      const isSelf = currentUser?.id === u.id
+                      return (
+                        <tr key={u.id} className="hover:bg-gray-50">
+                          <td className="px-4 py-3 text-sm text-gray-800">
+                            <div className="font-medium">{u.username}</div>
+                            <div className="text-xs text-gray-400 md:hidden">{u.email}</div>
+                            {u.must_change_password && (
+                              <div className="text-xs text-amber-600 mt-1">Parolă temporară</div>
+                            )}
+                          </td>
+                          <td className="px-4 py-3 text-sm text-gray-600 hidden md:table-cell">{u.email}</td>
+                          <td className="px-4 py-3">
+                            <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${u.is_admin ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-600'}`}>
+                              {u.is_admin ? 'Admin' : 'Operator'}
+                            </span>
+                          </td>
+                          <td className="px-4 py-3">
+                            <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${u.is_active ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+                              {u.is_active ? 'Activ' : 'Inactiv'}
+                            </span>
+                          </td>
+                          <td className="px-4 py-3">
+                            <div className="flex flex-wrap gap-2">
+                              <button
+                                onClick={() => handleToggleAdmin(u.id, !u.is_admin)}
+                                disabled={isSelf || updateUserMutation.isPending}
+                                className="px-2.5 py-1.5 rounded border border-gray-300 text-xs text-gray-700 disabled:opacity-40"
+                              >
+                                {u.is_admin ? 'Fă operator' : 'Fă admin'}
+                              </button>
+                              <button
+                                onClick={() => handleToggleActive(u.id, !u.is_active)}
+                                disabled={isSelf || updateUserMutation.isPending}
+                                className="px-2.5 py-1.5 rounded border border-gray-300 text-xs text-gray-700 disabled:opacity-40"
+                              >
+                                {u.is_active ? 'Dezactivează' : 'Activează'}
+                              </button>
+                              <button
+                                onClick={() => requestDeleteUser(u.id)}
+                                disabled={isSelf || deleteUserMutation.isPending}
+                                className="px-2.5 py-1.5 rounded border border-red-200 text-xs text-red-700 disabled:opacity-40"
+                              >
+                                Șterge
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </div>
+
+              <Pagination
+                page={usersData.page}
+                pages={usersData.pages}
+                total={usersData.total}
+                onPageChange={setUserPage}
+              />
+            </>
+          )}
         </>
       )}
+
+      <ConfirmDialog
+        open={showDeleteDialog}
+        title="Ștergi definitiv utilizatorul?"
+        description="Acțiunea este permanentă: utilizatorul va fi eliminat din baza de date."
+        confirmLabel="Șterge definitiv"
+        danger
+        onConfirm={confirmDeleteUser}
+        onClose={() => {
+          setShowDeleteDialog(false)
+          setPendingDeleteUserId(null)
+        }}
+      />
     </div>
   )
 }

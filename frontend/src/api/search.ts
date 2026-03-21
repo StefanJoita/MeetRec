@@ -1,5 +1,5 @@
 import client from './client'
-import type { SearchResponse } from './types'
+import type { SearchResponse, CombinedSearchResponse } from './types'
 
 interface SearchParams {
   limit?: number
@@ -10,6 +10,13 @@ interface SearchParams {
 export async function search(q: string, params: SearchParams = {}): Promise<SearchResponse> {
   const { data } = await client.get<SearchResponse>('/search', {
     params: { q, limit: params.limit ?? 20, offset: params.offset ?? 0, language: params.language },
+  })
+  return data
+}
+
+export async function searchCombined(q: string, limit = 20): Promise<CombinedSearchResponse> {
+  const { data } = await client.get<CombinedSearchResponse>('/search/combined', {
+    params: { q, limit },
   })
   return data
 }

@@ -201,6 +201,18 @@ class JobConsumer:
             processing_time = int(time.monotonic() - job_start)
             metadata = self._compute_metadata(segments, final_language, model_name, processing_time)
 
+            # ── Gardă: 0 segmente = Whisper nu a detectat vorbire ─
+            # Se marchează tot ca completed (transcrierea a rulat cu succes),
+            # dar logăm un warning explicit pentru diagnosticare.
+            if not segments:
+                logger.warning(
+                    "no_speech_detected",
+                    recording_id=recording_id,
+                    file=file_path,
+                    model=model_name,
+                    hint="Consider a higher-quality recording or a larger Whisper model.",
+                )
+
             # ── Pasul 7: Salvăm în DB ──────────────────────────
             await self._uploader.save_results(transcript_id, recording_id, segments, metadata)
 

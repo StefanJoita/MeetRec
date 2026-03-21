@@ -15,6 +15,7 @@
 # - Retenție ușoară: "șterge tot din 2021/" = o comandă
 # - Backup incremental: "backup-ează doar 2024/01/" = eficient
 # ============================================================
+import os
 import shutil
 import uuid
 from pathlib import Path
@@ -25,6 +26,9 @@ from src.logger import get_logger
 from src.validator import AudioMetadata
 
 logger = get_logger(__name__)
+
+API_RUNTIME_UID = 1000
+API_RUNTIME_GID = 1000
 
 class StorageManager:
     """
@@ -51,6 +55,7 @@ class StorageManager:
         #parents=True : creeaza si /data/processed/2024/01/15 deodata
 
         destination.parent.mkdir(parents=True, exist_ok=True)
+        self._ensure_api_write_access(destination.parent)
 
         logger.info(
             "storing_file",
@@ -62,6 +67,8 @@ class StorageManager:
             #copy+delete daca intre fs uri diferite)
             #pe NFS: va face copy+delete automat
             shutil.move(str(metadata.file_path),str(destination))
+            os.chown(destination, API_RUNTIME_UID, API_RUNTIME_GID)
+            destination.chmod(0o664)
 
             logger.info("file_stored",path=str(destination))
             return destination
@@ -99,6 +106,26 @@ class StorageManager:
             settings.audio_storage_path / date_path / f"{file_uuid}.{extension}"
         )
         return destination
+
+    def _ensure_api_write_access(self, directory: Path) -> None:
+        """
+        Asigură că API-ul poate șterge ulterior fișierele din structura pe zile.
+        Ingest rulează ca root în container, iar API ca uid/gid 1000.
+        """
+        storage_root = settings.audio_storage_path.resolve()
+        target_dir = directory.resolve()
+
+        if storage_root not in (target_dir, *target_dir.parents):
+            raise StorageError(f"Calea {target_dir} nu este în storage-ul configurat.")
+
+        current = storage_root
+        os.chown(current, API_RUNTIME_UID, API_RUNTIME_GID)
+        current.chmod(0o775)
+
+        for part in target_dir.relative_to(storage_root).parts:
+            current = current / part
+            os.chown(current, API_RUNTIME_UID, API_RUNTIME_GID)
+            current.chmod(0o775)
     
     def delete_file(self, file_path: Path) -> bool:
         """

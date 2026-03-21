@@ -1,11 +1,12 @@
 import axios from 'axios'
+import { logoutEventEmitter } from '@/contexts/AuthContext'
 
 const client = axios.create({
   baseURL: '/api/v1',
   headers: { 'Content-Type': 'application/json' },
 })
 
-// Atașează JWT la fiecare request
+// Attach JWT to every request
 client.interceptors.request.use((config) => {
   const token = localStorage.getItem('access_token')
   if (token) {
@@ -14,13 +15,13 @@ client.interceptors.request.use((config) => {
   return config
 })
 
-// Dacă API-ul returnează 401 → logout și redirect la /login
+// If API returns 401 → emit logout event (handled by AuthProvider)
 client.interceptors.response.use(
   (res) => res,
   (err) => {
     if (err.response?.status === 401) {
       localStorage.removeItem('access_token')
-      window.location.href = '/login'
+      logoutEventEmitter.emit()
     }
     return Promise.reject(err)
   }

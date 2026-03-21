@@ -115,10 +115,34 @@ export interface SearchResult {
 export interface SearchResponse {
   query: string
   results: SearchResult[]
-  total_results: number   // total înainte de LIMIT (pentru paginare)
+  total_results: number
   offset: number
   limit: number
   pages: number
+  search_time_ms: number
+}
+
+export interface CombinedSearchResult {
+  recording_id: string
+  recording_title: string
+  meeting_date: string
+  segment_id: string
+  start_time: number
+  end_time: number
+  text: string
+  headline: string | null
+  rank: number | null
+  similarity: number | null
+  source: 'fts' | 'semantic' | 'both'
+}
+
+export interface CombinedSearchResponse {
+  query: string
+  results: CombinedSearchResult[]
+  total_results: number
+  fts_count: number
+  semantic_count: number
+  both_count: number
   search_time_ms: number
 }
 
@@ -136,14 +160,41 @@ export interface User {
   id: string
   username: string
   email: string
-  full_name: string
+  full_name: string | null
+  is_active: boolean
   is_admin: boolean
+  must_change_password: boolean
+  created_at?: string
+  last_login?: string | null
 }
 
 export interface TokenResponse {
   access_token: string
   token_type: string
   expires_in: number
+}
+
+export interface UserCreate {
+  username: string
+  email: string
+  full_name?: string
+  password: string
+  is_admin: boolean
+}
+
+export interface UserUpdate {
+  email?: string
+  full_name?: string
+  is_active?: boolean
+  is_admin?: boolean
+}
+
+export interface PaginatedUsers {
+  items: User[]
+  total: number
+  page: number
+  page_size: number
+  pages: number
 }
 
 // ── Aliases (shorthand names used in components) ─────────────

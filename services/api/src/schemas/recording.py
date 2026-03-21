@@ -137,6 +137,8 @@ class PaginatedRecordings(BaseModel):
     page: int
     page_size: int
     pages: int           # total pagini = ceil(total / page_size)
+    has_next: bool       # există pagina următoare?
+    has_prev: bool       # există pagina anterioară?
 
 
 # ── SEARCH ───────────────────────────────────────────────────
@@ -163,6 +165,55 @@ class SearchResponse(BaseModel):
     offset: int
     limit: int
     pages: int
+    search_time_ms: int
+
+
+class SemanticSearchResult(BaseModel):
+    """Un rezultat de căutare semantică — similar cu SearchResult dar fără headline FTS."""
+    recording_id: uuid.UUID
+    recording_title: str
+    meeting_date: date
+    segment_id: uuid.UUID
+    start_time: float
+    end_time: float
+    text: str
+    similarity: float   # 0.0 - 1.0 (1.0 = identic semantic)
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class SemanticSearchResponse(BaseModel):
+    query: str
+    results: List[SemanticSearchResult]
+    total_results: int
+    limit: int
+    search_time_ms: int
+
+
+class CombinedSearchResult(BaseModel):
+    """Rezultat combinat FTS + semantic."""
+    recording_id: uuid.UUID
+    recording_title: str
+    meeting_date: date
+    segment_id: uuid.UUID
+    start_time: float
+    end_time: float
+    text: str
+    headline: Optional[str] = None   # din FTS (None dacă doar semantic)
+    rank: Optional[float] = None     # scor FTS
+    similarity: Optional[float] = None  # scor semantic 0.0-1.0
+    source: str                      # "fts", "semantic", "both"
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class CombinedSearchResponse(BaseModel):
+    query: str
+    results: List[CombinedSearchResult]
+    total_results: int
+    fts_count: int       # câte au venit din FTS
+    semantic_count: int  # câte au venit din semantic
+    both_count: int      # câte au apărut în ambele
     search_time_ms: int
 
 

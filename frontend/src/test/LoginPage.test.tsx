@@ -15,6 +15,7 @@ function renderLoginPage(loginFn = vi.fn()) {
     loading: false,
     login: loginFn,
     logout: vi.fn(),
+    refreshUser: vi.fn(),
   }
 
   return render(
