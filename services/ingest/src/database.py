@@ -10,9 +10,9 @@
 # ============================================================
 
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, date, timezone
 from pathlib import Path
-from typing import Optional
+from typing import Any, Dict, List, Optional
 
 import asyncpg
 from tenacity import retry, stop_after_attempt, wait_exponential
@@ -86,16 +86,34 @@ class DatabaseClient:
         metadata: AudioMetadata,
         stored_path: Path,
         title: Optional[str] = None,
+        user_meta: Optional[Dict[str, Any]] = None,
     ) -> str:
         """
         Insereaza o inregistrare noua in baza de date.
 
         Returneaza recording_id-ul generat (UUID) pentru inregistrarea noua.
+        user_meta poate conține: title, meeting_date, description, participants, location.
         """
         recording_id = str(uuid.uuid4())
-        # Titlu automat daca nu e specificat din numele fisierului + data
-        if not title:
-            title = self._generate_title(metadata.filename)
+        meta = user_meta or {}
+
+        # Titlu: din user_meta → din parametrul title → generat din filename
+        final_title = meta.get("title") or title or self._generate_title(metadata.filename)
+
+        # Data ședinței: din user_meta (YYYY-MM-DD) → azi
+        meeting_date_val: date
+        raw_date = meta.get("meeting_date")
+        if raw_date:
+            try:
+                meeting_date_val = date.fromisoformat(raw_date)
+            except ValueError:
+                meeting_date_val = datetime.now(timezone.utc).date()
+        else:
+            meeting_date_val = datetime.now(timezone.utc).date()
+
+        description: Optional[str] = meta.get("description")
+        location: Optional[str] = meta.get("location")
+        participants: Optional[List[str]] = meta.get("participants")  # list[str] sau None
 
         async with self._pool.acquire() as conn:
             # Folosim tranzactie pentru atomicitate:
@@ -107,6 +125,9 @@ class DatabaseClient:
                         id,
                         title,
                         meeting_date,
+                        description,
+                        location,
+                        participants,
                         original_filename,
                         file_path,
                         file_size_bytes,
@@ -117,12 +138,15 @@ class DatabaseClient:
                         channels,
                         status
                     ) VALUES (
-                        $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12
+                        $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15
                     )
                     """,
                     recording_id,
-                    title,
-                    datetime.now(timezone.utc).date(),
+                    final_title,
+                    meeting_date_val,
+                    description,
+                    location,
+                    participants,
                     metadata.filename,
                     str(stored_path),
                     metadata.file_size_bytes,
@@ -147,7 +171,7 @@ class DatabaseClient:
         logger.info(
             "recording_created",
             recording_id=recording_id,
-            title=title,
+            title=final_title,
             duration_sec=metadata.duration_seconds,
         )
         return recording_id

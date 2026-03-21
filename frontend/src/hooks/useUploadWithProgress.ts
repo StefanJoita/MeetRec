@@ -9,6 +9,14 @@ export interface UploadState {
   error: string
 }
 
+export interface UploadMetadata {
+  title?: string
+  meeting_date?: string
+  description?: string
+  participants?: string
+  location?: string
+}
+
 export function useUploadWithProgress() {
   const [state, setState] = useState<UploadState>({
     progress: 0,
@@ -18,7 +26,7 @@ export function useUploadWithProgress() {
   })
   const abortRef = useRef<AbortController | null>(null)
 
-  async function upload(file: File): Promise<InboxUploadResponse | null> {
+  async function upload(file: File, meta?: UploadMetadata): Promise<InboxUploadResponse | null> {
     const controller = new AbortController()
     abortRef.current = controller
 
@@ -26,6 +34,11 @@ export function useUploadWithProgress() {
 
     const form = new FormData()
     form.append('file', file)
+    if (meta?.title) form.append('title', meta.title)
+    if (meta?.meeting_date) form.append('meeting_date', meta.meeting_date)
+    if (meta?.description) form.append('description', meta.description)
+    if (meta?.participants) form.append('participants', meta.participants)
+    if (meta?.location) form.append('location', meta.location)
 
     try {
       const { data } = await client.post<InboxUploadResponse>('/inbox/upload', form, {
