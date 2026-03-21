@@ -208,6 +208,8 @@ export interface AuditLog {
   timestamp: string
   user_id?: string
   user_ip: string
+  user_username?: string
+  user_email?: string
   user_agent?: string
   action: string
   resource_type?: string

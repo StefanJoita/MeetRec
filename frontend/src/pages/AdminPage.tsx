@@ -14,11 +14,68 @@ const ACTION_COLORS: Record<string, string> = {
   UPLOAD: 'bg-blue-100 text-blue-700',
   VIEW: 'bg-gray-100 text-gray-600',
   SEARCH: 'bg-purple-100 text-purple-700',
+  SEMANTIC_SEARCH: 'bg-purple-100 text-purple-700',
   EXPORT: 'bg-green-100 text-green-700',
   DELETE: 'bg-red-100 text-red-700',
   TRANSCRIBE: 'bg-orange-100 text-orange-700',
   LOGIN: 'bg-indigo-100 text-indigo-700',
   RETENTION_DELETE: 'bg-red-100 text-red-700',
+  CREATE: 'bg-teal-100 text-teal-700',
+  UPDATE: 'bg-yellow-100 text-yellow-700',
+}
+
+const ACTION_LABELS: Record<string, string> = {
+  UPLOAD: 'Încărcare',
+  VIEW: 'Vizualizare',
+  SEARCH: 'Căutare',
+  SEMANTIC_SEARCH: 'Căutare semantică',
+  EXPORT: 'Export',
+  DELETE: 'Ștergere',
+  TRANSCRIBE: 'Transcriere',
+  LOGIN: 'Autentificare',
+  RETENTION_DELETE: 'Ștergere automată',
+  CREATE: 'Creare',
+  UPDATE: 'Modificare',
+}
+
+const RESOURCE_LABELS: Record<string, string> = {
+  recording: 'Înregistrare',
+  transcript: 'Transcriere',
+  user: 'Utilizator',
+  search: 'Căutare',
+}
+
+function formatRelativeTime(timestamp: string): { relative: string; absolute: string } {
+  const date = new Date(timestamp)
+  const now = Date.now()
+  const diffMs = now - date.getTime()
+  const diffMin = Math.floor(diffMs / 60000)
+  const diffH = Math.floor(diffMin / 60)
+  const diffDays = Math.floor(diffH / 24)
+
+  let relative: string
+  if (diffMin < 1) relative = 'acum'
+  else if (diffMin < 60) relative = `acum ${diffMin} min`
+  else if (diffH < 24) relative = `acum ${diffH}h`
+  else if (diffDays === 1) relative = 'ieri'
+  else if (diffDays < 7) relative = `acum ${diffDays} zile`
+  else relative = date.toLocaleDateString('ro-RO')
+
+  const absolute = date.toLocaleString('ro-RO', {
+    day: '2-digit', month: '2-digit', year: 'numeric',
+    hour: '2-digit', minute: '2-digit',
+  })
+  return { relative, absolute }
+}
+
+function getLogDescription(log: AuditLog): string | null {
+  const details = log.details
+  if (!details) return null
+  if (log.action === 'SEARCH' || log.action === 'SEMANTIC_SEARCH') {
+    const q = details.query as string | undefined
+    if (q) return `"${q}"`
+  }
+  return null
 }
 
 export default function AdminPage() {
@@ -242,7 +299,7 @@ export default function AdminPage() {
                 actionFilter === action ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-600 border-gray-300 hover:border-gray-400',
               ].join(' ')}
             >
-              {action}
+              {ACTION_LABELS[action] ?? action}
             </button>
           ))}
         </div>
@@ -265,7 +322,7 @@ export default function AdminPage() {
                   <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Timp</th>
                   <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Acțiune</th>
                   <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider hidden md:table-cell">Resursă</th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider hidden lg:table-cell">IP</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider hidden lg:table-cell">Utilizator</th>
                   <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Status</th>
                 </tr>
               </thead>
@@ -277,32 +334,53 @@ export default function AdminPage() {
                     </td>
                   </tr>
                 )}
-                {filteredItems.map((log: AuditLog) => (
-                  <tr key={log.id} className="hover:bg-gray-50">
-                    <td className="px-4 py-3 text-xs text-gray-500 whitespace-nowrap">
-                      {new Date(log.timestamp).toLocaleString('ro-RO')}
-                    </td>
-                    <td className="px-4 py-3">
-                      <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${ACTION_COLORS[log.action] ?? 'bg-gray-100 text-gray-600'}`}>
-                        {log.action}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3 text-xs text-gray-500 hidden md:table-cell">
-                      {log.resource_type ?? '—'}
-                      {log.resource_id && (
-                        <span className="ml-1 text-gray-300">({log.resource_id.slice(0, 8)}…)</span>
-                      )}
-                    </td>
-                    <td className="px-4 py-3 text-xs text-gray-400 font-mono hidden lg:table-cell">
-                      {log.user_ip}
-                    </td>
-                    <td className="px-4 py-3">
-                      <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${log.success ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
-                        {log.success ? 'OK' : 'EȘUAT'}
-                      </span>
-                    </td>
-                  </tr>
-                ))}
+                {filteredItems.map((log: AuditLog) => {
+                  const { relative, absolute } = formatRelativeTime(log.timestamp)
+                  const desc = getLogDescription(log)
+                  const resourceLabel = log.resource_type
+                    ? (RESOURCE_LABELS[log.resource_type.toLowerCase()] ?? log.resource_type)
+                    : null
+                  return (
+                    <tr key={log.id} className="hover:bg-gray-50">
+                      <td className="px-4 py-3 whitespace-nowrap" title={absolute}>
+                        <span className="text-xs text-gray-700">{relative}</span>
+                        <div className="text-xs text-gray-400 mt-0.5">{absolute}</div>
+                      </td>
+                      <td className="px-4 py-3">
+                        <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${ACTION_COLORS[log.action] ?? 'bg-gray-100 text-gray-600'}`}>
+                          {ACTION_LABELS[log.action] ?? log.action}
+                        </span>
+                        {desc && (
+                          <div className="text-xs text-gray-400 mt-1 max-w-[180px] truncate" title={desc}>{desc}</div>
+                        )}
+                      </td>
+                      <td className="px-4 py-3 text-xs text-gray-500 hidden md:table-cell">
+                        {resourceLabel ?? '—'}
+                        {log.resource_id && (
+                          <span className="ml-1 text-gray-300" title={log.resource_id}>#{log.resource_id.slice(0, 6)}</span>
+                        )}
+                      </td>
+                      <td className="px-4 py-3 hidden lg:table-cell">
+                        {log.user_username ? (
+                          <div>
+                            <span className="text-xs font-medium text-gray-700">{log.user_username}</span>
+                            {log.user_email && (
+                              <div className="text-xs text-gray-400">{log.user_email}</div>
+                            )}
+                            <div className="text-xs text-gray-300 font-mono mt-0.5">{log.user_ip}</div>
+                          </div>
+                        ) : (
+                          <span className="text-xs text-gray-400 font-mono">{log.user_ip}</span>
+                        )}
+                      </td>
+                      <td className="px-4 py-3">
+                        <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${log.success ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+                          {log.success ? 'OK' : 'Eșuat'}
+                        </span>
+                      </td>
+                    </tr>
+                  )
+                })}
               </tbody>
             </table>
           </div>
