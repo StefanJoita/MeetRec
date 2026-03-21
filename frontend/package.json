@@ -13,8 +13,10 @@
   },
   "dependencies": {
     "@tanstack/react-query": "^5.51.0",
+    "@tanstack/react-virtual": "^3.10.0",
     "axios": "^1.7.2",
     "clsx": "^2.1.1",
+    "dompurify": "^3.0.8",
     "lucide-react": "^0.400.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
@@ -25,6 +27,7 @@
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.2",
     "@testing-library/user-event": "^14.6.1",
+    "@types/dompurify": "^3.0.5",
     "@types/react": "^18.3.3",
     "@types/react-dom": "^18.3.0",
     "@vitejs/plugin-react": "^4.3.1",

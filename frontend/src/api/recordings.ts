@@ -48,6 +48,7 @@ export async function retryTranscription(recordingId: string): Promise<void> {
 }
 
 export function getAudioUrl(recordingId: string): string {
-  const token = localStorage.getItem('access_token') ?? ''
-  return `/api/v1/recordings/${recordingId}/audio?token=${token}`
+  // URL is returned without token; browser will send Bearer token via axios interceptor
+  // If using native <audio>, fetch via Authorization header (see AudioPlayer.tsx)
+  return `/api/v1/recordings/${recordingId}/audio`
 }

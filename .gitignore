@@ -55,9 +55,28 @@ htmlcov/
 # ── Logs ──────────────────────────────────────────────────────
 *.log
 logs/
+
+# ── Frontend build ─────────────────────────────────────────────
 node_modules/
 frontend/dist/
-sedinta2.mp3
+frontend/.vite/
+
+# ── Local files ────────────────────────────────────────────────
+*.mp3
+*.wav
+*.m4a
+*.ogg
+*.flac
+
+# ── Generated reports & presentations ─────────────────────────
+raport.html
+*.pptx
+*.ppt
+generate_ppt.py
+
+# ── Claude Code (local AI config — contains secrets) ──────────
 .claude/
+
+# ── Misc leftovers ─────────────────────────────────────────────
 curent _problems
 eventual-squishing-starlight.md

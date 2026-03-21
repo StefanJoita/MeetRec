@@ -32,21 +32,26 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-# Dependențe runtime (libpq pentru asyncpg)
+# Dependențe runtime (libpq pentru asyncpg, postgresql-client pentru psql în entrypoint)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libpq5 \
     curl \
+    postgresql-client \
     && rm -rf /var/lib/apt/lists/*
 
 # Copiem pachetele instalate din stage 1
 COPY --from=builder /install /usr/local
 
-# Copiem codul sursă
+# Copiem codul sursă + configurare Alembic + entrypoint
 COPY src/ ./src/
+COPY alembic/ ./alembic/
+COPY alembic.ini ./alembic.ini
+COPY entrypoint.sh ./entrypoint.sh
 
 # User non-root pentru securitate
-# (nu rulăm ca root în producție — risc de securitate)
-RUN useradd -m -u 1000 appuser \
+# chmod +x și chown se fac înainte de USER appuser (altfel permission denied)
+RUN chmod +x ./entrypoint.sh \
+    && useradd -m -u 1000 appuser \
     && chown -R appuser:appuser /app \
     && mkdir -p /data/processed /data/exports \
     && chown -R appuser:appuser /data
@@ -59,7 +64,5 @@ EXPOSE 8080
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
     CMD curl -f http://localhost:8080/health || exit 1
 
-# Pornim uvicorn — serverul ASGI pentru FastAPI
-# --host 0.0.0.0: ascultă pe toate interfețele (nu doar localhost)
-# --reload: hot-reload în dev (dezactivat în producție prin CMD override)
-CMD ["uvicorn", "src.main:app", "--host", "0.0.0.0", "--port", "8080"]
+# Script de startup: verifică starea Alembic, aplică migrările, pornește uvicorn
+CMD ["./entrypoint.sh"]

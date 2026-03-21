@@ -27,11 +27,11 @@ from src.database import get_db
 from src.middleware.auth import get_current_user
 from src.models.audit_log import User
 from src.routers.recordings import get_recording_service
+from src.services.recording_service import RecordingDeletionError
 from src.schemas.recording import (
     PaginatedRecordings,
     RecordingListItem,
     RecordingResponse,
-    UploadResponse,
 )
 
 
@@ -107,7 +107,7 @@ def make_mock_service():
     svc.create = AsyncMock(return_value=make_recording_response())
     svc.update = AsyncMock(return_value=None)
     svc.delete = AsyncMock(return_value=False)
-    svc.process_upload = AsyncMock(return_value=UploadResponse(
+    svc.process_upload = AsyncMock(return_value=MagicMock(
         recording_id=RECORDING_ID,
         title="Test",
         status="queued",
@@ -428,7 +428,7 @@ class TestDeleteRecording:
         svc = make_mock_service()
         svc.delete.return_value = True  # înregistrarea a existat și a fost ștearsă
 
-        async with override_service(svc) as client:
+        async with override_service(svc, user=make_fake_user(is_admin=True)) as client:
             response = await client.delete(f"/api/v1/recordings/{RECORDING_ID}")
 
         assert response.status_code == 204
@@ -439,7 +439,7 @@ class TestDeleteRecording:
         svc = make_mock_service()
         svc.delete.return_value = True
 
-        async with override_service(svc) as client:
+        async with override_service(svc, user=make_fake_user(is_admin=True)) as client:
             response = await client.delete(f"/api/v1/recordings/{RECORDING_ID}")
 
         # Body gol (sau None)
@@ -454,10 +454,40 @@ class TestDeleteRecording:
         svc = make_mock_service()
         svc.delete.return_value = False  # înregistrarea nu există
 
-        async with override_service(svc) as client:
+        async with override_service(svc, user=make_fake_user(is_admin=True)) as client:
             response = await client.delete(f"/api/v1/recordings/{uuid.uuid4()}")
 
         assert response.status_code == 404
+
+    @pytest.mark.asyncio
+    async def test_delete_returns_403_for_non_admin_user(self):
+        """Operatorul nu trebuie să poată șterge înregistrări."""
+        svc = make_mock_service()
+        svc.delete.return_value = True
+
+        async with override_service(svc, user=make_fake_user(is_admin=False)) as client:
+            response = await client.delete(f"/api/v1/recordings/{RECORDING_ID}")
+
+        assert response.status_code == 403
+        assert response.json() == {
+            "detail": "Acces interzis. Necesită drepturi de administrator."
+        }
+
+    @pytest.mark.asyncio
+    async def test_delete_returns_500_when_storage_permissions_block_file_removal(self):
+        """Erorile de permisiune pe storage trebuie returnate controlat, nu ca traceback brut."""
+        svc = make_mock_service()
+        svc.delete.side_effect = RecordingDeletionError(
+            "Fișierul audio nu poate fi șters deoarece storage-ul nu permite scrierea pentru API."
+        )
+
+        async with override_service(svc, user=make_fake_user(is_admin=True)) as client:
+            response = await client.delete(f"/api/v1/recordings/{RECORDING_ID}")
+
+        assert response.status_code == 500
+        assert response.json() == {
+            "detail": "Fișierul audio nu poate fi șters deoarece storage-ul nu permite scrierea pentru API."
+        }
 
 
 # ============================================================

@@ -14,3 +14,7 @@ export async function getMe(): Promise<User> {
 export async function logout(): Promise<void> {
   await client.post('/auth/logout')
 }
+
+export async function changePasswordFirstLogin(current_password: string, new_password: string): Promise<void> {
+  await client.post('/auth/change-password-first-login', { current_password, new_password })
+}

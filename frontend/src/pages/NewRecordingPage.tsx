@@ -1,7 +1,8 @@
-import { useState, useCallback } from 'react'
+import { useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { UploadCloud, FileAudio, X, ArrowLeft, CheckCircle } from 'lucide-react'
-import { dropFileToInbox } from '@/api/recordings'
+import { useState } from 'react'
+import { useUploadWithProgress } from '@/hooks/useUploadWithProgress'
 import { cn } from '@/lib/cn'
 
 const ACCEPTED = '.mp3,.wav,.m4a,.ogg,.flac,.webm'
@@ -11,17 +12,16 @@ export default function NewRecordingPage() {
   const navigate = useNavigate()
   const [file, setFile] = useState<File | null>(null)
   const [dragging, setDragging] = useState(false)
-  const [uploading, setUploading] = useState(false)
-  const [done, setDone] = useState(false)
-  const [error, setError] = useState('')
+  const [fileError, setFileError] = useState('')
+  const { progress, uploading, done, error, upload, cancel, reset } = useUploadWithProgress()
 
   const handleFile = useCallback((f: File) => {
     if (f.size > MAX_MB * 1024 * 1024) {
-      setError(`Fișierul depășește ${MAX_MB} MB.`)
+      setFileError(`Fișierul depășește ${MAX_MB} MB.`)
       return
     }
     setFile(f)
-    setError('')
+    setFileError('')
   }, [])
 
   const onDrop = useCallback((e: React.DragEvent) => {
@@ -32,17 +32,14 @@ export default function NewRecordingPage() {
   }, [handleFile])
 
   async function handleUpload() {
-    if (!file) { setError('Selectați un fișier audio.'); return }
-    setUploading(true)
-    setError('')
-    try {
-      await dropFileToInbox(file)
-      setDone(true)
-    } catch (e: unknown) {
-      const msg = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail
-      setError(msg ?? 'Eroare la încărcare. Încercați din nou.')
-      setUploading(false)
-    }
+    if (!file) { setFileError('Selectați un fișier audio.'); return }
+    await upload(file)
+  }
+
+  function handleCancel() {
+    cancel()
+    setFile(null)
+    reset()
   }
 
   if (done) {
@@ -55,15 +52,12 @@ export default function NewRecordingPage() {
           pune în coadă de transcriere. Acest proces durează câteva secunde.
         </p>
         <div className="flex gap-3 justify-center">
-          <button
-            onClick={() => navigate('/')}
-            className="px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700"
-          >
+          <button onClick={() => navigate('/')} className="btn-primary">
             Vezi lista de înregistrări
           </button>
           <button
-            onClick={() => { setFile(null); setDone(false) }}
-            className="px-4 py-2 bg-gray-100 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-200"
+            onClick={() => { setFile(null); reset() }}
+            className="btn-secondary"
           >
             Trimite alt fișier
           </button>
@@ -81,7 +75,7 @@ export default function NewRecordingPage() {
         <ArrowLeft className="h-4 w-4" /> Înapoi
       </button>
 
-      <h1 className="text-2xl font-bold text-gray-900 mb-2">Înregistrare nouă</h1>
+      <h1 className="page-title mb-2">Înregistrare nouă</h1>
       <p className="text-sm text-gray-500 mb-6">
         Selectați fișierul audio. Ingest Service îl va valida, crea înregistrarea în baza
         de date și îl va trimite la transcriere automat.
@@ -93,10 +87,14 @@ export default function NewRecordingPage() {
         onDragLeave={() => setDragging(false)}
         onDrop={onDrop}
         className={cn(
-          'relative border-2 border-dashed rounded-xl p-10 text-center transition-colors cursor-pointer',
-          dragging ? 'border-blue-400 bg-blue-50' : 'border-gray-300 hover:border-gray-400'
+          'relative border-2 rounded-xl p-10 text-center transition-all overflow-hidden',
+          uploading
+            ? 'border-blue-400 bg-blue-50 cursor-default'
+            : dragging
+              ? 'border-blue-400 bg-blue-50 border-dashed cursor-copy'
+              : 'border-dashed border-gray-300 hover:border-gray-400 cursor-pointer'
         )}
-        onClick={() => !file && document.getElementById('file-input')?.click()}
+        onClick={() => !file && !uploading && document.getElementById('file-input')?.click()}
       >
         <input
           id="file-input"
@@ -106,7 +104,45 @@ export default function NewRecordingPage() {
           onChange={(e) => e.target.files?.[0] && handleFile(e.target.files[0])}
         />
 
-        {file ? (
+        {/* Starea: fișier selectat + upload în curs */}
+        {uploading && file ? (
+          <div className="space-y-4">
+            <div className="flex items-center justify-center gap-3">
+              <FileAudio className="h-6 w-6 text-blue-500 shrink-0" />
+              <div className="text-left min-w-0">
+                <p className="text-sm font-medium text-gray-900 truncate">{file.name}</p>
+                <p className="text-xs text-gray-500">
+                  {(file.size / 1024 / 1024).toFixed(1)} MB
+                </p>
+              </div>
+            </div>
+
+            {/* Bară progres */}
+            <div>
+              <div className="flex justify-between text-xs text-gray-500 mb-1">
+                <span>Se încarcă...</span>
+                <span>{progress}%</span>
+              </div>
+              <div className="h-2 bg-gray-200 rounded-full overflow-hidden">
+                <div
+                  className="h-2 bg-blue-600 rounded-full transition-all duration-300"
+                  style={{ width: `${progress}%` }}
+                  aria-label={`Upload ${progress}%`}
+                />
+              </div>
+            </div>
+
+            <button
+              type="button"
+              onClick={handleCancel}
+              className="text-xs text-red-500 hover:text-red-700 transition-colors"
+            >
+              Anulează upload
+            </button>
+          </div>
+
+        ) : file ? (
+          /* Fișier selectat, gata de upload */
           <div className="flex items-center justify-center gap-3">
             <FileAudio className="h-6 w-6 text-blue-500 shrink-0" />
             <div className="text-left min-w-0">
@@ -117,11 +153,14 @@ export default function NewRecordingPage() {
               type="button"
               onClick={(e) => { e.stopPropagation(); setFile(null) }}
               className="ml-2 p-1 rounded text-gray-400 hover:text-red-500 shrink-0"
+              aria-label="Elimină fișierul selectat"
             >
               <X className="h-4 w-4" />
             </button>
           </div>
+
         ) : (
+          /* Stare goală */
           <div>
             <UploadCloud className="h-12 w-12 text-gray-300 mx-auto mb-3" />
             <p className="text-sm font-medium text-gray-700">
@@ -132,9 +171,10 @@ export default function NewRecordingPage() {
         )}
       </div>
 
-      {error && (
+      {/* Erori */}
+      {(fileError || error) && (
         <div className="mt-4 bg-red-50 border border-red-200 rounded-lg px-4 py-3 text-sm text-red-700">
-          {error}
+          {fileError || error}
         </div>
       )}
 
@@ -142,9 +182,9 @@ export default function NewRecordingPage() {
         type="button"
         onClick={handleUpload}
         disabled={!file || uploading}
-        className="mt-6 w-full bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white font-medium py-2.5 rounded-lg text-sm transition-colors"
+        className="btn-primary mt-6 w-full justify-center"
       >
-        {uploading ? 'Se trimite...' : 'Trimite la transcriere'}
+        {uploading ? `Se trimite... ${progress}%` : 'Trimite la transcriere'}
       </button>
     </div>
   )

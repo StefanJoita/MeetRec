@@ -11,8 +11,12 @@ from datetime import date
 from pathlib import Path
 from typing import Optional, List
 
+import structlog
 from sqlalchemy import select, func, desc, asc
+from sqlalchemy.orm import selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
+
+logger = structlog.get_logger()
 
 from src.models.recording import Recording, RecordingStatus
 from src.schemas.recording import (
@@ -23,6 +27,10 @@ from src.schemas.recording import (
 
 # Câmpurile permise pentru sortare (protecție împotriva expunerii de coloane interne)
 _ALLOWED_SORT_FIELDS = {"created_at", "meeting_date", "title", "duration_seconds", "file_size_bytes"}
+
+
+class RecordingDeletionError(Exception):
+    """Semnalează că înregistrarea nu poate fi ștearsă complet de pe storage."""
 
 
 class RecordingService:
@@ -41,9 +49,9 @@ class RecordingService:
         sort_desc: bool = True,
     ) -> PaginatedRecordings:
 
-        # Construim query-ul de bază
-        # select(Recording) = SELECT * FROM recordings
-        query = select(Recording)
+        # Construim query-ul de bază cu eager loading explicit pentru transcript
+        # selectinload = 2 query-uri total (nu N+1) chiar dacă lazy="selectin" e pe model
+        query = select(Recording).options(selectinload(Recording.transcript))
 
         # Adăugăm filtre dacă există
         if status_filter:
@@ -97,12 +105,15 @@ class RecordingService:
                 transcript_status=transcript_status,
             ))
 
+        total_pages = math.ceil(total / page_size) if total > 0 else 1
         return PaginatedRecordings(
             items=items,
             total=total,
             page=page,
             page_size=page_size,
-            pages=math.ceil(total / page_size) if total > 0 else 0,
+            pages=total_pages,
+            has_next=page < total_pages,
+            has_prev=page > 1,
         )
 
     # ── GET BY ID ─────────────────────────────────────────────
@@ -122,7 +133,14 @@ class RecordingService:
         recording_id: uuid.UUID,
         data: RecordingUpdate,
     ) -> Optional[Recording]:
-        recording = await self.get_by_id(recording_id)
+        # SELECT FOR UPDATE = blochează rândul pe durata tranzacției
+        # Previne race condition când 2 request-uri PATCH ajung simultan
+        result = await self.db.execute(
+            select(Recording)
+            .where(Recording.id == recording_id)
+            .with_for_update()
+        )
+        recording = result.scalar_one_or_none()
         if not recording:
             return None
 
@@ -140,13 +158,26 @@ class RecordingService:
         if not recording:
             return False
 
-        # Ștergem fișierul fizic de pe disc
-        file_path = Path(recording.file_path)
-        if recording.file_path and file_path.is_file():
-            file_path.unlink()
+        file_path = Path(recording.file_path) if recording.file_path else None
 
-        # Ștergem din DB (CASCADE șterge automat și transcript + segmentele)
+        # 1. Ștergem din DB PRIMUL — dacă aceasta eșuează, fișierul rămâne intact
+        # (CASCADE șterge automat și transcript + segmentele)
         await self.db.delete(recording)
         await self.db.flush()
+
+        # 2. Ștergem fișierul DUPĂ ce DB-ul a confirmat ștergerea
+        # Dacă unlink() eșuează, logăm dar NU facem rollback DB
+        # (un job de cleanup periodic poate relua fișierele orfane)
+        if file_path and file_path.is_file():
+            try:
+                file_path.unlink()
+            except OSError as exc:
+                logger.error(
+                    "orphaned_file_after_delete",
+                    path=str(file_path),
+                    recording_id=str(recording_id),
+                    error=str(exc),
+                )
+
         return True
 
