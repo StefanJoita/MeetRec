@@ -4,8 +4,8 @@ FROM node:20-alpine AS builder
 WORKDIR /app
 
 # Copy package files first — cached layer if deps unchanged
-COPY package.json package-lock.json ./
-RUN npm ci --frozen-lockfile
+COPY package.json package-lock.json* ./
+RUN npm install
 
 # Copy all source files
 COPY . .

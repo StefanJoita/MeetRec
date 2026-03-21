@@ -59,32 +59,56 @@ async def fetch_expired_recordings(pool: asyncpg.Pool) -> List[RecordingToDelete
     ]
 
 
-async def delete_recording(pool: asyncpg.Pool, rec: RecordingToDelete) -> bool:
+async def delete_recording(
+    pool: asyncpg.Pool,
+    rec: RecordingToDelete,
+    dry_run: bool = False,
+) -> bool:
     """
-    Șterge o înregistrare expirată:
-    1. Fișierul audio de pe disc
-    2. Rândul din DB (CASCADE șterge transcript + segmente)
+    Șterge o înregistrare expirată.
+    Ordinea: DB PRIMUL, filesystem după — pentru atomicitate.
 
-    Returnează True dacă ștergerea a reușit.
+    Dacă dry_run=True, logăm ce ar fi șters fără să ștergem nimic.
+    Returnează True dacă ștergerea a reușit (sau în dry-run).
     """
-    # Pas 1: ștergem fișierul fizic
-    file_path = Path(rec.file_path)
-    if file_path.exists():
+    if dry_run:
+        logger.info(
+            "dry_run_would_delete",
+            recording_id=rec.id,
+            title=rec.title,
+            file_path=rec.file_path,
+            retain_until=str(rec.retain_until),
+        )
+        return True
+
+    file_path = Path(rec.file_path) if rec.file_path else None
+
+    # Pas 1: ștergem din DB PRIMUL
+    # Dacă DB eșuează, fișierul rămâne intact (nicio pierdere de date)
+    async with pool.acquire() as conn:
+        result = await conn.execute(
+            "DELETE FROM recordings WHERE id = $1",
+            rec.id,
+        )
+        if result == "DELETE 0":
+            logger.warning("recording_already_deleted", recording_id=rec.id)
+            return False
+
+    # Pas 2: ștergem fișierul DUPĂ ce DB-ul a confirmat
+    # Dacă unlink() eșuează, logăm dar NU facem rollback DB
+    if file_path and file_path.exists():
         try:
             file_path.unlink()
             logger.info("audio_file_deleted", path=str(file_path), recording_id=rec.id)
         except OSError as e:
-            logger.error("audio_file_delete_failed", path=str(file_path), error=str(e))
-            return False
+            logger.error(
+                "orphaned_file_after_retention_delete",
+                path=str(file_path),
+                recording_id=rec.id,
+                error=str(e),
+            )
     else:
-        logger.warning("audio_file_not_found", path=str(file_path), recording_id=rec.id)
-
-    # Pas 2: ștergem rândul din DB
-    async with pool.acquire() as conn:
-        await conn.execute(
-            "DELETE FROM recordings WHERE id = $1",
-            rec.id,
-        )
+        logger.warning("audio_file_not_found", path=str(rec.file_path), recording_id=rec.id)
 
     logger.info(
         "recording_deleted",

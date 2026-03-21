@@ -1,16 +1,22 @@
-import { useState } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { useParams, useNavigate, Link } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import axios from 'axios'
 import {
   ArrowLeft, Download, RefreshCw, Trash2,
-  Calendar, Clock, MapPin, Users, FileAudio,
+  Calendar, Clock, MapPin, Users, FileAudio, ChevronDown,
 } from 'lucide-react'
 import { getRecording, getAudioUrl, retryTranscription, deleteRecording } from '@/api/recordings'
 import { getTranscript } from '@/api/transcripts'
 import { StatusBadge } from '@/components/ui/StatusBadge'
 import { Spinner } from '@/components/ui/Spinner'
+import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
+import { SkeletonCard } from '@/components/ui/Skeleton'
+import { useToast } from '@/contexts/ToastContext'
+import { useAuth } from '@/contexts/AuthContext'
 import AudioPlayer from '@/components/AudioPlayer'
 import TranscriptViewer from '@/components/TranscriptViewer'
+import TranscriptionProgress from '@/components/recording/TranscriptionProgress'
 
 const EXPORT_FORMATS = [
   { value: 'txt', label: 'Text (.txt)' },
@@ -20,17 +26,56 @@ const EXPORT_FORMATS = [
 
 export default function RecordingDetailPage() {
   const { id } = useParams<{ id: string }>()
+  const { user } = useAuth()
   const navigate = useNavigate()
   const queryClient = useQueryClient()
+  const toast = useToast()
   const [currentTime, setCurrentTime] = useState(0)
   const [seekTo, setSeekTo] = useState<number | null>(null)
+  const [exportOpen, setExportOpen] = useState(false)
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false)
+  const exportRef = useRef<HTMLDivElement>(null)
+  const prevStatusRef = useRef<string | null>(null)
 
+  // Închide dropdown export la click în afară
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (exportRef.current && !exportRef.current.contains(e.target as Node)) {
+        setExportOpen(false)
+      }
+    }
+    if (exportOpen) {
+      document.addEventListener('mousedown', handleClickOutside)
+    }
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [exportOpen])
+
+  // Toast când transcrierea se finalizează
   const { data: recording, isLoading: recLoading } = useQuery({
     queryKey: ['recording', id],
     queryFn: () => getRecording(id!),
     refetchInterval: (query) => {
       const status = query.state.data?.status
       return status === 'queued' || status === 'transcribing' ? 5000 : false
+    },
+    select: (data) => {
+      // Notifică când transcrierea trece de la activ la completed
+      if (
+        prevStatusRef.current &&
+        (prevStatusRef.current === 'queued' || prevStatusRef.current === 'transcribing') &&
+        data.status === 'completed'
+      ) {
+        toast('Transcrierea s-a finalizat cu succes!', 'success')
+      }
+      if (
+        prevStatusRef.current &&
+        (prevStatusRef.current === 'queued' || prevStatusRef.current === 'transcribing') &&
+        data.status === 'failed'
+      ) {
+        toast('Transcrierea a eșuat.', 'error')
+      }
+      prevStatusRef.current = data.status
+      return data
     },
   })
 
@@ -49,21 +94,38 @@ export default function RecordingDetailPage() {
   const deleteMutation = useMutation({
     mutationFn: () => deleteRecording(id!),
     onSuccess: () => navigate('/'),
+    onError: (error) => {
+      const message = axios.isAxiosError(error)
+        ? (error.response?.data?.detail as string | undefined)
+        : undefined
+      toast(message ?? 'Înregistrarea nu a putut fi ștearsă.', 'error')
+    },
   })
 
   function handleExport(format: string) {
-    const token = localStorage.getItem('access_token') ?? ''
-    window.open(`/api/v1/export/recording/${id}?format=${format}&token=${token}`, '_blank')
-  }
-
-  function handleDelete() {
-    if (confirm('Ești sigur că vrei să ștergi această înregistrare? Acțiunea este ireversibilă.')) {
-      deleteMutation.mutate()
-    }
+    // Use axios to download with Authorization header, then create blob URL
+    axios
+      .get(`/api/v1/export/recording/${id}?format=${format}`, {
+        baseURL: '/api/v1',
+        responseType: 'blob',
+      })
+      .then((response) => {
+        const blob = response.data
+        const blobUrl = URL.createObjectURL(blob)
+        const link = document.createElement('a')
+        link.href = blobUrl
+        link.download = `recording-${id}-${format}`
+        link.click()
+        URL.revokeObjectURL(blobUrl)
+        setExportOpen(false)
+      })
+      .catch(() => {
+        toast('Export failed. Please try again.', 'error')
+      })
   }
 
   if (recLoading) {
-    return <div className="flex justify-center py-24"><Spinner className="h-8 w-8" /></div>
+    return <SkeletonCard />
   }
 
   if (!recording) {
@@ -106,7 +168,7 @@ export default function RecordingDetailPage() {
             <button
               onClick={() => retryMutation.mutate()}
               disabled={retryMutation.isPending}
-              className="inline-flex items-center gap-2 px-3 py-2 border border-orange-300 text-orange-600 hover:bg-orange-50 rounded-lg text-sm font-medium transition-colors"
+              className="btn-warning"
             >
               <RefreshCw className="h-4 w-4" />
               Retry
@@ -114,40 +176,55 @@ export default function RecordingDetailPage() {
           )}
 
           {recording.status === 'completed' && (
-            <div className="relative group">
-              <button className="inline-flex items-center gap-2 px-3 py-2 border border-gray-300 text-gray-700 hover:bg-gray-50 rounded-lg text-sm font-medium transition-colors">
+            <div className="relative" ref={exportRef}>
+              <button
+                onClick={() => setExportOpen(v => !v)}
+                aria-haspopup="menu"
+                aria-expanded={exportOpen}
+                className="btn-secondary"
+              >
                 <Download className="h-4 w-4" />
                 Export
+                <ChevronDown className={`h-3.5 w-3.5 transition-transform ${exportOpen ? 'rotate-180' : ''}`} />
               </button>
-              <div className="absolute right-0 mt-1 w-36 bg-white border border-gray-200 rounded-lg shadow-lg opacity-0 group-hover:opacity-100 transition-opacity z-10">
-                {EXPORT_FORMATS.map(fmt => (
-                  <button
-                    key={fmt.value}
-                    onClick={() => handleExport(fmt.value)}
-                    className="block w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 first:rounded-t-lg last:rounded-b-lg"
-                  >
-                    {fmt.label}
-                  </button>
-                ))}
-              </div>
+              {exportOpen && (
+                <div
+                  className="absolute right-0 mt-1 w-40 bg-white border border-gray-200 rounded-xl shadow-lg z-10 py-1"
+                  role="menu"
+                  aria-label="Formate export"
+                >
+                  {EXPORT_FORMATS.map(fmt => (
+                    <button
+                      key={fmt.value}
+                      role="menuitem"
+                      onClick={() => handleExport(fmt.value)}
+                      className="block w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
+                    >
+                      {fmt.label}
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
           )}
 
-          <button
-            onClick={handleDelete}
-            disabled={deleteMutation.isPending}
-            className="p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
-            title="Șterge înregistrarea"
-          >
-            <Trash2 className="h-4 w-4" />
-          </button>
+          {user?.is_admin && (
+            <button
+              onClick={() => setShowDeleteDialog(true)}
+              disabled={deleteMutation.isPending}
+              className="btn-ghost text-gray-400 hover:text-red-500 hover:bg-red-50"
+              aria-label="Șterge înregistrarea"
+            >
+              <Trash2 className="h-4 w-4" />
+            </button>
+          )}
         </div>
       </div>
 
       {/* Metadata */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
         <MetaItem icon={<Calendar className="h-4 w-4" />} label="Data ședinței"
-          value={new Date(recording.meeting_date).toLocaleDateString('ro-RO')} />
+          value={new Date(recording.meeting_date).toLocaleDateString('ro-RO', { day: 'numeric', month: 'short', year: 'numeric' })} />
         <MetaItem icon={<Clock className="h-4 w-4" />} label="Durată"
           value={recording.duration_formatted} />
         <MetaItem icon={<FileAudio className="h-4 w-4" />} label="Fișier"
@@ -167,9 +244,9 @@ export default function RecordingDetailPage() {
         )}
       </div>
 
-      {/* Audio Player */}
+      {/* Audio Player — sticky */}
       {recording.status === 'completed' && (
-        <div className="mb-6">
+        <div className="sticky top-0 z-10 bg-white/95 backdrop-blur-sm pb-4 -mx-6 px-6 pt-2 border-b border-gray-100 mb-6 shadow-sm">
           <AudioPlayer
             src={getAudioUrl(id!)}
             onTimeUpdate={setCurrentTime}
@@ -182,19 +259,32 @@ export default function RecordingDetailPage() {
       <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
         <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between">
           <h2 className="text-sm font-semibold text-gray-700">Transcript</h2>
-          {transcript && (
-            <span className="text-xs text-gray-400">{transcript.word_count} cuvinte · {transcript.language}</span>
-          )}
+          <div className="flex items-center gap-3">
+            {transcript && (
+              <span className="text-xs text-gray-400">
+                {transcript.word_count} cuvinte · {transcript.language}
+              </span>
+            )}
+            {transcript && transcript.segments && (
+              <button
+                onClick={() => {
+                  const text = transcript.segments.map(s => s.text).join('\n')
+                  navigator.clipboard.writeText(text)
+                }}
+                className="text-xs text-blue-500 hover:text-blue-700 transition-colors"
+                aria-label="Copiază transcriptul complet"
+              >
+                Copiază
+              </button>
+            )}
+          </div>
         </div>
 
         <div className="p-4">
           {isProcessing && (
-            <div className="flex items-center gap-3 py-8 justify-center text-gray-500">
-              <Spinner className="h-5 w-5" />
-              <span className="text-sm">
-                {recording.status === 'queued' ? 'În așteptare transcriere...' : 'Transcriere în curs...'}
-              </span>
-            </div>
+            <TranscriptionProgress
+              status={recording.status as 'queued' | 'transcribing'}
+            />
           )}
 
           {recording.status === 'failed' && (
@@ -223,6 +313,19 @@ export default function RecordingDetailPage() {
           )}
         </div>
       </div>
+
+      {/* Dialog confirmare ștergere */}
+      {user?.is_admin && (
+        <ConfirmDialog
+          open={showDeleteDialog}
+          title="Șterge înregistrarea?"
+          description={`"${recording.title}" va fi ștearsă permanent. Transcriptul și fișierul audio nu pot fi recuperate.`}
+          confirmLabel="Șterge permanent"
+          danger
+          onConfirm={() => deleteMutation.mutate()}
+          onClose={() => setShowDeleteDialog(false)}
+        />
+      )}
     </div>
   )
 }
@@ -231,7 +334,7 @@ function MetaItem({ icon, label, value }: { icon: React.ReactNode; label: string
   return (
     <div className="bg-gray-50 rounded-xl p-3">
       <div className="flex items-center gap-1.5 mb-1 text-gray-400">{icon}<span className="text-xs font-medium">{label}</span></div>
-      <p className="text-sm font-medium text-gray-800 truncate">{value}</p>
+      <p className="text-sm font-medium text-gray-800 truncate" title={value}>{value}</p>
     </div>
   )
 }

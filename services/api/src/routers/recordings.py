@@ -16,14 +16,14 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.database import get_db
-from src.middleware.auth import decode_token, get_current_user
+from src.middleware.auth import decode_token, get_current_user, get_current_admin
 from src.models.audit_log import User
 from src.models.recording import Recording
 from src.schemas.recording import (
     RecordingUpdate, RecordingResponse,
     PaginatedRecordings,
 )
-from src.services.recording_service import RecordingService
+from src.services.recording_service import RecordingService, RecordingDeletionError
 from src.middleware.audit import log_audit
 
 # APIRouter = "mini-aplicație" FastAPI cu prefix și tag-uri
@@ -139,6 +139,7 @@ async def update_recording(
 async def delete_recording(
     recording_id: uuid.UUID,
     request: Request,
+    _: User = Depends(get_current_admin),
     service: RecordingService = Depends(get_recording_service),
     db: AsyncSession = Depends(get_db),
 ):
@@ -146,7 +147,14 @@ async def delete_recording(
     Șterge o înregistrare și fișierul audio asociat.
     Atenție: operație ireversibilă!
     """
-    success = await service.delete(recording_id)
+    try:
+        success = await service.delete(recording_id)
+    except RecordingDeletionError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(exc),
+        ) from exc
+
     if not success:
         raise HTTPException(status_code=404, detail="Înregistrarea nu există.")
     await log_audit(request, db, action="DELETE", resource_type="recording",

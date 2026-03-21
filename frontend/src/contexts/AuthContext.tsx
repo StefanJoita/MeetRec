@@ -7,13 +7,40 @@ interface AuthContextType {
   loading: boolean
   login: (username: string, password: string) => Promise<void>
   logout: () => Promise<void>
+  refreshUser: () => Promise<void>
 }
 
 export const AuthContext = createContext<AuthContextType | null>(null)
 
+// Event emitter for logout triggered from interceptor
+export const logoutEventEmitter = {
+  handlers: [] as Array<() => void>,
+  on(handler: () => void) {
+    this.handlers.push(handler)
+  },
+  off(handler: () => void) {
+    this.handlers = this.handlers.filter(h => h !== handler)
+  },
+  emit() {
+    this.handlers.forEach(h => h())
+  },
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null)
   const [loading, setLoading] = useState(true)
+
+  // Listen to logout event from interceptor (triggered on HTTP 401)
+  useEffect(() => {
+    const handleLogout = () => {
+      localStorage.removeItem('access_token')
+      setUser(null)
+      // Redirect forțat — nu depindem de React re-render sau ProtectedRoute
+      window.location.href = '/login'
+    }
+    logoutEventEmitter.on(handleLogout)
+    return () => logoutEventEmitter.off(handleLogout)
+  }, [])
 
   // La startup: dacă există token în localStorage, încercăm să obținem userul
   useEffect(() => {
@@ -41,8 +68,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(null)
   }
 
+  async function refreshUser() {
+    const me = await getMe()
+    setUser(me)
+  }
+
   return (
-    <AuthContext.Provider value={{ user, loading, login, logout }}>
+    <AuthContext.Provider value={{ user, loading, login, logout, refreshUser }}>
       {children}
     </AuthContext.Provider>
   )

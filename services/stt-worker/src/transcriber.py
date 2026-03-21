@@ -171,8 +171,15 @@ class WhisperTranscriber:
         """
         options = {
             "task": "transcribe",
-            "fp16": False,       # ← CRITICĂ pe CPU, altfel RuntimeError!
-            "verbose": False,    # nu vrem spam în logs
+            "fp16": False,           # ← CRITICĂ pe CPU, altfel RuntimeError!
+            "verbose": False,        # nu vrem spam în logs
+            # no_speech_threshold: default 0.6 → creștem la 0.8 pentru a evita
+            # cazurile în care Whisper clasifică greșit audioul ca non-speech.
+            # Valoarea mai mare = modelul acceptă mai ușor segmente borderline.
+            "no_speech_threshold": 0.8,
+            # condition_on_previous_text=False: previne blocajele de tip "hallucination"
+            # în care Whisper repetă același text la infinit și nu avansează în audio.
+            "condition_on_previous_text": False,
         }
         if language_hint:
             options["language"] = language_hint
