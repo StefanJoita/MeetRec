@@ -10,10 +10,12 @@
 # Ingest Service-ului care are AudioValidator complet.
 # ============================================================
 
+import json
 import shutil
 from pathlib import Path
+from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, status
+from fastapi import APIRouter, Depends, Form, HTTPException, UploadFile, File, status
 from pydantic import BaseModel
 
 from src.config import settings
@@ -39,6 +41,8 @@ class InboxUploadResponse(BaseModel):
     summary="Trimite fișier audio la transcriere",
     description=(
         "Salvează fișierul în inbox-ul monitorizat de Ingest Service. "
+        "Câmpurile de metadate (title, meeting_date, description, participants, location) "
+        "sunt opționale — dacă sunt furnizate, se salvează un sidecar JSON alături de fișier. "
         "Ingest-ul preia automat fișierul, îl validează, creează înregistrarea "
         "în baza de date și îl trimite la transcriere. "
         "202 Accepted = fișierul a fost primit, procesarea e asincronă."
@@ -46,6 +50,11 @@ class InboxUploadResponse(BaseModel):
 )
 async def upload_to_inbox(
     file: UploadFile = File(description="Fișierul audio (MP3, WAV, M4A, OGG, FLAC, WEBM)"),
+    title: Optional[str] = Form(default=None, description="Titlul ședinței"),
+    meeting_date: Optional[str] = Form(default=None, description="Data ședinței (YYYY-MM-DD)"),
+    description: Optional[str] = Form(default=None, description="Descriere opțională"),
+    participants: Optional[str] = Form(default=None, description="Participanți separați prin virgulă"),
+    location: Optional[str] = Form(default=None, description="Locația ședinței"),
 ) -> InboxUploadResponse:
     """
     Salvează fișierul primit în /data/inbox/.
@@ -82,6 +91,28 @@ async def upload_to_inbox(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Nu s-a putut salva fișierul: {e}",
         )
+
+    # Dacă s-au furnizat metadate, salvăm un sidecar JSON lângă fișier.
+    # Ingest Service va citi acest fișier la procesare.
+    meta: dict = {}
+    if title:
+        meta["title"] = title.strip()
+    if meeting_date:
+        meta["meeting_date"] = meeting_date.strip()
+    if description:
+        meta["description"] = description.strip()
+    if participants:
+        meta["participants"] = [p.strip() for p in participants.split(",") if p.strip()]
+    if location:
+        meta["location"] = location.strip()
+
+    if meta:
+        sidecar_path = dest.with_suffix(dest.suffix + ".meetrec-meta.json")
+        try:
+            sidecar_path.write_text(json.dumps(meta, ensure_ascii=False), encoding="utf-8")
+        except OSError as e:
+            import logging
+            logging.getLogger(__name__).warning("sidecar_write_failed: %s", e)
 
     return InboxUploadResponse(
         message=(

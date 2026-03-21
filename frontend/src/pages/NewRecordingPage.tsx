@@ -1,8 +1,7 @@
-import { useCallback } from 'react'
+import { useCallback, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { UploadCloud, FileAudio, X, ArrowLeft, CheckCircle } from 'lucide-react'
-import { useState } from 'react'
-import { useUploadWithProgress } from '@/hooks/useUploadWithProgress'
+import { useUploadWithProgress, type UploadMetadata } from '@/hooks/useUploadWithProgress'
 import { cn } from '@/lib/cn'
 
 const ACCEPTED = '.mp3,.wav,.m4a,.ogg,.flac,.webm'
@@ -14,6 +13,13 @@ export default function NewRecordingPage() {
   const [dragging, setDragging] = useState(false)
   const [fileError, setFileError] = useState('')
   const { progress, uploading, done, error, upload, cancel, reset } = useUploadWithProgress()
+
+  // Metadata form state
+  const [title, setTitle] = useState('')
+  const [meetingDate, setMeetingDate] = useState(() => new Date().toISOString().slice(0, 10))
+  const [description, setDescription] = useState('')
+  const [participants, setParticipants] = useState('')
+  const [location, setLocation] = useState('')
 
   const handleFile = useCallback((f: File) => {
     if (f.size > MAX_MB * 1024 * 1024) {
@@ -33,7 +39,14 @@ export default function NewRecordingPage() {
 
   async function handleUpload() {
     if (!file) { setFileError('Selectați un fișier audio.'); return }
-    await upload(file)
+    const meta: UploadMetadata = {
+      title: title.trim() || undefined,
+      meeting_date: meetingDate || undefined,
+      description: description.trim() || undefined,
+      participants: participants.trim() || undefined,
+      location: location.trim() || undefined,
+    }
+    await upload(file, meta)
   }
 
   function handleCancel() {
@@ -56,7 +69,15 @@ export default function NewRecordingPage() {
             Vezi lista de înregistrări
           </button>
           <button
-            onClick={() => { setFile(null); reset() }}
+            onClick={() => {
+              setFile(null)
+              reset()
+              setTitle('')
+              setMeetingDate(new Date().toISOString().slice(0, 10))
+              setDescription('')
+              setParticipants('')
+              setLocation('')
+            }}
             className="btn-secondary"
           >
             Trimite alt fișier
@@ -177,6 +198,77 @@ export default function NewRecordingPage() {
           {fileError || error}
         </div>
       )}
+
+      {/* Metadata form */}
+      <div className="mt-6 space-y-4">
+        <h2 className="text-sm font-semibold text-gray-700">Detalii ședință <span className="font-normal text-gray-400">(opțional)</span></h2>
+
+        <div>
+          <label htmlFor="title" className="block text-xs font-medium text-gray-600 mb-1">Titlu</label>
+          <input
+            id="title"
+            type="text"
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            placeholder="ex. Ședința Consiliului Local – Ianuarie 2024"
+            disabled={uploading}
+            className="input-base w-full"
+          />
+        </div>
+
+        <div>
+          <label htmlFor="meeting_date" className="block text-xs font-medium text-gray-600 mb-1">Data ședinței</label>
+          <input
+            id="meeting_date"
+            type="date"
+            value={meetingDate}
+            onChange={(e) => setMeetingDate(e.target.value)}
+            disabled={uploading}
+            className="input-base w-full"
+          />
+        </div>
+
+        <div>
+          <label htmlFor="location" className="block text-xs font-medium text-gray-600 mb-1">Locație</label>
+          <input
+            id="location"
+            type="text"
+            value={location}
+            onChange={(e) => setLocation(e.target.value)}
+            placeholder="ex. Sala Mare, Etaj 2"
+            disabled={uploading}
+            className="input-base w-full"
+          />
+        </div>
+
+        <div>
+          <label htmlFor="participants" className="block text-xs font-medium text-gray-600 mb-1">
+            Participanți <span className="text-gray-400">(separați prin virgulă)</span>
+          </label>
+          <input
+            id="participants"
+            type="text"
+            value={participants}
+            onChange={(e) => setParticipants(e.target.value)}
+            placeholder="ex. Ion Ionescu, Maria Pop, Alexandru Dima"
+            disabled={uploading}
+            className="input-base w-full"
+          />
+        </div>
+
+        <div>
+          <label htmlFor="description" className="block text-xs font-medium text-gray-600 mb-1">Descriere</label>
+          <textarea
+            id="description"
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+            placeholder="Puncte pe ordinea de zi, context, alte detalii..."
+            rows={3}
+            disabled={uploading}
+            className="input-base w-full resize-none"
+          />
+        </div>
+      </div>
 
       <button
         type="button"

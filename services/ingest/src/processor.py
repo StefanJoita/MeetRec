@@ -14,7 +14,9 @@
 # Processor ascunde complexitatea (4 servicii, error handling,
 # logging) în spatele unui singur apel: processor.process(file)
 # ============================================================
+import json
 from pathlib import Path
+from typing import Any, Dict
 
 from src.config import settings
 from src.logger import get_logger
@@ -55,7 +57,19 @@ class FileProcessor:
             True dacă procesarea a reușit, False altfel
         """
         logger.info("processing_started", file=file_path.name)
- 
+
+        # ── Sidecar: metadate furnizate de utilizator la upload ─
+        user_meta: Dict[str, Any] = {}
+        sidecar_path = file_path.with_suffix(file_path.suffix + ".meetrec-meta.json")
+        if sidecar_path.exists():
+            try:
+                user_meta = json.loads(sidecar_path.read_text(encoding="utf-8"))
+                logger.info("sidecar_loaded", file=file_path.name, keys=list(user_meta.keys()))
+            except Exception as e:
+                logger.warning("sidecar_read_failed", file=file_path.name, error=str(e))
+            finally:
+                sidecar_path.unlink(missing_ok=True)
+
         # ── Pasul 1: Validare ──────────────────────────────────
         result = self.validator.validate(file_path)
  
@@ -99,10 +113,11 @@ class FileProcessor:
             return False
         
         # ── Pasul 4: Înregistrare în DB ───────────────────────────────
-        try: 
+        try:
              recording_id = await self.database.create_recording(
                 metadata=metadata,
                 stored_path=stored_path,
+                user_meta=user_meta,
              )
         except Exception as e:
              logger.error("database_error",file=file_path.name,error=str(e))
