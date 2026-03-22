@@ -1,13 +1,15 @@
 import { useState, useRef, useEffect } from 'react'
 import { useParams, useNavigate, Link } from 'react-router-dom'
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { useQuery, useMutation, useQueryClient, type Query } from '@tanstack/react-query'
 import axios from 'axios'
 import {
   ArrowLeft, Download, RefreshCw, Trash2,
   Calendar, Clock, MapPin, Users, FileAudio, ChevronDown,
 } from 'lucide-react'
-import { getRecording, getAudioUrl, retryTranscription, deleteRecording } from '@/api/recordings'
+import client from '@/api/client'
+import { getRecording, getAudioUrl, retryTranscription, deleteRecording, getRecordingParticipants } from '@/api/recordings'
 import { getTranscript } from '@/api/transcripts'
+import type { ParticipantUserInfo, Recording, Segment, Transcript } from '@/api/types'
 import { StatusBadge } from '@/components/ui/StatusBadge'
 import { Spinner } from '@/components/ui/Spinner'
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
@@ -17,6 +19,7 @@ import { useAuth } from '@/contexts/AuthContext'
 import AudioPlayer from '@/components/AudioPlayer'
 import TranscriptViewer from '@/components/TranscriptViewer'
 import TranscriptionProgress from '@/components/recording/TranscriptionProgress'
+import ParticipantLinker from '@/components/ParticipantLinker'
 
 const EXPORT_FORMATS = [
   { value: 'txt', label: 'Text (.txt)' },
@@ -51,14 +54,14 @@ export default function RecordingDetailPage() {
   }, [exportOpen])
 
   // Toast când transcrierea se finalizează
-  const { data: recording, isLoading: recLoading } = useQuery({
+  const { data: recording, isLoading: recLoading } = useQuery<Recording>({
     queryKey: ['recording', id],
     queryFn: () => getRecording(id!),
-    refetchInterval: (query) => {
+    refetchInterval: (query: Query<Recording, Error, Recording, readonly unknown[]>) => {
       const status = query.state.data?.status
       return status === 'queued' || status === 'transcribing' ? 5000 : false
     },
-    select: (data) => {
+    select: (data: Recording) => {
       // Notifică când transcrierea trece de la activ la completed
       if (
         prevStatusRef.current &&
@@ -72,18 +75,26 @@ export default function RecordingDetailPage() {
         (prevStatusRef.current === 'queued' || prevStatusRef.current === 'transcribing') &&
         data.status === 'failed'
       ) {
-        toast('Transcrierea a eșuat.', 'error')
+        toast('Transcrierea nu a putut fi finalizată.', 'error')
       }
       prevStatusRef.current = data.status
       return data
     },
   })
 
-  const { data: transcript, isLoading: txLoading } = useQuery({
+  const { data: transcript, isLoading: txLoading } = useQuery<Transcript>({
     queryKey: ['transcript', id],
     queryFn: () => getTranscript(id!),
     enabled: recording?.status === 'completed',
     retry: false,
+  })
+
+  const canManageParticipants = !!user && user.role !== 'participant'
+
+  const { data: resolvedParticipants } = useQuery<ParticipantUserInfo[]>({
+    queryKey: ['recording-participants', id],
+    queryFn: () => getRecordingParticipants(id!),
+    enabled: !!id && canManageParticipants,
   })
 
   const retryMutation = useMutation({
@@ -94,7 +105,7 @@ export default function RecordingDetailPage() {
   const deleteMutation = useMutation({
     mutationFn: () => deleteRecording(id!),
     onSuccess: () => navigate('/'),
-    onError: (error) => {
+    onError: (error: unknown) => {
       const message = axios.isAxiosError(error)
         ? (error.response?.data?.detail as string | undefined)
         : undefined
@@ -103,10 +114,8 @@ export default function RecordingDetailPage() {
   })
 
   function handleExport(format: string) {
-    // Use axios to download with Authorization header, then create blob URL
-    axios
-      .get(`/api/v1/export/recording/${id}?format=${format}`, {
-        baseURL: '/api/v1',
+    client
+      .get(`/export/recording/${id}?format=${format}`, {
         responseType: 'blob',
       })
       .then((response) => {
@@ -114,13 +123,21 @@ export default function RecordingDetailPage() {
         const blobUrl = URL.createObjectURL(blob)
         const link = document.createElement('a')
         link.href = blobUrl
-        link.download = `recording-${id}-${format}`
+        // Preia numele fișierului din header-ul Content-Disposition
+        const disposition = response.headers['content-disposition'] as string | undefined
+        const match = disposition?.match(/filename\*?=(?:UTF-8'')?([^;\n]+)/i)
+        link.download = match ? decodeURIComponent(match[1].replace(/['"]/g, '')) : `recording-${id}.${format}`
         link.click()
         URL.revokeObjectURL(blobUrl)
         setExportOpen(false)
       })
-      .catch(() => {
-        toast('Export failed. Please try again.', 'error')
+      .catch((err) => {
+        const status = axios.isAxiosError(err) ? err.response?.status : null
+        if (status === 429) {
+          toast('Limita de export a fost atinsă. Încearcă din nou mai târziu.', 'error')
+        } else {
+          toast('Exportul nu a putut fi generat. Încearcă din nou.', 'error')
+        }
       })
   }
 
@@ -132,7 +149,7 @@ export default function RecordingDetailPage() {
     return (
       <div className="p-6 text-center">
         <p className="text-gray-500">Înregistrarea nu a fost găsită.</p>
-        <Link to="/" className="text-blue-600 text-sm mt-2 inline-block">Înapoi la liste</Link>
+        <Link to="/" className="text-blue-600 text-sm mt-2 inline-block">Înapoi la listă</Link>
       </div>
     )
   }
@@ -164,14 +181,14 @@ export default function RecordingDetailPage() {
 
         {/* Acțiuni */}
         <div className="flex items-center gap-2 shrink-0">
-          {recording.status === 'failed' && (
+          {recording.status === 'failed' && user?.role !== 'participant' && (
             <button
               onClick={() => retryMutation.mutate()}
               disabled={retryMutation.isPending}
               className="btn-warning"
             >
               <RefreshCw className="h-4 w-4" />
-              Retry
+              Reîncearcă
             </button>
           )}
 
@@ -244,6 +261,20 @@ export default function RecordingDetailPage() {
         )}
       </div>
 
+      {/* Participanți cu acces — admin și operator */}
+      {canManageParticipants && (
+        <div className="bg-white border border-gray-200 rounded-xl p-4 mb-6">
+          <div className="flex items-center gap-2 mb-3">
+            <Users className="h-4 w-4 text-gray-400" />
+            <h2 className="text-sm font-semibold text-gray-700">Participanți cu acces</h2>
+          </div>
+          <ParticipantLinker
+            recordingId={id!}
+            linked={resolvedParticipants ?? recording.resolved_participants ?? []}
+          />
+        </div>
+      )}
+
       {/* Audio Player — sticky */}
       {recording.status === 'completed' && (
         <div className="sticky top-0 z-10 bg-white/95 backdrop-blur-sm pb-4 -mx-6 px-6 pt-2 border-b border-gray-100 mb-6 shadow-sm">
@@ -268,7 +299,7 @@ export default function RecordingDetailPage() {
             {transcript && transcript.segments && (
               <button
                 onClick={() => {
-                  const text = transcript.segments.map(s => s.text).join('\n')
+                  const text = transcript.segments.map((segment: Segment) => segment.text).join('\n')
                   navigator.clipboard.writeText(text)
                 }}
                 className="text-xs text-blue-500 hover:text-blue-700 transition-colors"
@@ -289,7 +320,7 @@ export default function RecordingDetailPage() {
 
           {recording.status === 'failed' && (
             <div className="py-8 text-center">
-              <p className="text-red-500 text-sm">Transcrierea a eșuat.</p>
+              <p className="text-red-500 text-sm">Transcrierea nu a putut fi finalizată.</p>
               {recording.error_message && (
                 <p className="text-gray-400 text-xs mt-1">{recording.error_message}</p>
               )}
@@ -309,13 +340,13 @@ export default function RecordingDetailPage() {
           )}
 
           {recording.status === 'completed' && !txLoading && !transcript && (
-            <p className="text-center text-gray-400 text-sm py-8">Transcriptul nu este disponibil.</p>
+            <p className="text-center text-gray-400 text-sm py-8">Transcrierea nu este disponibilă.</p>
           )}
         </div>
       </div>
 
       {/* Dialog confirmare ștergere */}
-      {user?.is_admin && (
+      {user?.is_admin && showDeleteDialog && (
         <ConfirmDialog
           open={showDeleteDialog}
           title="Șterge înregistrarea?"
