@@ -13,7 +13,7 @@
 import uuid
 from datetime import datetime, date, timezone
 from typing import Optional, List
-from sqlalchemy import String, Integer, BigInteger, Date, Text
+from sqlalchemy import String, Integer, BigInteger, Date, Text, ForeignKey
 from sqlalchemy import TIMESTAMP, Enum as SAEnum, JSON, SmallInteger
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID, ARRAY
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -120,17 +120,22 @@ class Recording(Base):
     )
 
     # ── Relații ─────────────────────────────────────────────
-    # "relationship" = SQLAlchemy știe să facă JOIN automat
-    # lazy="selectin" = când incarci Recording, încarcă și Transcript
-    #                   cu un query separat (mai eficient decât JOIN pe tabele mari)
     transcript: Mapped[Optional["Transcript"]] = relationship(
         "Transcript",
         back_populates="recording",
-        cascade="all, delete-orphan",  # dacă ștergi Recording → șterge și Transcript
+        cascade="all, delete-orphan",
         lazy="selectin",
     )
 
-     # ── Proprietăți calculate ───────────────────────────────
+    # Participanți rezolvați (useri linkați explicit de admin)
+    participant_links: Mapped[List["RecordingParticipant"]] = relationship(
+        "RecordingParticipant",
+        foreign_keys="[RecordingParticipant.recording_id]",
+        cascade="all, delete-orphan",
+        lazy="selectin",
+    )
+
+    # ── Proprietăți calculate ───────────────────────────────
     @property
     def duration_formatted(self) -> str:
         """Returnează durata ca 'HH:MM:SS'."""
@@ -147,4 +152,37 @@ class Recording(Base):
  
     def __repr__(self) -> str:
         return f"<Recording id={str(self.id)[:8]} title='{self.title}' status={self.status}>"
- 
+
+
+class RecordingParticipant(Base):
+    """
+    Tabelă de legătură: care useri (cu rol participant) au acces la care înregistrări.
+    Adminul leagă explicit un user de o înregistrare.
+    Accesul este acordat doar pentru înregistrări create DUPĂ crearea contului participantului.
+    """
+    __tablename__ = "recording_participants"
+
+    recording_id: Mapped[uuid.UUID] = mapped_column(
+        PG_UUID(as_uuid=True),
+        ForeignKey("recordings.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        PG_UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    linked_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True),
+        server_default=func.now(),
+        nullable=False,
+    )
+    # Adminul care a făcut legătura (pentru audit)
+    linked_by: Mapped[Optional[uuid.UUID]] = mapped_column(
+        PG_UUID(as_uuid=True),
+        ForeignKey("users.id"),
+        nullable=True,
+    )
+
+    def __repr__(self) -> str:
+        return f"<RecordingParticipant rec={str(self.recording_id)[:8]} user={str(self.user_id)[:8]}>"

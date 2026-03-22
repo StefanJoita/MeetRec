@@ -19,7 +19,32 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.config import settings
+from src.models.audit_log import User
 from src.schemas.recording import SearchResult, SemanticSearchResult, CombinedSearchResult
+
+
+def _participant_filter_sql(user: Optional[User]) -> tuple[str, dict]:
+    """
+    Returnează un fragment SQL și parametrii corespunzători pentru filtrul participant.
+    Participantul vede doar înregistrările la care e linkat și create după contul lui.
+    """
+    if user is None or not user.is_participant:
+        return "", {}
+
+    return (
+        """
+        AND EXISTS (
+            SELECT 1 FROM recording_participants rp
+            WHERE rp.recording_id = r.id
+              AND rp.user_id = :participant_user_id
+              AND r.created_at > :participant_created_at
+        )
+        """,
+        {
+            "participant_user_id": user.id,
+            "participant_created_at": user.created_at,
+        },
+    )
 
 
 class SearchService:
@@ -33,6 +58,7 @@ class SearchService:
         limit: int = 20,
         offset: int = 0,
         language: Optional[str] = None,
+        current_user: Optional[User] = None,
     ) -> Tuple[List[SearchResult], int]:
         """
         Returns (results, total_count).
@@ -46,12 +72,13 @@ class SearchService:
         - "hotărâre consiliu" → caută ambele cuvinte
         Nu folosim to_tsquery care necesită sintaxă specială (& | !).
         """
-        # Filtru opțional de limbă (același WHERE folosit în ambele query-uri)
         lang_filter = "AND t.language = :language" if language else ""
+        participant_sql, participant_params = _participant_filter_sql(current_user)
 
         params: dict = {"query": query, "limit": limit, "offset": offset}
         if language:
             params["language"] = language
+        params.update(participant_params)
 
         # ── Query 1: numărul total de rezultate (pentru paginare) ──────────
         count_sql = text(f"""
@@ -63,12 +90,11 @@ class SearchService:
                 t.status = 'completed'
                 AND seg.search_vector @@ plainto_tsquery('romanian', :query)
                 {lang_filter}
+                {participant_sql}
         """)
         total_count: int = (await self.db.scalar(count_sql, params)) or 0
 
         # ── Query 2: rezultatele efective cu paginare ──────────────────────
-        # ts_rank = scorul de relevanță (mai mare = mai relevant)
-        # ts_headline = extrage fragmentul cu termenul evidențiat în <b>...</b>
         sql = text(f"""
             SELECT
                 r.id            AS recording_id,
@@ -92,6 +118,7 @@ class SearchService:
                 t.status = 'completed'
                 AND seg.search_vector @@ plainto_tsquery('romanian', :query)
                 {lang_filter}
+                {participant_sql}
             ORDER BY rank DESC, r.meeting_date DESC
             LIMIT :limit OFFSET :offset
         """)
@@ -124,6 +151,7 @@ class SearchService:
         self,
         query: str,
         limit: int = 20,
+        current_user: Optional[User] = None,
     ) -> Tuple[List[SemanticSearchResult], int]:
         """
         Căutare semantică folosind embeddings vectoriale (pgvector).
@@ -148,10 +176,8 @@ class SearchService:
         # Embeddat direct în SQL (valori float generate de noi — fără risc SQL injection)
         # SQLAlchemy confundă :param cu ::cast, deci evităm parametrul pentru vector
         vector_literal = "[" + ",".join(f"{x:.8f}" for x in embedding) + "]"
+        participant_sql, participant_params = _participant_filter_sql(current_user)
 
-        # ── Pas 2: query pgvector ──────────────────────────────────────
-        # 1 - (embedding <=> query_vector) = similaritate cosinus (0=diferit, 1=identic)
-        # ORDER BY embedding <=> vector ASC = cel mai apropiat primul
         sql = text(f"""
             SELECT
                 r.id            AS recording_id,
@@ -169,11 +195,14 @@ class SearchService:
                 t.status = 'completed'
                 AND seg.embedding IS NOT NULL
                 AND 1 - (seg.embedding <=> '{vector_literal}'::vector) > 0.3
+                {participant_sql}
             ORDER BY seg.embedding <=> '{vector_literal}'::vector ASC
             LIMIT :limit
         """)
 
-        result = await self.db.execute(sql, {"limit": limit})
+        sem_params = {"limit": limit}
+        sem_params.update(participant_params)
+        result = await self.db.execute(sql, sem_params)
         rows = result.mappings().all()
 
         results = [
@@ -196,6 +225,7 @@ class SearchService:
         self,
         query: str,
         limit: int = 20,
+        current_user: Optional[User] = None,
     ) -> Tuple[List[CombinedSearchResult], dict]:
         """
         Rulează FTS și semantic în paralel și merge rezultatele.
@@ -206,9 +236,8 @@ class SearchService:
 
         Sortare: 'both' primele (cele mai relevante), apoi rank/similarity descrescător.
         """
-        # Rulăm ambele căutări în paralel
-        fts_task = self.search(query=query, limit=limit)
-        sem_task = self.semantic_search(query=query, limit=limit)
+        fts_task = self.search(query=query, limit=limit, current_user=current_user)
+        sem_task = self.semantic_search(query=query, limit=limit, current_user=current_user)
 
         (fts_results, _), (sem_results, _) = await asyncio.gather(fts_task, sem_task)
 

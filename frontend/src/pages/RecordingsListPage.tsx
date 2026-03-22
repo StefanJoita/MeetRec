@@ -7,6 +7,8 @@ import { EmptyState } from '@/components/ui/EmptyState'
 import { SkeletonTable } from '@/components/ui/Skeleton'
 import { Pagination } from '@/components/ui/Pagination'
 import { PageHeader } from '@/components/ui/PageHeader'
+import { useAuth } from '@/contexts/AuthContext'
+import type { RecordingListItem } from '@/api/types'
 
 const STATUS_OPTIONS = [
   { value: '', label: 'Toate' },
@@ -20,6 +22,8 @@ type SortField = 'meeting_date' | 'created_at' | 'title'
 type SortDir = 'asc' | 'desc'
 
 export default function RecordingsListPage() {
+  const { user } = useAuth()
+  const isParticipant = user?.role === 'participant'
   const [page, setPage] = useState(1)
   const [status, setStatus] = useState('')
   const [sortField, setSortField] = useState<SortField>('meeting_date')
@@ -56,10 +60,12 @@ export default function RecordingsListPage() {
         title="Înregistrări"
         subtitle={data ? `${data.total} înregistrări total` : undefined}
         actions={
-          <Link to="/recordings/new" className="btn-primary">
-            <Plus className="h-4 w-4" />
-            Înregistrare nouă
-          </Link>
+          !isParticipant ? (
+            <Link to="/recordings/new" className="btn-primary">
+              <Plus className="h-4 w-4" />
+              Înregistrare nouă
+            </Link>
+          ) : undefined
         }
       />
 
@@ -85,7 +91,7 @@ export default function RecordingsListPage() {
 
       {isError && (
         <div className="bg-red-50 border border-red-200 rounded-xl p-6 text-center text-red-600">
-          Eroare la încărcarea înregistrărilor.
+          Nu am putut încărca înregistrările.
         </div>
       )}
 
@@ -93,10 +99,16 @@ export default function RecordingsListPage() {
         <div className="card">
           <EmptyState
             icon={FileAudio}
-            title={status ? 'Nicio înregistrare cu acest status' : 'Nicio înregistrare găsită'}
-            description={status ? 'Încearcă un alt filtru.' : 'Adaugă prima înregistrare pentru a începe transcrierea automată.'}
+            title={status ? 'Nicio înregistrare cu această stare' : 'Nicio înregistrare găsită'}
+            description={
+              status
+                ? 'Încearcă un alt filtru.'
+                : isParticipant
+                  ? 'Nu ai înregistrări asignate. Contactează administratorul.'
+                  : 'Adaugă prima înregistrare pentru a începe transcrierea automată.'
+            }
             action={
-              !status ? (
+              !status && !isParticipant ? (
                 <Link to="/recordings/new" className="btn-primary">
                   <Plus className="h-4 w-4" />
                   Înregistrare nouă
@@ -127,7 +139,7 @@ export default function RecordingsListPage() {
                     <span className="inline-flex items-center gap-1">Data ședinței <SortIcon field="meeting_date" /></span>
                   </th>
                   <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider hidden lg:table-cell">Durată</th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Status</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Stare</th>
                   <th
                     className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider hidden lg:table-cell cursor-pointer hover:bg-gray-100 select-none"
                     onClick={() => handleSort('created_at')}
@@ -137,7 +149,7 @@ export default function RecordingsListPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-50">
-                {data.items.map((rec) => (
+                {data.items.map((rec: RecordingListItem) => (
                   <tr
                     key={rec.id}
                     className="hover:bg-gray-50 transition-colors"
@@ -171,7 +183,7 @@ export default function RecordingsListPage() {
 
           {/* Card view — mobile only */}
           <div className="flex flex-col gap-3 md:hidden">
-            {data.items.map((rec) => (
+            {data.items.map((rec: RecordingListItem) => (
               <Link
                 key={rec.id}
                 to={`/recordings/${rec.id}`}

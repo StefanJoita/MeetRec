@@ -45,9 +45,9 @@ class Settings(BaseSettings):
     #   tiny:   ~1 GB RAM, rapid, calitate scăzută
     #   base:   ~1 GB RAM
     #   small:  ~2 GB RAM
-    #   medium: ~5 GB RAM  ← recomandat pentru română
-    #   large:  ~10 GB RAM
-    whisper_model: str = "medium"
+    #   medium: ~5 GB RAM
+    #   large:  ~10 GB RAM  ← recomandat pentru română (acuratețe maximă)
+    whisper_model: str = "large"
 
     # Unde sunt descărcate / cachate modelele Whisper
     # Montat ca volum Docker persistent → nu se re-descarcă la restart

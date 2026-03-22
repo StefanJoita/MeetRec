@@ -46,8 +46,8 @@ export default function TranscriptionProgress({ status }: TranscriptionProgressP
         </p>
         <p className="text-xs text-gray-500 max-w-xs leading-relaxed">
           {status === 'queued'
-            ? 'Fișierul este în coadă. Transcrierea va începe în câteva momente.'
-            : 'Whisper procesează fișierul audio. De obicei 1–3 minute per oră de înregistrare.'}
+            ? 'Fișierul este în coadă. Transcrierea pornește când ajunge la procesare.'
+            : 'Transcrierea este în curs. Durata poate varia în funcție de fișier și de încărcarea sistemului.'}
         </p>
       </div>
 

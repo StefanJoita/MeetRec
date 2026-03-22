@@ -61,8 +61,8 @@ export default function NewRecordingPage() {
         <CheckCircle className="h-14 w-14 text-green-500 mx-auto mb-4" />
         <h2 className="text-xl font-semibold text-gray-900 mb-2">Fișier trimis cu succes</h2>
         <p className="text-sm text-gray-500 mb-6">
-          Înregistrarea va apărea în listă după ce Ingest Service o validează și o
-          pune în coadă de transcriere. Acest proces durează câteva secunde.
+          Înregistrarea va apărea în listă după validare și preluare pentru transcriere.
+          Timpul de procesare poate varia.
         </p>
         <div className="flex gap-3 justify-center">
           <button onClick={() => navigate('/')} className="btn-primary">
@@ -98,8 +98,8 @@ export default function NewRecordingPage() {
 
       <h1 className="page-title mb-2">Înregistrare nouă</h1>
       <p className="text-sm text-gray-500 mb-6">
-        Selectați fișierul audio. Ingest Service îl va valida, crea înregistrarea în baza
-        de date și îl va trimite la transcriere automat.
+        Selectați fișierul audio. Sistemul îl validează, creează înregistrarea și pornește
+        transcrierea.
       </p>
 
       {/* Dropzone */}
@@ -148,7 +148,7 @@ export default function NewRecordingPage() {
                 <div
                   className="h-2 bg-blue-600 rounded-full transition-all duration-300"
                   style={{ width: `${progress}%` }}
-                  aria-label={`Upload ${progress}%`}
+                  aria-label={`Încărcare ${progress}%`}
                 />
               </div>
             </div>
@@ -158,7 +158,7 @@ export default function NewRecordingPage() {
               onClick={handleCancel}
               className="text-xs text-red-500 hover:text-red-700 transition-colors"
             >
-              Anulează upload
+              Anulează încărcarea
             </button>
           </div>
 
