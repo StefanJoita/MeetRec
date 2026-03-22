@@ -5,7 +5,7 @@ import { SkeletonTable } from '@/components/ui/Skeleton'
 import { Pagination } from '@/components/ui/Pagination'
 import type { AuditLog, PaginatedAuditLogs, PaginatedUsers, User, UserCreate, UserRole } from '@/api/types'
 import { getAuditLogs } from '@/api/auditLogs'
-import { createUser, deleteUser, getUsers, updateUser } from '@/api/users'
+import { createUser, deleteUser, getUsers, updateUser, resetUserPassword } from '@/api/users'
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
 import { useToast } from '@/contexts/ToastContext'
 import { useAuth } from '@/contexts/AuthContext'
@@ -95,6 +95,8 @@ export default function AdminPage() {
   const [showCreateUser, setShowCreateUser] = useState(false)
   const [showDeleteDialog, setShowDeleteDialog] = useState(false)
   const [pendingDeleteUserId, setPendingDeleteUserId] = useState<string | null>(null)
+  const [resetTarget, setResetTarget] = useState<User | null>(null)
+  const [resetPassword, setResetPassword] = useState('')
 
   const [newUserForm, setNewUserForm] = useState<UserCreate>({
     username: '',
@@ -160,6 +162,19 @@ export default function AdminPage() {
     },
     onError: (error: any) => {
       toast(error?.response?.data?.detail ?? 'Nu am putut șterge utilizatorul.', 'error')
+    },
+  })
+
+  const resetPasswordMutation = useMutation({
+    mutationFn: ({ userId, password }: { userId: string; password: string }) =>
+      resetUserPassword(userId, password),
+    onSuccess: () => {
+      toast('Parola a fost resetată. Utilizatorul va fi forțat să o schimbe la login.', 'success')
+      setResetTarget(null)
+      setResetPassword('')
+    },
+    onError: (error: any) => {
+      toast(error?.response?.data?.detail ?? 'Nu am putut reseta parola.', 'error')
     },
   })
 
@@ -578,6 +593,12 @@ export default function AdminPage() {
                                 {u.is_active ? 'Dezactivează' : 'Activează'}
                               </button>
                               <button
+                                onClick={() => { setResetTarget(u); setResetPassword('') }}
+                                className="px-2.5 py-1.5 rounded border border-amber-200 text-xs text-amber-700"
+                              >
+                                Resetează parola
+                              </button>
+                              <button
                                 onClick={() => requestDeleteUser(u.id)}
                                 disabled={isSelf || deleteUserMutation.isPending}
                                 className="px-2.5 py-1.5 rounded border border-red-200 text-xs text-red-700 disabled:opacity-40"
@@ -602,6 +623,41 @@ export default function AdminPage() {
             </>
           )}
         </>
+      )}
+
+      {resetTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+          <div className="bg-white rounded-xl shadow-xl p-6 w-full max-w-sm mx-4">
+            <h2 className="text-base font-semibold text-gray-900 mb-1">Resetează parola</h2>
+            <p className="text-sm text-gray-500 mb-4">
+              Setează o parolă temporară pentru <strong>{resetTarget.username}</strong>. Utilizatorul va fi obligat să o schimbe la următoarea autentificare.
+            </p>
+            <input
+              type="password"
+              value={resetPassword}
+              onChange={(e) => setResetPassword(e.target.value)}
+              placeholder="Parolă temporară (min. 8 caractere)"
+              className="w-full px-3.5 py-2.5 border border-gray-300 rounded-lg text-sm mb-4 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              minLength={8}
+              autoFocus
+            />
+            <div className="flex justify-end gap-2">
+              <button
+                onClick={() => { setResetTarget(null); setResetPassword('') }}
+                className="btn-secondary"
+              >
+                Anulează
+              </button>
+              <button
+                onClick={() => resetPasswordMutation.mutate({ userId: resetTarget.id, password: resetPassword })}
+                disabled={resetPassword.length < 8 || resetPasswordMutation.isPending}
+                className="btn-primary"
+              >
+                Resetează
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       <ConfirmDialog
