@@ -99,6 +99,8 @@ async def me(
         "full_name": current_user.full_name,
         "is_active": current_user.is_active,
         "is_admin": current_user.is_admin,
+        "is_participant": current_user.is_participant,
+        "role": current_user.role,
         "must_change_password": current_user.must_change_password,
     }
 

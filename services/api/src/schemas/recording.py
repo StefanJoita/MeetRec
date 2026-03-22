@@ -20,6 +20,17 @@ from typing import Optional, List
 from pydantic import BaseModel, Field, ConfigDict
 
 
+class ParticipantUserInfo(BaseModel):
+    """User linkat ca participant la o înregistrare."""
+    user_id: uuid.UUID
+    username: str
+    full_name: Optional[str]
+    email: str
+    linked_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
 # ── SEGMENT ─────────────────────────────────────────────────
 
 class SegmentResponse(BaseModel):
@@ -52,7 +63,7 @@ class TranscriptResponse(BaseModel):
     processing_time_sec: Optional[int]
     created_at: datetime
     completed_at: Optional[datetime]
-    segments: List[SegmentResponse] = []
+    segments: List[SegmentResponse] = Field(default_factory=list)
     full_text: Optional[str] = None   # proprietatea calculată din model
 
     model_config = ConfigDict(from_attributes=True)
@@ -106,6 +117,7 @@ class RecordingResponse(BaseModel):
     updated_at: datetime
     retain_until: Optional[date]
     transcript: Optional[TranscriptSummary] = None
+    resolved_participants: List[ParticipantUserInfo] = Field(default_factory=list)
 
     model_config = ConfigDict(from_attributes=True)
 

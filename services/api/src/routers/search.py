@@ -27,6 +27,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.database import get_db
 from src.middleware.auth import get_current_user
+from src.models.audit_log import User
 from src.schemas.recording import SearchResponse, SemanticSearchResponse, CombinedSearchResponse
 from src.services.search_service import SearchService
 from src.middleware.audit import log_audit
@@ -47,20 +48,12 @@ async def search_transcripts(
     limit: int = Query(default=20, ge=1, le=100),
     offset: int = Query(default=0, ge=0),
     language: Optional[str] = Query(default=None, description="'ro' sau 'en'"),
+    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     """
     Caută în toate transcripturile completate.
-
-    Exemple:
-        GET /search?q=buget+2024
-        GET /search?q=hotărâre&language=ro
-        GET /search?q=vote&language=en
-
-    Returnează segmentele care conțin termenul, cu:
-    - Titlul înregistrării și data ședinței
-    - Timestamp-urile (pentru sync audio)
-    - Fragmentul cu termenul evidențiat
+    Participanții văd doar înregistrările la care au acces.
     """
     start = time.time()
 
@@ -70,6 +63,7 @@ async def search_transcripts(
         limit=limit,
         offset=offset,
         language=language,
+        current_user=current_user,
     )
 
     elapsed_ms = int((time.time() - start) * 1000)
@@ -100,28 +94,13 @@ async def semantic_search_transcripts(
     request: Request,
     q: str = Query(min_length=2, description="Întrebare sau frază în limbaj natural"),
     limit: int = Query(default=20, ge=1, le=100),
+    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """
-    Caută semantic în transcrieri folosind embeddings vectoriale.
-
-    Diferența față de /search (FTS):
-    - FTS: găsește cuvintele exacte sau rădăcina lor
-    - Semantic: găsește sensul, chiar dacă cuvintele diferă
-
-    Exemple:
-        GET /search/semantic?q=probleme cu bugetul
-        → găsește și: "fonduri insuficiente", "deficit financiar", "alocări reduse"
-
-        GET /search/semantic?q=cine a propus amânarea votului
-        → găsește fraze contextual relevante
-
-    Necesită search-indexer activ și segmente indexate.
-    """
     start = time.time()
 
     service = SearchService(db)
-    results, total = await service.semantic_search(query=q, limit=limit)
+    results, total = await service.semantic_search(query=q, limit=limit, current_user=current_user)
 
     elapsed_ms = int((time.time() - start) * 1000)
 
@@ -148,16 +127,13 @@ async def combined_search_transcripts(
     request: Request,
     q: str = Query(min_length=2, description="Termen sau frază de căutat"),
     limit: int = Query(default=20, ge=1, le=100),
+    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """
-    Rulează FTS și căutare semantică în paralel și combină rezultatele.
-    Segmentele găsite de ambele metode apar o singură dată cu source='both'.
-    """
     start = time.time()
 
     service = SearchService(db)
-    results, stats = await service.combined_search(query=q, limit=limit)
+    results, stats = await service.combined_search(query=q, limit=limit, current_user=current_user)
 
     elapsed_ms = int((time.time() - start) * 1000)
 

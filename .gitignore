@@ -18,6 +18,12 @@ env/
 
 # ── Secrets — NICIODATĂ în Git! ───────────────────────────────
 .env
+.DS_Store
+
+desktop-client/node_modules/
+desktop-client/dist/
+desktop-client/dist-electron/
+desktop-client/release/
 *.pem
 *.key
 *.cert

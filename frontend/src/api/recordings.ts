@@ -1,5 +1,5 @@
 import client from './client'
-import type { PaginatedRecordings, RecordingResponse as Recording } from './types'
+import type { PaginatedRecordings, RecordingResponse as Recording, ParticipantUserInfo } from './types'
 
 export interface RecordingsParams {
   page?: number
@@ -48,7 +48,20 @@ export async function retryTranscription(recordingId: string): Promise<void> {
 }
 
 export function getAudioUrl(recordingId: string): string {
-  // URL is returned without token; browser will send Bearer token via axios interceptor
-  // If using native <audio>, fetch via Authorization header (see AudioPlayer.tsx)
   return `/api/v1/recordings/${recordingId}/audio`
+}
+
+// ── Participant management ────────────────────────────────────
+
+export async function getRecordingParticipants(recordingId: string): Promise<ParticipantUserInfo[]> {
+  const { data } = await client.get<ParticipantUserInfo[]>(`/recordings/${recordingId}/participants`)
+  return data
+}
+
+export async function addRecordingParticipant(recordingId: string, userId: string): Promise<void> {
+  await client.post(`/recordings/${recordingId}/participants`, { user_id: userId })
+}
+
+export async function removeRecordingParticipant(recordingId: string, userId: string): Promise<void> {
+  await client.delete(`/recordings/${recordingId}/participants/${userId}`)
 }

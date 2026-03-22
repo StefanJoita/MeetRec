@@ -32,6 +32,15 @@ export interface RecordingListItem {
   transcript_status: TranscriptStatus | null
 }
 
+// ── Participant linkat (user cu acces la o înregistrare) ─────
+export interface ParticipantUserInfo {
+  user_id: string
+  username: string
+  full_name: string | null
+  email: string
+  linked_at: string   // ISO 8601
+}
+
 // ── Full recording detail ────────────────────────────────────
 export interface RecordingResponse {
   id: string
@@ -39,7 +48,7 @@ export interface RecordingResponse {
   description: string | null
   meeting_date: string
   location: string | null
-  participants: string[] | null
+  participants: string[] | null          // nume brute din metadată
   original_filename: string
   file_size_bytes: number
   audio_format: string
@@ -52,6 +61,7 @@ export interface RecordingResponse {
   updated_at: string
   retain_until: string | null
   transcript: TranscriptSummary | null
+  resolved_participants: ParticipantUserInfo[]  // useri linkați explicit
 }
 
 // ── Transcript summary (embedded in RecordingResponse) ───────
@@ -156,16 +166,28 @@ export interface RecordingUpdate {
 }
 
 // ── Auth ─────────────────────────────────────────────────────
+export type UserRole = 'admin' | 'operator' | 'participant'
+
 export interface User {
   id: string
   username: string
   email: string
   full_name: string | null
   is_active: boolean
-  is_admin: boolean
+  is_admin: boolean          // derivat din role pe backend
+  role: UserRole
   must_change_password: boolean
   created_at?: string
   last_login?: string | null
+}
+
+// Răspuns compact pentru autocomplete Ctrl+K
+export interface UserSuggest {
+  id: string
+  username: string
+  full_name: string | null
+  email: string
+  role: UserRole
 }
 
 export interface TokenResponse {
@@ -179,14 +201,14 @@ export interface UserCreate {
   email: string
   full_name?: string
   password: string
-  is_admin: boolean
+  role: UserRole
 }
 
 export interface UserUpdate {
   email?: string
   full_name?: string
   is_active?: boolean
-  is_admin?: boolean
+  role?: UserRole
 }
 
 export interface PaginatedUsers {
