@@ -347,23 +347,34 @@ CREATE TABLE users (
     password_hash   VARCHAR(255) NOT NULL,  -- NICIODATĂ parola în clar!
     full_name       VARCHAR(255),
     is_active       BOOLEAN DEFAULT TRUE,
-    is_admin        BOOLEAN DEFAULT FALSE,
+    role            VARCHAR(20) NOT NULL DEFAULT 'operator',
     must_change_password BOOLEAN DEFAULT FALSE,
     created_at      TIMESTAMPTZ DEFAULT NOW(),
-    last_login      TIMESTAMPTZ
+    last_login      TIMESTAMPTZ,
+    CONSTRAINT chk_users_role CHECK (role IN ('admin', 'operator', 'participant'))
 );
+
+CREATE TABLE recording_participants (
+    recording_id  UUID NOT NULL REFERENCES recordings(id) ON DELETE CASCADE,
+    user_id       UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    linked_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    linked_by     UUID REFERENCES users(id),
+    PRIMARY KEY (recording_id, user_id)
+);
+
+CREATE INDEX idx_recording_participants_user_id ON recording_participants(user_id);
 
 -- Utilizatori de test (SCHIMBĂ parolele în producție!)
 -- admin123  → hash bcrypt mai jos
 -- operator123 → hash bcrypt mai jos
-INSERT INTO users (username, email, full_name, password_hash, is_active, is_admin, must_change_password) VALUES
+INSERT INTO users (username, email, full_name, password_hash, is_active, role, must_change_password) VALUES
 (
     'admin',
     'admin@meetrec.local',
     'Administrator',
     '$2b$12$gx/JCPvsqzV45DZK4/0YOeJLI0AlTHlHpyt2kLsGMgA3.dLoOMe5.',
     TRUE,
-    TRUE,
+    'admin',
     FALSE
 ),
 (
@@ -372,7 +383,7 @@ INSERT INTO users (username, email, full_name, password_hash, is_active, is_admi
     'Operator Ședințe',
     '$2b$12$bLhDb8uFQTKUqrCj6KP0LOplCIEvt6hTe9ChX7asGbVZbhl6L1kZe',
     TRUE,
-    FALSE,
+    'operator',
     FALSE
 );
 

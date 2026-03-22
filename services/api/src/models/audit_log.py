@@ -12,6 +12,12 @@ from sqlalchemy.sql import func
 from src.models.base import Base
 
 
+class UserRole(str, enum.Enum):
+    ADMIN       = "admin"
+    OPERATOR    = "operator"
+    PARTICIPANT = "participant"
+
+
 class AuditAction(str, enum.Enum):
     CREATE           = "CREATE"
     UPDATE           = "UPDATE"
@@ -80,7 +86,10 @@ class User(Base):
     password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
     full_name: Mapped[Optional[str]] = mapped_column(String(255))
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
-    is_admin: Mapped[bool] = mapped_column(Boolean, default=False)
+    # role înlocuiește coloana booleană is_admin (migrată în 005)
+    role: Mapped[str] = mapped_column(
+        String(20), nullable=False, default=UserRole.OPERATOR.value
+    )
     must_change_password: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True), server_default=func.now()
@@ -88,3 +97,12 @@ class User(Base):
     last_login: Mapped[Optional[datetime]] = mapped_column(
         TIMESTAMP(timezone=True), nullable=True
     )
+
+    # ── Proprietăți derivate din role ───────────────────────────
+    @property
+    def is_admin(self) -> bool:
+        return self.role == UserRole.ADMIN.value
+
+    @property
+    def is_participant(self) -> bool:
+        return self.role == UserRole.PARTICIPANT.value

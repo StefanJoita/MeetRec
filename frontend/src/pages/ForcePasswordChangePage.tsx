@@ -33,7 +33,7 @@ export default function ForcePasswordChangePage() {
       await refreshUser()
       setSuccess('Parola a fost schimbată. Poți continua în aplicație.')
     } catch (e: any) {
-      setError(e?.response?.data?.detail ?? 'Nu am putut schimba parola.')
+      setError(e?.response?.data?.detail ?? 'Nu am putut schimba parola. Încearcă din nou.')
     }
   }
 

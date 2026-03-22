@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ShieldCheck, Activity, AlertTriangle, List, Users, UserPlus, UserX } from 'lucide-react'
 import { SkeletonTable } from '@/components/ui/Skeleton'
 import { Pagination } from '@/components/ui/Pagination'
-import type { AuditLog, UserCreate } from '@/api/types'
+import type { AuditLog, PaginatedAuditLogs, PaginatedUsers, User, UserCreate, UserRole } from '@/api/types'
 import { getAuditLogs } from '@/api/auditLogs'
 import { createUser, deleteUser, getUsers, updateUser } from '@/api/users'
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
@@ -101,17 +101,17 @@ export default function AdminPage() {
     email: '',
     full_name: '',
     password: '',
-    is_admin: false,
+    role: 'operator',
   })
 
   // Fetch all logs for stats (page 1 with large size) + current page
-  const { data, isLoading, isError } = useQuery({
+  const { data, isLoading, isError } = useQuery<PaginatedAuditLogs>({
     queryKey: ['audit-logs', page],
     queryFn: () => getAuditLogs(page, pageSize),
     retry: false,
   })
 
-  const { data: allData } = useQuery({
+  const { data: allData } = useQuery<PaginatedAuditLogs>({
     queryKey: ['audit-logs-all'],
     queryFn: () => getAuditLogs(1, 1000),
     retry: false,
@@ -121,7 +121,7 @@ export default function AdminPage() {
     data: usersData,
     isLoading: usersLoading,
     isError: usersError,
-  } = useQuery({
+  } = useQuery<PaginatedUsers>({
     queryKey: ['users', userPage, userSearch, includeInactive],
     queryFn: () => getUsers({ page: userPage, page_size: pageSize, search: userSearch || undefined, include_inactive: includeInactive }),
     retry: false,
@@ -131,9 +131,9 @@ export default function AdminPage() {
   const createUserMutation = useMutation({
     mutationFn: (payload: UserCreate) => createUser(payload),
     onSuccess: () => {
-      toast('Utilizator creat. Va trebui să-și schimbe parola la primul login.', 'success')
+      toast('Utilizator creat. Va trebui să-și schimbe parola la prima autentificare.', 'success')
       setShowCreateUser(false)
-      setNewUserForm({ username: '', email: '', full_name: '', password: '', is_admin: false })
+      setNewUserForm({ username: '', email: '', full_name: '', password: '', role: 'operator' })
       queryClient.invalidateQueries({ queryKey: ['users'] })
     },
     onError: (error: any) => {
@@ -142,7 +142,7 @@ export default function AdminPage() {
   })
 
   const updateUserMutation = useMutation({
-    mutationFn: ({ userId, payload }: { userId: string; payload: { is_admin?: boolean; is_active?: boolean } }) => updateUser(userId, payload),
+    mutationFn: ({ userId, payload }: { userId: string; payload: { role?: UserRole; is_active?: boolean } }) => updateUser(userId, payload),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['users'] })
       toast('Utilizator actualizat.', 'success')
@@ -169,7 +169,7 @@ export default function AdminPage() {
     const total = allData.total
     const sevenDaysAgo = Date.now() - 7 * 24 * 60 * 60 * 1000
     const errors = items.filter(l => !l.success && new Date(l.timestamp).getTime() > sevenDaysAgo).length
-    const actionTypes = [...new Set(items.map(l => l.action))].sort()
+    const actionTypes = Array.from(new Set(items.map((log: AuditLog) => log.action))).sort()
     return { total, errors, actionTypes }
   }, [allData])
 
@@ -182,7 +182,7 @@ export default function AdminPage() {
   const userStats = useMemo(() => {
     if (!usersData) return null
     const total = usersData.total
-    const admins = usersData.items.filter(u => u.is_admin && u.is_active).length
+    const admins = usersData.items.filter(u => u.role === 'admin' && u.is_active).length
     const inactive = usersData.items.filter(u => !u.is_active).length
     return { total, admins, inactive }
   }, [usersData])
@@ -192,8 +192,8 @@ export default function AdminPage() {
     createUserMutation.mutate(newUserForm)
   }
 
-  function handleToggleAdmin(userId: string, nextValue: boolean) {
-    updateUserMutation.mutate({ userId, payload: { is_admin: nextValue } })
+  function handleSetRole(userId: string, role: UserRole) {
+    updateUserMutation.mutate({ userId, payload: { role } })
   }
 
   function handleToggleActive(userId: string, nextValue: boolean) {
@@ -232,7 +232,7 @@ export default function AdminPage() {
               : 'bg-white text-gray-700 border-gray-300'
           }`}
         >
-          Audit logs
+          Jurnal audit
         </button>
         <button
           onClick={() => setActiveSection('users')}
@@ -309,7 +309,7 @@ export default function AdminPage() {
 
       {activeSection === 'audit' && isError && (
         <div className="bg-red-50 border border-red-200 rounded-xl p-6 text-center text-red-600 text-sm">
-          Eroare la încărcarea logurilor. Verificați că aveți drepturi de administrator.
+          Nu am putut încărca jurnalul de audit. Verifică dacă ai drepturi de administrator.
         </div>
       )}
 
@@ -323,14 +323,14 @@ export default function AdminPage() {
                   <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Acțiune</th>
                   <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider hidden md:table-cell">Resursă</th>
                   <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider hidden lg:table-cell">Utilizator</th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Status</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Stare</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-50">
                 {filteredItems.length === 0 && (
                   <tr>
                     <td colSpan={5} className="px-4 py-12 text-center text-gray-400 text-sm">
-                      Nicio intrare în log.
+                      Nu există înregistrări în jurnal.
                     </td>
                   </tr>
                 )}
@@ -375,7 +375,7 @@ export default function AdminPage() {
                       </td>
                       <td className="px-4 py-3">
                         <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${log.success ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
-                          {log.success ? 'OK' : 'Eșuat'}
+                          {log.success ? 'Reușit' : 'Eșuat'}
                         </span>
                       </td>
                     </tr>
@@ -432,7 +432,7 @@ export default function AdminPage() {
             <input
               value={userSearch}
               onChange={(e) => setUserSearch(e.target.value)}
-              placeholder="Caută după username sau email"
+              placeholder="Caută după utilizator sau e-mail"
               className="flex-1 px-3.5 py-2.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
             <button
@@ -455,14 +455,14 @@ export default function AdminPage() {
               <input
                 value={newUserForm.username}
                 onChange={(e) => setNewUserForm(prev => ({ ...prev, username: e.target.value }))}
-                placeholder="Username"
+                placeholder="Nume utilizator"
                 className="px-3.5 py-2.5 border border-gray-300 rounded-lg text-sm"
                 required
               />
               <input
                 value={newUserForm.email}
                 onChange={(e) => setNewUserForm(prev => ({ ...prev, email: e.target.value }))}
-                placeholder="Email"
+                placeholder="E-mail"
                 type="email"
                 className="px-3.5 py-2.5 border border-gray-300 rounded-lg text-sm"
                 required
@@ -482,16 +482,20 @@ export default function AdminPage() {
                 required
                 minLength={8}
               />
-              <label className="md:col-span-2 flex items-center gap-2 text-sm text-gray-700">
-                <input
-                  type="checkbox"
-                  checked={newUserForm.is_admin}
-                  onChange={(e) => setNewUserForm(prev => ({ ...prev, is_admin: e.target.checked }))}
-                />
-                Creează ca administrator
-              </label>
+              <div className="md:col-span-2">
+                <label className="block text-xs font-medium text-gray-600 mb-1">Rol</label>
+                <select
+                  value={newUserForm.role}
+                  onChange={(e) => setNewUserForm(prev => ({ ...prev, role: e.target.value as UserRole }))}
+                  className="w-full px-3.5 py-2.5 border border-gray-300 rounded-lg text-sm bg-white"
+                >
+                  <option value="operator">Operator</option>
+                  <option value="participant">Participant</option>
+                  <option value="admin">Administrator</option>
+                </select>
+              </div>
               <div className="md:col-span-2 text-xs text-gray-500">
-                Utilizatorul nou va fi obligat să schimbe parola la primul login.
+                Utilizatorul nou va fi obligat să schimbe parola la prima autentificare.
               </div>
               <div className="md:col-span-2 flex justify-end gap-2">
                 <button type="button" onClick={() => setShowCreateUser(false)} className="btn-secondary">Anulează</button>
@@ -504,7 +508,7 @@ export default function AdminPage() {
 
           {usersError && (
             <div className="bg-red-50 border border-red-200 rounded-xl p-6 text-center text-red-600 text-sm">
-              Eroare la încărcarea utilizatorilor.
+              Nu am putut încărca utilizatorii.
             </div>
           )}
 
@@ -514,10 +518,10 @@ export default function AdminPage() {
                 <table className="min-w-full divide-y divide-gray-100">
                   <thead className="bg-gray-50">
                     <tr>
-                      <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Username</th>
-                      <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider hidden md:table-cell">Email</th>
+                      <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Utilizator</th>
+                      <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider hidden md:table-cell">E-mail</th>
                       <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Rol</th>
-                      <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Status</th>
+                      <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Stare</th>
                       <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Acțiuni</th>
                     </tr>
                   </thead>
@@ -527,7 +531,7 @@ export default function AdminPage() {
                         <td colSpan={5} className="px-4 py-12 text-center text-gray-400 text-sm">Niciun utilizator găsit.</td>
                       </tr>
                     )}
-                    {usersData.items.map(u => {
+                    {usersData.items.map((u: User) => {
                       const isSelf = currentUser?.id === u.id
                       return (
                         <tr key={u.id} className="hover:bg-gray-50">
@@ -540,8 +544,12 @@ export default function AdminPage() {
                           </td>
                           <td className="px-4 py-3 text-sm text-gray-600 hidden md:table-cell">{u.email}</td>
                           <td className="px-4 py-3">
-                            <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${u.is_admin ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-600'}`}>
-                              {u.is_admin ? 'Admin' : 'Operator'}
+                            <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${
+                              u.role === 'admin' ? 'bg-blue-100 text-blue-700'
+                              : u.role === 'participant' ? 'bg-green-100 text-green-700'
+                              : 'bg-gray-100 text-gray-600'
+                            }`}>
+                              {u.role === 'admin' ? 'Admin' : u.role === 'participant' ? 'Participant' : 'Operator'}
                             </span>
                           </td>
                           <td className="px-4 py-3">
@@ -551,13 +559,17 @@ export default function AdminPage() {
                           </td>
                           <td className="px-4 py-3">
                             <div className="flex flex-wrap gap-2">
-                              <button
-                                onClick={() => handleToggleAdmin(u.id, !u.is_admin)}
+                              <select
+                                value={u.role}
+                                onChange={(e) => handleSetRole(u.id, e.target.value as UserRole)}
                                 disabled={isSelf || updateUserMutation.isPending}
-                                className="px-2.5 py-1.5 rounded border border-gray-300 text-xs text-gray-700 disabled:opacity-40"
+                                className="px-2 py-1.5 rounded border border-gray-300 text-xs text-gray-700 bg-white disabled:opacity-40"
+                                aria-label="Schimbă rol"
                               >
-                                {u.is_admin ? 'Fă operator' : 'Fă admin'}
-                              </button>
+                                <option value="operator">Operator</option>
+                                <option value="participant">Participant</option>
+                                <option value="admin">Admin</option>
+                              </select>
                               <button
                                 onClick={() => handleToggleActive(u.id, !u.is_active)}
                                 disabled={isSelf || updateUserMutation.isPending}
