@@ -26,3 +26,7 @@ export async function updateUser(userId: string, payload: UserUpdate): Promise<U
 export async function deleteUser(userId: string): Promise<void> {
   await client.delete(`/users/${userId}`)
 }
+
+export async function resetUserPassword(userId: string, newPassword: string): Promise<void> {
+  await client.post(`/users/${userId}/reset-password`, { new_password: newPassword })
+}

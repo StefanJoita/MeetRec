@@ -9,7 +9,7 @@ from src.database import get_db
 from src.middleware.audit import log_audit
 from src.middleware.auth import get_current_admin, get_current_operator_or_above
 from src.models.audit_log import User
-from src.schemas.user import PaginatedUsers, UserResponse, UserCreate, UserUpdate, UserSuggest
+from src.schemas.user import PaginatedUsers, UserResponse, UserCreate, UserUpdate, UserSuggest, ResetPasswordRequest
 from src.services.user_service import UserService, UserConflictError, UserActionForbiddenError
 
 
@@ -123,6 +123,23 @@ async def update_user(
 
     await log_audit(request, db, action="UPDATE", resource_type="user", resource_id=updated.id)
     return updated
+
+
+@router.post("/{user_id}/reset-password", status_code=status.HTTP_204_NO_CONTENT, summary="Resetează parola unui utilizator")
+async def reset_user_password(
+    user_id: uuid.UUID,
+    data: ResetPasswordRequest,
+    request: Request,
+    _: User = Depends(get_current_admin),
+    service: UserService = Depends(get_user_service),
+    db: AsyncSession = Depends(get_db),
+):
+    target_user = await service.get_by_id(user_id)
+    if not target_user:
+        raise HTTPException(status_code=404, detail="Utilizatorul nu există.")
+
+    await service.reset_password(target_user, data.new_password)
+    await log_audit(request, db, action="UPDATE", resource_type="user", resource_id=user_id)
 
 
 @router.delete("/{user_id}", status_code=status.HTTP_204_NO_CONTENT, summary="Șterge definitiv utilizator")
