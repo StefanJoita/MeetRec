@@ -131,6 +131,11 @@ class UserService:
         await self.db.delete(target_user)
         await self.db.flush()
 
+    async def reset_password(self, target_user: User, new_password: str) -> None:
+        target_user.password_hash = hash_password(new_password)
+        target_user.must_change_password = True
+        await self.db.flush()
+
     async def change_password_on_first_login(
         self,
         current_user: User,
