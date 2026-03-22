@@ -16,6 +16,7 @@ from slowapi.util import get_remote_address
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.database import get_db
+from src.middleware.audit import log_audit
 from src.middleware.auth import get_current_user
 from src.models.audit_log import User
 from src.models.recording import Recording
@@ -91,6 +92,14 @@ async def export_transcript(
     - **txt** — text simplu, ușor de prelucrat
     """
     recording, transcript = await _get_transcript_and_recording(recording_id, db)
+
+    await log_audit(
+        request, db,
+        action="EXPORT",
+        resource_type="recording",
+        resource_id=recording_id,
+        details={"format": format},
+    )
 
     filename_base = _safe_filename(recording.title)
 
