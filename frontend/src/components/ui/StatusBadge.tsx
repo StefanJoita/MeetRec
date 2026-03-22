@@ -17,7 +17,7 @@ export function StatusBadge({ status }: { status: string }) {
   return (
     <span
       className={cn('inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium', cfg.className)}
-      aria-label={`Status: ${cfg.label}`}
+      aria-label={`Stare: ${cfg.label}`}
     >
       {cfg.active && (
         <span className="h-1.5 w-1.5 rounded-full bg-current animate-pulse" aria-hidden="true" />

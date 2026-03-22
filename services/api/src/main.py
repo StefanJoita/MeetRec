@@ -70,8 +70,8 @@ app.add_middleware(
         "https://meeting-transcriber.local"
     ],
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
+    allow_headers=["Content-Type", "Authorization"],
 )
 
 # ── Routers ──────────────────────────────────────────────────

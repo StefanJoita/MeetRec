@@ -10,6 +10,9 @@ import { cn } from '@/lib/cn'
 const navItems = [
   { to: '/',          label: 'Înregistrări', icon: LayoutDashboard },
   { to: '/search',    label: 'Căutare',      icon: Search },
+]
+
+const operatorItems = [
   { to: '/recordings/new', label: 'Înregistrare nouă', icon: UploadCloud },
 ]
 
@@ -42,6 +45,26 @@ export default function AppShell({ children }: { children: ReactNode }) {
             key={to}
             to={to}
             end={to === '/'}
+            onClick={() => setSidebarOpen(false)}
+            className={({ isActive }) =>
+              cn(
+                'flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors',
+                isActive
+                  ? 'bg-blue-50 text-blue-700'
+                  : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
+              )
+            }
+          >
+            <Icon className="h-4 w-4 shrink-0" />
+            {label}
+            <ChevronRight className="h-3 w-3 ml-auto opacity-40" />
+          </NavLink>
+        ))}
+
+        {user?.role !== 'participant' && operatorItems.map(({ to, label, icon: Icon }) => (
+          <NavLink
+            key={to}
+            to={to}
             onClick={() => setSidebarOpen(false)}
             className={({ isActive }) =>
               cn(
@@ -96,7 +119,9 @@ export default function AppShell({ children }: { children: ReactNode }) {
           </div>
           <div className="flex-1 min-w-0">
             <p className="text-sm font-medium text-gray-900 truncate">{user?.full_name ?? user?.username}</p>
-            <p className="text-xs text-gray-500 truncate">{user?.is_admin ? 'Administrator' : 'Operator'}</p>
+            <p className="text-xs text-gray-500 truncate">
+              {user?.is_admin ? 'Administrator' : user?.role === 'participant' ? 'Participant' : 'Operator'}
+            </p>
           </div>
           <button
             onClick={handleLogout}

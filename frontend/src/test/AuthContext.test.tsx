@@ -4,6 +4,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { AuthProvider, useAuth } from '@/contexts/AuthContext'
+import type { User } from '@/api/types'
 
 // ── Mock API ──────────────────────────────────────────────────
 // Mockăm modulul API ca să nu facem cereri HTTP reale în teste.
@@ -15,13 +16,14 @@ vi.mock('@/api/auth', () => ({
 
 import { login as mockLogin, logout as mockLogout, getMe as mockGetMe } from '@/api/auth'
 
-const FAKE_USER = {
+const FAKE_USER: User = {
   id: 'user-123',
   username: 'admin',
   email: 'admin@meetrec.ro',
   full_name: 'Administrator',
   is_active: true,
   is_admin: true,
+  role: 'admin',
   must_change_password: false,
 }
 

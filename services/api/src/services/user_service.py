@@ -7,7 +7,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.middleware.auth import hash_password, verify_password
-from src.models.audit_log import User
+from src.models.audit_log import User, UserRole
 from src.schemas.user import UserCreate, UserUpdate, PaginatedUsers, UserListItem
 
 
@@ -60,6 +60,7 @@ class UserService:
                     full_name=u.full_name,
                     is_active=u.is_active,
                     is_admin=u.is_admin,
+                    role=u.role,
                     must_change_password=u.must_change_password,
                     last_login=u.last_login,
                     created_at=u.created_at,
@@ -82,7 +83,7 @@ class UserService:
             email=str(data.email).strip().lower(),
             full_name=data.full_name.strip() if data.full_name else None,
             password_hash=hash_password(data.password),
-            is_admin=data.is_admin,
+            role=data.role,
             is_active=True,
             must_change_password=True,
         )
@@ -100,7 +101,7 @@ class UserService:
         actor_user: User,
     ) -> User:
         if target_user.id == actor_user.id:
-            if data.is_admin is False:
+            if data.role == UserRole.OPERATOR.value or data.role == UserRole.PARTICIPANT.value:
                 raise UserActionForbiddenError(
                     "Nu îți poți revoca singur drepturile de administrator."
                 )

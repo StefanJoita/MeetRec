@@ -36,6 +36,8 @@ from src.processor import FileProcessor
 
 logger = get_logger(__name__)
 
+SIDECAR_SUFFIX = ".meetrec-meta.json"
+
 
 class AudioFileHandler(FileSystemEventHandler):
     """
@@ -89,6 +91,12 @@ class AudioFileHandler(FileSystemEventHandler):
 
         # Ignorăm fișierele din subfolder-ul /errors/
         if "errors" in file_path.parts:
+            return
+
+        # Sidecar-ul este folosit doar ca lookup auxiliar pentru fișierul audio pereche,
+        # nu trebuie procesat ca input principal.
+        if file_path.name.endswith(SIDECAR_SUFFIX):
+            logger.debug("sidecar_ignored", file=file_path.name)
             return
 
         # Evităm procesarea dublă a aceluiași fișier
@@ -209,7 +217,9 @@ class InboxWatcher:
         inbox_path = settings.inbox_path
         existing_files = [
             f for f in inbox_path.iterdir()
-            if f.is_file() and not f.name.startswith(".")
+            if f.is_file()
+            and not f.name.startswith(".")
+            and not f.name.endswith(SIDECAR_SUFFIX)
         ]
 
         if existing_files:

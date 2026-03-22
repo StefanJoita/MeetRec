@@ -33,7 +33,7 @@ export default function SearchPage() {
       const data = await searchCombined(q.trim())
       setResponse(data)
     } catch {
-      setError('Eroare la căutare. Încercați din nou.')
+      setError('Nu am putut efectua căutarea. Încearcă din nou.')
     } finally {
       setLoading(false)
     }
@@ -65,7 +65,7 @@ export default function SearchPage() {
             ref={inputRef}
             value={query}
             onChange={handleQueryChange}
-            placeholder="Caută în toate transcriptele..."
+            placeholder="Caută în toate transcrierile..."
             aria-label="Caută în transcrieri"
             className="w-full pl-10 pr-10 py-2.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
           />
@@ -91,8 +91,8 @@ export default function SearchPage() {
       {response === null && !loading && (
         <EmptyState
           icon={Search}
-          title="Caută în toate transcriptele"
-          description="Poți căuta după cuvinte cheie, subiecte discutate sau fraze exacte. Căutarea folosește atât full-text cât și semantic (înțelegerea sensului)."
+          title="Caută în toate transcrierile"
+          description="Poți căuta după cuvinte cheie, subiecte discutate sau fraze exacte. Căutarea combină potrivirea exactă cu căutarea după sens."
         />
       )}
 
@@ -102,7 +102,7 @@ export default function SearchPage() {
             <p className="text-sm text-gray-500">
               {response.results.length === 0
                 ? 'Niciun rezultat găsit.'
-                : `${response.results.length} rezultate în ${response.search_time_ms} ms`}
+                : `${response.results.length} rezultate găsite`}
             </p>
             {response.results.length > 0 && (
               <div className="flex gap-2">
@@ -162,8 +162,8 @@ function ResultCard({ result: r, query }: { result: CombinedSearchResult; query:
           {formatTimestamp(r.start_time)} – {formatTimestamp(r.end_time)}
         </p>
         <div className="flex gap-3 text-xs text-gray-400">
-          {r.rank != null && <span>FTS: {r.rank.toFixed(3)}</span>}
-          {r.similarity != null && <span>Semantic: {(r.similarity * 100).toFixed(0)}%</span>}
+          {r.rank != null && <span>Potrivire exactă: {r.rank.toFixed(3)}</span>}
+          {r.similarity != null && <span>Potrivire după sens: {(r.similarity * 100).toFixed(0)}%</span>}
         </div>
       </div>
     </Link>
@@ -172,14 +172,14 @@ function ResultCard({ result: r, query }: { result: CombinedSearchResult; query:
 
 function SourceBadge({ source }: { source: CombinedSearchResult['source'] }) {
   if (source === 'both') return <span className="text-xs font-medium px-1.5 py-0.5 rounded bg-green-100 text-green-700">Ambele</span>
-  if (source === 'semantic') return <span className="text-xs font-medium px-1.5 py-0.5 rounded bg-purple-100 text-purple-700">Semantic</span>
-  return <span className="text-xs font-medium px-1.5 py-0.5 rounded bg-blue-100 text-blue-700">FTS</span>
+  if (source === 'semantic') return <span className="text-xs font-medium px-1.5 py-0.5 rounded bg-purple-100 text-purple-700">După sens</span>
+  return <span className="text-xs font-medium px-1.5 py-0.5 rounded bg-blue-100 text-blue-700">Exact</span>
 }
 
 function SourcePill({ source, count }: { source: CombinedSearchResult['source']; count: number }) {
   if (count <= 0) return null
   const styles = { both: 'bg-green-50 text-green-700 border-green-200', semantic: 'bg-purple-50 text-purple-700 border-purple-200', fts: 'bg-blue-50 text-blue-700 border-blue-200' }
-  const labels = { both: 'Ambele', semantic: 'Semantic', fts: 'FTS' }
+  const labels = { both: 'Ambele', semantic: 'După sens', fts: 'Exact' }
   return <span className={`text-xs px-2 py-0.5 rounded border ${styles[source]}`}>{count} {labels[source]}</span>
 }
 

@@ -60,7 +60,7 @@ export function useUploadWithProgress() {
       }
       const msg =
         (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail
-        ?? 'Eroare la încărcare. Încearcă din nou.'
+        ?? 'Nu am putut încărca fișierul. Încearcă din nou.'
       setState(s => ({ ...s, uploading: false, error: msg }))
       return null
     }

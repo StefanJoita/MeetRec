@@ -5,7 +5,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.database import get_db
 from sqlalchemy.ext.asyncio import AsyncSession
-from src.middleware.auth import get_current_user
+from src.middleware.auth import get_current_user, get_current_operator_or_above
+from src.models.audit_log import User
 from src.schemas.recording import TranscriptResponse
 from src.services.transcript_service import TranscriptService
 from src.middleware.audit import log_audit
@@ -48,6 +49,7 @@ async def get_transcript(
 async def retry_transcription(
     recording_id: uuid.UUID,
     request: Request,
+    _: User = Depends(get_current_operator_or_above),
     service: TranscriptService = Depends(get_service),
 ):
     """
