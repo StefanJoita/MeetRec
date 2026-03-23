@@ -35,6 +35,63 @@ async def lifespan(app: FastAPI):
     logger.info("api_stopping")
 
 
+# ── Middleware: Must-Change-Password Check ───────────────────
+# Verifică dacă utilizatorul trebuie să-și schimbe parola la primul login
+# Exceptate: /auth/* (permit /auth/me și /auth/change-password-first-login)
+@app.middleware("http")
+async def check_must_change_password(request: Request, call_next):
+    # Exceptare: endpoint-uri de autentificare (fără verificare password)
+    # Exceptare: health check și docs
+    exempt_paths = {
+        "/health",
+        "/docs",
+        "/openapi.json",
+        "/redoc",
+    }
+    
+    # Pentru /auth/*, permitemos accesul la /auth/me și /auth/change-password-first-login
+    if request.url.path in exempt_paths:
+        return await call_next(request)
+    
+    if request.url.path.startswith("/auth/"):
+        # Permitem numai GET /auth/me și POST /auth/change-password-first-login
+        if not (
+            (request.method == "GET" and request.url.path == "/auth/me") or
+            (request.method == "POST" and request.url.path == "/auth/change-password-first-login") or
+            request.url.path == "/auth/login" or
+            request.url.path == "/auth/logout"
+        ):
+            return await call_next(request)
+    
+    # Extrac tokenul JWT din Authorization header
+    auth_header = request.headers.get("Authorization", "")
+    if auth_header.startswith("Bearer "):
+        from src.middleware.auth import decode_token
+        token = auth_header[7:]
+        user_id = decode_token(token)
+        
+        if user_id:
+            # Verific din DB dacă utilizatorul trebuie să-și schimbe parola
+            from src.database import SessionLocal
+            async with SessionLocal() as db:
+                from src.models.audit_log import User
+                from sqlalchemy import select
+                result = await db.execute(
+                    select(User).where(User.id == user_id, User.is_active == True)
+                )
+                user = result.scalar_one_or_none()
+                if user and user.must_change_password and request.url.path not in ["/auth/me", "/auth/change-password-first-login", "/auth/logout"]:
+                    from fastapi.responses import JSONResponse
+                    return JSONResponse(
+                        status_code=403,
+                        content={
+                            "detail": "Trebuie să-ți schimbi parola la primul login. Utilizează /auth/change-password-first-login"
+                        }
+                    )
+    
+    return await call_next(request)
+
+
 # ── Aplicația FastAPI ────────────────────────────────────────
 # Exportăm limiter-ul pentru a fi importat de routers
 app = FastAPI(
