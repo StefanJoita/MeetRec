@@ -117,6 +117,24 @@ async def get_current_operator_or_above(
     return current_user
 
 
+async def get_current_user_with_password_check(
+    current_user: User = Depends(get_current_user),
+) -> User:
+    """
+    Dependency: verific că utilizatorul NU trebuie să-și schimbe parola la login.
+    
+    Ridică O_UNAUTHORIZED dacă must_change_password=True, cu hint către endpoint-ul de schimbare.
+    Endpoint-uri exceptate: /auth/change-password-first-login și /auth/me
+    (Acestea sunt bypassed prin exclude_path în router)
+    """
+    if current_user.must_change_password:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Trebuie să-ți schimbi parola la primul login. Utilizează /auth/change-password-first-login",
+        )
+    return current_user
+
+
 async def check_recording_access(
     recording_id: uuid.UUID,
     user: User,
