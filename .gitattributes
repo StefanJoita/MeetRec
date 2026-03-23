@@ -1,0 +1,21 @@
+# Forțăm LF pentru toate fișierele text — prevenire probleme CRLF pe Windows
+* text=auto eol=lf
+
+# Fișiere binare — nu modificăm line endings
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.pdf binary
+*.zip binary
+*.gz binary
+*.tar binary
+*.mp3 binary
+*.mp4 binary
+*.wav binary
+*.ogg binary
+*.flac binary
+*.m4a binary
+*.pt  binary
+*.bin binary

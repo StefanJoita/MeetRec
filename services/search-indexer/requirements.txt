@@ -8,6 +8,8 @@ uvicorn[standard]==0.29.0
 
 # Embeddings semantice — model multilingv 384 dimensiuni (~120MB)
 # torch 2.4.0+cpu: compatibil cu sentence-transformers 3.x si transformers 4.4x
+# IMPORTANT: --extra-index-url trebuie să fie ÎNAINTE de pachet, altfel pip
+# încearcă să descarce torch de pe PyPI unde nu există versiunea +cpu → FAIL
+--extra-index-url https://download.pytorch.org/whl/cpu
 sentence-transformers==3.0.1
 torch==2.4.0+cpu
---extra-index-url https://download.pytorch.org/whl/cpu
