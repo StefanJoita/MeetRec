@@ -4,13 +4,13 @@ export PYTHONPATH=/app
 
 # ============================================================
 # STRATEGIE MIGRĂRI:
-# 1. Postgres pornit → schema inițializată cu init.sql + migrări .sql
-# 2. Alembic verific dacă tabelul alembic_version există
-#    - NU: stamp head (marca toate migrările ca aplicate)
-#    - DA: upgrade head (rulează migrări noi, dacă există)
+# 1. Postgres pornit → schema inițializată cu init.sql (completă, la zi)
+# 2. Alembic verifică dacă tabelul alembic_version există
+#    - NU: stamp head (schema aplicată de init.sql, marcăm ca la zi)
+#    - DA: upgrade head (deployment existent, aplică migrări noi)
 # 3. Pornește uvicorn
 #
-# RETRY LOGIC: dacă psql fail-uiește, reîncercă până service healthy
+# RETRY LOGIC: dacă psql fail-uiește, reîncercă până service e healthy
 # ============================================================
 
 set -e
