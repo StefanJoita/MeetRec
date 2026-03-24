@@ -30,6 +30,7 @@ from typing import Optional
 import redis.asyncio as aioredis
 import structlog
 
+from src.audio_assembler import AudioAssembler, AssemblyError
 from src.config import settings
 from src.language_detector import LanguageDetector
 from src.postprocessor import PostProcessor
@@ -59,11 +60,13 @@ class JobConsumer:
         uploader: DatabaseUploader,
         detector: LanguageDetector,
         postprocessor: PostProcessor,
+        assembler: Optional[AudioAssembler] = None,
     ):
         self._transcriber = transcriber
         self._uploader = uploader
         self._detector = detector
         self._postprocessor = postprocessor
+        self._assembler = assembler or AudioAssembler()
         self._redis: Optional[aioredis.Redis] = None
         self._running = False
         self._queue = settings.redis_transcription_queue
@@ -144,20 +147,27 @@ class JobConsumer:
 
     async def _process_job(self, job: dict) -> None:
         """
-        Pipeline complet pentru un singur job.
+        Rutare job: session_mode → _process_session_job, altfel pipeline standard.
 
-        Structura job-ului (publicat de ingest):
+        Job standard (upload simplu fără session_id):
         {
             "recording_id": "uuid",
-            "file_path": "/data/processed/2024/03/15/uuid.mp3",
+            "file_path": "/data/processed/...",
             "audio_format": "mp3",
             "duration_seconds": 3600,
             "language_hint": "ro",
-            // Prezente doar pentru segmente suplimentare (sesiuni multi-part):
-            "segment_id": "uuid",      // ID din recording_audio_segments
-            "segment_index": 1,        // ordinea fișierului audio în sesiune (1, 2, ...)
+        }
+
+        Job sesiune (publicat de Session Watcher după timeout):
+        {
+            "recording_id": "uuid",
+            "session_mode": true,
+            "language_hint": "ro",
         }
         """
+        if job.get("session_mode"):
+            await self._process_session_job(job)
+            return
         recording_id = job.get("recording_id")
         file_path = job.get("file_path")
         language_hint = job.get("language_hint", settings.whisper_primary_language)
@@ -263,6 +273,80 @@ class JobConsumer:
             # Workerul NU se oprește! Un job eșuat nu trebuie să oprească tot serviciul.
             logger.error("job_failed", recording_id=recording_id, error=str(e), exc_info=True)
             await self._uploader.mark_failed(transcript_id, recording_id, str(e))
+
+    async def _process_session_job(self, job: dict) -> None:
+        """
+        Pipeline pentru sesiuni multi-segment (audio concatenat).
+
+        Diferențe față de _process_job standard:
+        - Nu are file_path în job → interogăm DB pentru toate segmentele
+        - Concatenăm toate fișierele audio în ordinea segment_index
+        - Transcriem fișierul concatenat o singură dată → fără artefacte la joncțiuni
+        - Salvăm cu save_session_results (marchează direct completed, fără pending_count)
+        - Ștergem fișierul temporar concatenat în finally
+        """
+        recording_id = job.get("recording_id")
+        language_hint = job.get("language_hint", settings.whisper_primary_language)
+
+        logger.info("session_job_started", recording_id=recording_id)
+        job_start = time.monotonic()
+
+        transcript_id = await self._uploader.get_transcript_id(recording_id)
+        if transcript_id is None:
+            logger.error("session_transcript_not_found", recording_id=recording_id)
+            return
+
+        model_name = f"whisper-{settings.whisper_model}"
+        await self._uploader.mark_processing(transcript_id, recording_id, model_name)
+
+        merged_path = None
+        try:
+            # ── 1. Obținem toate căile audio sortate după segment_index ─
+            paths = await self._uploader.get_all_session_segments(recording_id)
+            if not paths:
+                raise ValueError(f"Nicio cale audio găsită pentru recording {recording_id}")
+
+            # ── 2. Detectăm limba pe primul segment (~30s audio) ────────
+            detected_language = await self._detector.detect(str(paths[0]))
+
+            # ── 3. Concatenăm toate segmentele într-un singur fișier WAV ─
+            merged_path = await self._assembler.assemble(paths)
+
+            # ── 4. Transcriem audio-ul concatenat o singură dată ────────
+            segments = await self._transcriber.transcribe(
+                str(merged_path), detected_language
+            )
+            segments = self._postprocessor.process(segments)
+
+            processing_time = int(time.monotonic() - job_start)
+            metadata = self._compute_metadata(
+                segments, detected_language, model_name, processing_time
+            )
+
+            # ── 5. Salvăm în DB ─────────────────────────────────────────
+            await self._uploader.save_session_results(
+                transcript_id=transcript_id,
+                recording_id=recording_id,
+                segments=segments,
+                metadata=metadata,
+            )
+
+            logger.info(
+                "session_job_completed",
+                recording_id=recording_id,
+                segments=len(segments),
+                words=metadata.word_count,
+                processing_sec=processing_time,
+            )
+
+        except (AssemblyError, Exception) as e:
+            logger.error("session_job_failed", recording_id=recording_id, error=str(e), exc_info=True)
+            await self._uploader.mark_failed(transcript_id, recording_id, str(e))
+
+        finally:
+            # Ștergem fișierul temporar concatenat indiferent de rezultat
+            if merged_path is not None and merged_path.exists():
+                merged_path.unlink(missing_ok=True)
 
     def _compute_metadata(
         self,
