@@ -47,8 +47,15 @@ export async function retryTranscription(recordingId: string): Promise<void> {
   await client.post(`/transcripts/recording/${recordingId}/retry`)
 }
 
-export function getAudioUrl(recordingId: string): string {
-  return `/api/v1/recordings/${recordingId}/audio`
+export async function getAudioToken(recordingId: string): Promise<string> {
+  const { data } = await client.get<{ token: string; expires_in: number }>(
+    `/recordings/${recordingId}/audio-token`
+  )
+  return data.token
+}
+
+export function buildAudioUrl(recordingId: string, token: string): string {
+  return `/api/v1/recordings/${recordingId}/audio?token=${encodeURIComponent(token)}`
 }
 
 // ── Participant management ────────────────────────────────────

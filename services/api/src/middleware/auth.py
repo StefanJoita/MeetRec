@@ -50,7 +50,36 @@ def decode_token(token: str) -> Optional[str]:
             settings.jwt_secret_key,
             algorithms=[settings.jwt_algorithm],
         )
+        # Respinge tokenii audio-only (nu pot fi folosiți ca autentificare generală)
+        if payload.get("aud") == "audio":
+            return None
         return payload.get("sub")
+    except JWTError:
+        return None
+
+
+def create_audio_token(user_id: str, recording_id: str) -> str:
+    """Token valid pentru durata sesiunii, legat de un singur recording.
+    Nu poate fi folosit pentru alte endpoint-uri API (aud='audio' e respins de decode_token)."""
+    expire = datetime.now(timezone.utc) + timedelta(minutes=settings.jwt_expire_minutes)
+    payload = {"sub": user_id, "rid": recording_id, "aud": "audio", "exp": expire}
+    return jwt.encode(payload, settings.jwt_secret_key, algorithm=settings.jwt_algorithm)
+
+
+def decode_audio_token(token: str) -> Optional[tuple]:
+    """Returnează (user_id, recording_id) sau None dacă tokenul e invalid."""
+    try:
+        payload = jwt.decode(
+            token,
+            settings.jwt_secret_key,
+            algorithms=[settings.jwt_algorithm],
+            audience="audio",
+        )
+        user_id = payload.get("sub")
+        recording_id = payload.get("rid")
+        if user_id and recording_id:
+            return user_id, recording_id
+        return None
     except JWTError:
         return None
 
