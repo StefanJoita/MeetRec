@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="https://raw.githubusercontent.com/StefanJoita/MeetRec/main/frontend/public/logo.svg" alt="MeetRec" width="72" height="72" onerror="this.style.display='none'">
+<img src="docs/banner.png" alt="MeetRec" width="100%" />
 
 # MeetRec
 
