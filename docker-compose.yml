@@ -8,7 +8,6 @@
 #   - "networks:" = cum comunică containerele între ele
 # ============================================================
 
-version: "3.9"   # versiunea sintaxei Docker Compose
 
 # ===========================================================
 # SERVICES — Fiecare bloc = un container independent
