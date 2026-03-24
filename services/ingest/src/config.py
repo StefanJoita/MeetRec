@@ -44,6 +44,13 @@ class Settings(BaseSettings):
     #Cat de des verificam inbox-ul pentru fisiere noi (in secunde)
     polling_interval_seconds: int = 10
 
+    # Session Assembly — reconstrucție sesiuni multi-segment
+    # Cât timp (secunde) să așteptăm după ultimul segment înainte de a lansa transcrierea.
+    # Default 120s = 2 minute. Suficient pentru retry-uri de rețea ale clientului.
+    session_timeout_seconds: int = 120
+    # Cât de des (secunde) rulează Session Watcher.
+    session_watcher_interval_seconds: int = 30
+
     @field_validator("database_url")
     @classmethod
     def normalize_database_url(cls, v: str) -> str:

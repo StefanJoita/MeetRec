@@ -138,9 +138,10 @@ class DatabaseClient:
                         sample_rate_hz,
                         channels,
                         session_id,
+                        last_segment_at,
                         status
                     ) VALUES (
-                        $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16
+                        $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17
                     )
                     """,
                     recording_id,
@@ -158,6 +159,9 @@ class DatabaseClient:
                     metadata.sample_rate_hz,
                     metadata.channels,
                     uuid.UUID(session_id_val) if session_id_val else None,
+                    # last_segment_at: setat doar pentru sesiuni (nu și pentru upload-uri simple)
+                    # Session Watcher verifică acest câmp pentru a decide când să lanseze transcrierea
+                    datetime.now(timezone.utc) if session_id_val else None,
                     "queued",
                 )
 
@@ -260,6 +264,60 @@ class DatabaseClient:
                 error_message,
                 recording_id,
             )
+
+    async def update_last_segment_at(self, recording_id: str) -> None:
+        """
+        Actualizează last_segment_at la NOW() pentru o înregistrare de sesiune.
+        Apelat de fiecare dată când un segment nou este primit și stocat.
+        Session Watcher folosește acest câmp pentru a calcula timeout-ul.
+        """
+        async with self._pool.acquire() as conn:
+            await conn.execute(
+                """
+                UPDATE recordings
+                SET last_segment_at = NOW()
+                WHERE id = $1
+                """,
+                recording_id,
+            )
+
+    async def find_expired_sessions(self, timeout_seconds: int) -> List[str]:
+        """
+        Returnează recording_id-urile sesiunilor care nu au primit segmente noi
+        de cel puțin timeout_seconds secunde și sunt încă în status 'queued'.
+
+        Acestea sunt sesiunile gata de transcriere — clientul a terminat de trimis.
+        """
+        async with self._pool.acquire() as conn:
+            rows = await conn.fetch(
+                """
+                SELECT id FROM recordings
+                WHERE session_id IS NOT NULL
+                  AND status = 'queued'
+                  AND last_segment_at IS NOT NULL
+                  AND last_segment_at < NOW() - ($1 || ' seconds')::INTERVAL
+                ORDER BY last_segment_at ASC
+                """,
+                str(timeout_seconds),
+            )
+            return [str(row["id"]) for row in rows]
+
+    async def mark_session_dispatched(self, recording_id: str) -> None:
+        """
+        Marchează sesiunea ca 'transcribing' ÎNAINTE de a publica jobul în Redis.
+        Previne ca Session Watcher să dispatcheze aceeași sesiune de două ori
+        (ex: dacă watcher rulează în timp ce jobul e deja în Redis).
+        """
+        async with self._pool.acquire() as conn:
+            await conn.execute(
+                """
+                UPDATE recordings
+                SET status = 'transcribing', last_segment_at = NULL
+                WHERE id = $1
+                """,
+                recording_id,
+            )
+        logger.info("session_dispatched_to_transcription", recording_id=recording_id)
 
     @staticmethod
     def _generate_title(filename: str) -> str:

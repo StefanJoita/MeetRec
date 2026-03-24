@@ -159,6 +159,47 @@ class JobPublisher:
                 )
                 raise #re-raise pentru a fi prins de retry si a incerca din nou
 
+    @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=1, max=10))
+    def publish_session_job(
+        self,
+        recording_id: str,
+        language_hint: str = "ro",
+    ) -> bool:
+        """
+        Publică un job de transcriere pentru o sesiune multi-segment completă.
+        STT Worker va interoga DB pentru toate segmentele, le va concatena și
+        va transcrie audio-ul rezultat ca un singur fișier.
+
+        Diferit de publish_transcription_job: nu conține file_path
+        (STT Worker îl determină din DB). Conține session_mode=True.
+        """
+        job = {
+            "recording_id": recording_id,
+            "session_mode": True,
+            "language_hint": language_hint,
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        }
+        try:
+            r = self._get_redis()
+            queue_length = r.lpush(
+                settings.redis_transcription_queue,
+                json.dumps(job, ensure_ascii=False),
+            )
+            logger.info(
+                "session_job_published",
+                recording_id=recording_id,
+                queue=settings.redis_transcription_queue,
+                queue_length=queue_length,
+            )
+            return True
+        except redis.RedisError as e:
+            logger.error(
+                "session_job_publish_failed",
+                recording_id=recording_id,
+                error=str(e),
+            )
+            raise
+
     def get_queue_length(self) -> int:
         """Returneaza numarul de joburi in coada de transcriere."""
         return self._get_redis().llen(settings.redis_transcription_queue)   
