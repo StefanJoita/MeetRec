@@ -105,7 +105,13 @@ CREATE TABLE recordings (
 
     -- Suport sesiuni multi-segment: toate segmentele aceleiași ședințe
     -- au același session_id. NULL = înregistrare fără sesiune explicită.
-    session_id      UUID
+    session_id          UUID,
+
+    -- Timestamp-ul ultimului segment primit pentru această sesiune.
+    -- Session Watcher verifică dacă NOW() - last_segment_at > SESSION_TIMEOUT
+    -- pentru a decide când să lanseze transcrierea pe audio-ul concatenat.
+    -- NULL = înregistrare simplă (fără sesiune) sau sesiune deja dispatchată.
+    last_segment_at     TIMESTAMPTZ
 );
 
 CREATE INDEX idx_recordings_status ON recordings(status);
@@ -117,6 +123,11 @@ CREATE INDEX idx_recordings_file_hash ON recordings(file_hash_sha256);
 CREATE UNIQUE INDEX idx_recordings_session_id
     ON recordings(session_id)
     WHERE session_id IS NOT NULL;
+
+-- Index pentru Session Watcher: caută sesiuni cu status='queued' neexpirate
+CREATE INDEX idx_recordings_session_watcher
+    ON recordings (last_segment_at)
+    WHERE session_id IS NOT NULL AND status = 'queued';
 
 -- ============================================================
 -- TABELUL: recording_audio_segments
