@@ -117,7 +117,7 @@ class TestProcessJob:
         mocks["detector"].detect.side_effect = lambda *a: call_order.append("detect") or "ro"
         mocks["transcriber"].transcribe.side_effect = lambda *a, **kw: call_order.append("transcribe") or [make_segment()]
         mocks["postprocessor"].process.side_effect = lambda s: call_order.append("postprocess") or s
-        mocks["uploader"].save_results.side_effect = lambda *a: call_order.append("save_results")
+        mocks["uploader"].save_results.side_effect = lambda *a, **kw: call_order.append("save_results")
 
         await consumer._process_job(make_job())
 
@@ -202,8 +202,8 @@ class TestProcessJob:
 
         await consumer._process_job(make_job())
 
-        call_args = mocks["uploader"].save_results.call_args[0]
-        assert call_args[2] == processed_segs  # al treilea argument = segments
+        call_kwargs = mocks["uploader"].save_results.call_args.kwargs
+        assert call_kwargs["segments"] == processed_segs
 
 
 # ============================================================
