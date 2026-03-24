@@ -257,14 +257,15 @@ CREATE INDEX idx_audit_action ON audit_logs(action);
 -- Un trigger = cod care rulează automat când se întâmplă ceva în DB
 -- Fără trigger: ar trebui să trimitem updated_at de fiecare dată din cod
 
+-- $$ = delimiter pentru corpul funcției; language plpgsql = limbajul procedural PostgreSQL
 CREATE OR REPLACE FUNCTION update_updated_at_column()
-RETURNS TRIGGER AS $$  -- $$ = delimiter pentru corpul funcției
+RETURNS TRIGGER AS $$
 BEGIN
     -- NEW = rândul nou (după UPDATE)
     NEW.updated_at = NOW();
     RETURN NEW;
 END;
-$$ language 'plpgsql';  -- plpgsql = limbajul procedural PostgreSQL
+$$ LANGUAGE plpgsql;
 
 -- Aplicăm trigger-ul pe tabela recordings
 CREATE TRIGGER update_recordings_updated_at

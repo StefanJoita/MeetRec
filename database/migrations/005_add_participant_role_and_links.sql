@@ -9,9 +9,18 @@
 ALTER TABLE users
 ADD COLUMN IF NOT EXISTS role VARCHAR(20) NOT NULL DEFAULT 'operator';
 
-UPDATE users
-SET role = 'admin'
-WHERE is_admin = TRUE;
+-- Migrează is_admin → role doar dacă coloana există (schema veche)
+-- Pe un deploy fresh, init.sql deja creează users cu coloana role și fără is_admin
+DO $$
+BEGIN
+    IF EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_name = 'users' AND column_name = 'is_admin'
+    ) THEN
+        UPDATE users SET role = 'admin' WHERE is_admin = TRUE;
+    END IF;
+END;
+$$;
 
 ALTER TABLE users
 DROP COLUMN IF EXISTS is_admin;
