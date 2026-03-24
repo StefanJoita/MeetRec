@@ -22,10 +22,11 @@ from src.database import DatabaseClient
 from src.publisher import JobPublisher
 from src.processor import FileProcessor
 from src.watcher import InboxWatcher
+from src.session_watcher import SessionWatcher
 
 logger=get_logger(__name__)
 
-async def startup()-> tuple[DatabaseClient,InboxWatcher]:
+async def startup()-> tuple[DatabaseClient, InboxWatcher, SessionWatcher]:
     """Initializeaza toate componentele serviciului"""
     logger.info(
         "service_starting",
@@ -56,13 +57,19 @@ async def startup()-> tuple[DatabaseClient,InboxWatcher]:
     #Pornim watcher-ul care monitorizeaza inbox-ul
     watcher=InboxWatcher(processor=processor, event_loop=asyncio.get_running_loop())
     watcher.start()
-    logger.info("service_started")
-    return database, watcher
 
-async def shutdown(database:DatabaseClient, watcher:InboxWatcher)->None:
+    # Pornim Session Watcher — lansează transcrierea sesiunilor complete după timeout
+    session_watcher = SessionWatcher(database=database, publisher=publisher)
+    asyncio.create_task(session_watcher.start())
+
+    logger.info("service_started")
+    return database, watcher, session_watcher
+
+async def shutdown(database: DatabaseClient, watcher: InboxWatcher, session_watcher: SessionWatcher) -> None:
     """Opreste serviciul elegant: inchide conexiunile, watcher-ul, etc"""
     logger.info("service_stopping")
     watcher.stop()
+    session_watcher.stop()
     await database.disconnect()
     logger.info("service_stopped")
 
@@ -70,7 +77,7 @@ async def main()-> None:
     """Functia principala async care porneste serviciul si asteapta semnale de shutdown"""
     #configuram loggingul primul
     setup_logging()
-    database, watcher = await startup()
+    database, watcher, session_watcher = await startup()
 
     #Event pentru shutdown ( setat de signal handlers)
     stop_event=asyncio.Event()
@@ -95,7 +102,7 @@ async def main()-> None:
     await stop_event.wait()
  
     # Cleanup
-    await shutdown(database, watcher)
+    await shutdown(database, watcher, session_watcher)
 
 if __name__ =="__main__":
        # asyncio.run() = pornește event loop-ul Python async

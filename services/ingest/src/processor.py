@@ -142,6 +142,18 @@ class FileProcessor:
              return False
 
         # ── Pasul 6: Publicare job de transcriere ─────────────────────
+        # Dacă înregistrarea face parte dintr-o sesiune multi-segment (session_id prezent),
+        # NU publicăm job imediat — Session Watcher va publica UN SINGUR job după timeout,
+        # după ce toate segmentele au sosit. Astfel Whisper transcrie audio-ul concatenat,
+        # nu bucăți individuale (artefacte la joncțiuni).
+        if session_id:
+            logger.info(
+                "session_recording_waiting",
+                recording_id=recording_id,
+                session_id=session_id,
+            )
+            return True
+
         try:
              self.publisher.publish_transcription_job(
                 recording_id=recording_id,
@@ -202,22 +214,10 @@ class FileProcessor:
             self.storage.delete_file(stored_path)
             return False
 
-        try:
-            self.publisher.publish_transcription_job(
-                recording_id=existing_recording_id,
-                metadata=metadata,
-                stored_path=stored_path,
-                segment_id=segment_id,
-                segment_index=segment_index,
-            )
-        except Exception as e:
-            logger.error(
-                "segment_publish_failed",
-                segment_id=segment_id,
-                recording_id=existing_recording_id,
-                error=str(e),
-            )
-            return False
+        # Actualizăm last_segment_at — Session Watcher măsoară timeout-ul de la acest moment.
+        # NU publicăm job Redis: Session Watcher va publica UN SINGUR job după timeout,
+        # când toate segmentele au sosit și sunt gata de concatenat.
+        await self.database.update_last_segment_at(existing_recording_id)
 
         logger.info(
             "segment_attached",
