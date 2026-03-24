@@ -39,13 +39,14 @@ services:
       - postgres_data:/var/lib/postgresql/data
       # Script-uri de inițializare — rulate O SINGURĂ DATĂ la primul start (ordine alfabetică numerică)
       # 00_init.sql: schema principală
-      # 01-05: migrări incrementale (execute DUPĂ schema, în ordine)
+      # 01-06: migrări incrementale (execute DUPĂ schema, în ordine)
       - ./database/init.sql:/docker-entrypoint-initdb.d/00_init.sql:ro
       - ./database/migrations/001_add_unknown_audio_format.sql:/docker-entrypoint-initdb.d/01_add_unknown_audio_format.sql:ro
       - ./database/migrations/002_add_search_vector_trigger.sql:/docker-entrypoint-initdb.d/02_add_search_vector_trigger.sql:ro
       - ./database/migrations/003_add_user_mgmt_fields_and_audit_actions.sql:/docker-entrypoint-initdb.d/03_add_user_mgmt_fields_and_audit_actions.sql:ro
       - ./database/migrations/004_add_segment_fts_index.sql:/docker-entrypoint-initdb.d/04_add_segment_fts_index.sql:ro
       - ./database/migrations/005_add_participant_role_and_links.sql:/docker-entrypoint-initdb.d/05_add_participant_role_and_links.sql:ro
+      - ./database/migrations/006_add_session_support.sql:/docker-entrypoint-initdb.d/06_add_session_support.sql:ro
     ports:
       # Format: "port_pe_calculatorul_tau:port_in_container"
       # ⚠️ ATENȚIE: în producție, NU expune 5432 afară din rețeaua internă!
