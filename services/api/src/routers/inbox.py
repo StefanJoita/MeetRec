@@ -19,15 +19,16 @@ import uuid as uuid_lib
 from pathlib import Path
 from typing import Optional
 
+import redis as redis_sync
 from fastapi import APIRouter, Depends, Form, HTTPException, UploadFile, File, status
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.config import settings
 from src.database import get_db
 from src.middleware.auth import get_current_user
-from src.models.recording import Recording
+from src.models.recording import Recording, RecordingAudioSegment
 
 router = APIRouter(
     prefix="/inbox",
@@ -44,6 +45,11 @@ class InboxUploadResponse(BaseModel):
     session_id: Optional[str] = None
     segment_index: Optional[int] = None
     is_new_session: Optional[bool] = None  # True = sesiune nouă, False = segment atașat
+
+
+class SessionCompleteResponse(BaseModel):
+    status: str
+    recording_id: str
 
 
 @router.post(
@@ -199,3 +205,111 @@ async def upload_to_inbox(
         segment_index=parsed_segment_index,
         is_new_session=is_new_session,
     )
+
+
+@router.post(
+    "/session/{session_id}/complete",
+    response_model=SessionCompleteResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Marchează sesiunea ca completă și lansează transcrierea imediat",
+    description=(
+        "Apelat de client după ce toate segmentele au primit 200 OK la upload. "
+        "Serverul verifică că Ingest a stocat toate segmentele așteptate, "
+        "apoi publică imediat jobul de transcriere în Redis. "
+        "Session Watcher rămâne activ ca safety net pentru sesiuni abandonate."
+    ),
+)
+async def complete_session(
+    session_id: str,
+    recording_id: str = Form(description="ID-ul înregistrării principale (returnat la segment_index ≥ 1)"),
+    total_segments: int = Form(
+        description="Numărul total de segmente ale sesiunii (inclusiv segment 0). "
+                    "Serverul verifică că are exact acest număr înainte de a dispatcha."
+    ),
+    db: AsyncSession = Depends(get_db),
+) -> SessionCompleteResponse:
+    # ── Validare session_id ────────────────────────────────────
+    try:
+        parsed_session_id = uuid_lib.UUID(session_id.strip())
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="session_id trebuie să fie un UUID valid.",
+        )
+
+    if total_segments < 1:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="total_segments trebuie să fie cel puțin 1.",
+        )
+
+    # ── Verificare recording există și aparține sesiunii ───────
+    result = await db.execute(
+        select(Recording).where(
+            Recording.id == uuid_lib.UUID(recording_id),
+            Recording.session_id == parsed_session_id,
+        )
+    )
+    recording = result.scalar_one_or_none()
+    if recording is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Înregistrarea nu a fost găsită sau nu aparține acestei sesiuni.",
+        )
+
+    # ── Verificare că sesiunea nu e deja dispatchată ───────────
+    if recording.status not in ("queued",):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Sesiunea are deja status '{recording.status}' — nu mai poate fi dispatchată.",
+        )
+
+    # ── Verificare că Ingest a stocat toate segmentele ──────────
+    # Segment 0 = recordings (întotdeauna prezent dacă am ajuns aici)
+    # Segmente 1..N-1 = recording_audio_segments (câte rânduri există)
+    # Verificăm numărul de rânduri, nu statusul lor — ingest setează 'queued'
+    # imediat după stocare, STT Worker îl schimbă în 'completed' mai târziu.
+    extra_segments_expected = total_segments - 1
+    if extra_segments_expected > 0:
+        stored_result = await db.execute(
+            select(func.count(RecordingAudioSegment.id)).where(
+                RecordingAudioSegment.recording_id == uuid_lib.UUID(recording_id),
+            )
+        )
+        stored_count = stored_result.scalar_one()
+        if stored_count < extra_segments_expected:
+            missing = extra_segments_expected - stored_count
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"{missing} segment(e) încă în procesare de Ingest. Reîncearcă în câteva secunde.",
+            )
+
+    # ── Marcare + dispatch ─────────────────────────────────────
+    # Același pattern ca Session Watcher: marchează ÎNAINTE de publish (idempotență)
+    recording.status = "transcribing"
+    recording.last_segment_at = None  # exclude din query-ul Session Watcher
+    await db.commit()
+
+    try:
+        r = redis_sync.from_url(
+            settings.redis_url,
+            decode_responses=True,
+            socket_timeout=5,
+        )
+        job = json.dumps({
+            "recording_id": recording_id,
+            "session_mode": True,
+            "language_hint": "ro",
+        })
+        r.lpush(settings.redis_transcription_queue, job)
+        r.close()
+    except redis_sync.RedisError as e:
+        # Rollback status — Session Watcher va prelua în max 30s
+        recording.status = "queued"
+        await db.commit()
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=f"Redis temporar indisponibil: {e}. Reîncearcă.",
+        )
+
+    return SessionCompleteResponse(status="dispatched", recording_id=recording_id)
