@@ -138,8 +138,12 @@ class FileProcessor:
                 recording_id=recording_id,
                 error=str(e),
             )
-            # NU facem rollback: fișierul e în DB cu status='queued'.
-            # Înregistrarea poate fi repusă în coadă manual sau de un job de recovery.
+            # Marcăm ca failed — altfel înregistrarea rămâne blocată în 'queued'
+            # fără niciun job în coadă și fără feedback pentru utilizator.
+            await self.database.mark_failed_by_id(
+                recording_id=recording_id,
+                error_message=f"Redis unavailable: {e}",
+            )
             return False
 
         logger.info(

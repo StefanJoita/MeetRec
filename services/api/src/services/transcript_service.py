@@ -64,7 +64,6 @@ class TranscriptService:
 
     async def _publish_job(self, recording: Recording) -> None:
         """Publică job de transcriere în Redis."""
-        r = aioredis.from_url(settings.redis_url, decode_responses=True)
         job = {
             "recording_id": str(recording.id),
             "file_path": recording.file_path,
@@ -72,5 +71,5 @@ class TranscriptService:
             "duration_seconds": recording.duration_seconds or 0,
             "language_hint": "ro",
         }
-        await r.lpush(settings.redis_transcription_queue, json.dumps(job))
-        await r.aclose()
+        async with aioredis.from_url(settings.redis_url, decode_responses=True) as r:
+            await r.lpush(settings.redis_transcription_queue, json.dumps(job))

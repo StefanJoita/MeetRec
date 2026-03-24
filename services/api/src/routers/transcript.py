@@ -5,7 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.database import get_db
 from sqlalchemy.ext.asyncio import AsyncSession
-from src.middleware.auth import get_current_user, get_current_operator_or_above
+from src.middleware.auth import get_current_user, get_current_operator_or_above, check_recording_access
 from src.models.audit_log import User
 from src.schemas.recording import TranscriptResponse
 from src.services.transcript_service import TranscriptService
@@ -26,6 +26,7 @@ def get_service(db: AsyncSession = Depends(get_db)) -> TranscriptService:
 async def get_transcript(
     recording_id: uuid.UUID,
     request: Request,
+    current_user: User = Depends(get_current_user),
     service: TranscriptService = Depends(get_service),
     db: AsyncSession = Depends(get_db),
 ):
@@ -33,6 +34,11 @@ async def get_transcript(
     Returnează transcriptul complet cu toate segmentele și timestamp-urile.
     Segmentele sunt ordonate cronologic (segment_index ASC).
     """
+    if current_user.is_participant:
+        has_access = await check_recording_access(recording_id, current_user, db)
+        if not has_access:
+            raise HTTPException(status_code=403, detail="Nu aveți acces la acest transcript.")
+
     transcript = await service.get_by_recording_id(recording_id)
     if not transcript:
         raise HTTPException(status_code=404, detail="Transcriptul nu există sau nu e gata.")

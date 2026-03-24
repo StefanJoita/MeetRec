@@ -13,7 +13,12 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.database import get_db
-from src.middleware.auth import decode_token, get_current_user, get_current_admin, get_current_operator_or_above
+from src.config import settings
+from src.middleware.auth import (
+    decode_token, create_audio_token, decode_audio_token,
+    get_current_user, get_current_admin, get_current_operator_or_above,
+    check_recording_access,
+)
 from src.models.audit_log import User
 from src.models.recording import Recording, RecordingParticipant
 from src.schemas.recording import (
@@ -134,6 +139,30 @@ async def delete_recording(
     await log_audit(request, db, action="DELETE", resource_type="recording", resource_id=recording_id)
 
 
+# ── GET /recordings/{id}/audio-token ─────────────────────────
+@router.get(
+    "/{recording_id}/audio-token",
+    summary="Obține token temporar pentru streaming audio",
+)
+async def get_audio_token(
+    recording_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Returnează un token cu durată de 60 secunde, valid exclusiv pentru
+    streaming-ul unui singur fișier audio. Folosit de frontend înainte
+    de a seta src-ul elementului <audio>.
+    """
+    if current_user.is_participant:
+        has_access = await check_recording_access(recording_id, current_user, db)
+        if not has_access:
+            raise HTTPException(status_code=403, detail="Nu aveți acces la acest fișier audio.")
+
+    token = create_audio_token(str(current_user.id), str(recording_id))
+    return {"token": token, "expires_in": 60}
+
+
 # ── GET /recordings/{id}/audio ───────────────────────────────
 @router.get(
     "/{recording_id}/audio",
@@ -141,16 +170,20 @@ async def delete_recording(
 )
 async def stream_audio(
     recording_id: uuid.UUID,
-    token: str = Query(description="JWT token pentru autentificare"),
+    token: str = Query(description="Token audio temporar obținut din /audio-token"),
     db: AsyncSession = Depends(get_db),
 ):
     """
-    Servește fișierul audio. Autentificarea prin query param ?token=JWT
-    (necesar deoarece <audio> HTML nu trimite header-uri custom).
+    Servește fișierul audio. Necesită un token audio de scurtă durată (60s)
+    obținut din GET /recordings/{id}/audio-token — nu acceptă JWT-ul principal.
     """
-    user_id = decode_token(token)
-    if not user_id:
-        raise HTTPException(status_code=401, detail="Token invalid sau expirat.")
+    decoded = decode_audio_token(token)
+    if not decoded:
+        raise HTTPException(status_code=401, detail="Token audio invalid sau expirat.")
+
+    user_id, token_recording_id = decoded
+    if token_recording_id != str(recording_id):
+        raise HTTPException(status_code=403, detail="Token nu corespunde acestui fișier audio.")
 
     result = await db.execute(
         select(User).where(User.id == user_id, User.is_active == True)
@@ -159,13 +192,6 @@ async def stream_audio(
     if not user:
         raise HTTPException(status_code=401, detail="Utilizator inexistent.")
 
-    # Verificăm accesul participantului la acest audio
-    if user.is_participant:
-        from src.middleware.auth import check_recording_access
-        has_access = await check_recording_access(recording_id, user, db)
-        if not has_access:
-            raise HTTPException(status_code=403, detail="Nu aveți acces la acest fișier audio.")
-
     rec_result = await db.execute(
         select(Recording).where(Recording.id == recording_id)
     )
@@ -173,7 +199,11 @@ async def stream_audio(
     if not recording or not recording.file_path:
         raise HTTPException(status_code=404, detail="Fișierul audio nu există.")
 
-    path = Path(recording.file_path)
+    path = Path(recording.file_path).resolve()
+    storage_root = settings.audio_storage_path.resolve()
+    if storage_root not in path.parents:
+        raise HTTPException(status_code=403, detail="Acces interzis.")
+
     if not path.exists():
         raise HTTPException(status_code=404, detail="Fișierul audio nu a fost găsit pe disc.")
 

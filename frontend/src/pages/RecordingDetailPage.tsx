@@ -7,7 +7,7 @@ import {
   Calendar, Clock, MapPin, Users, FileAudio, ChevronDown,
 } from 'lucide-react'
 import client from '@/api/client'
-import { getRecording, getAudioUrl, retryTranscription, deleteRecording, getRecordingParticipants } from '@/api/recordings'
+import { getRecording, retryTranscription, deleteRecording, getRecordingParticipants } from '@/api/recordings'
 import { getTranscript } from '@/api/transcripts'
 import type { ParticipantUserInfo, Recording, Segment, Transcript } from '@/api/types'
 import { StatusBadge } from '@/components/ui/StatusBadge'
@@ -279,7 +279,7 @@ export default function RecordingDetailPage() {
       {recording.status === 'completed' && (
         <div className="sticky top-0 z-10 bg-white/95 backdrop-blur-sm pb-4 -mx-6 px-6 pt-2 border-b border-gray-100 mb-6 shadow-sm">
           <AudioPlayer
-            src={getAudioUrl(id!)}
+            recordingId={id!}
             onTimeUpdate={setCurrentTime}
             seekTo={seekTo}
           />
