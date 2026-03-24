@@ -311,6 +311,9 @@ services:
       EMBEDDING_BATCH_SIZE: ${EMBEDDING_BATCH_SIZE:-32}
       LOG_LEVEL: ${LOG_LEVEL}
       TZ: Europe/Bucharest
+      # Setează HF_HUB_OFFLINE=1 în .env după primul start (când modelul e deja în volum)
+      # pentru a evita verificările online HuggingFace la fiecare repornire.
+      HF_HUB_OFFLINE: ${HF_HUB_OFFLINE:-0}
     volumes:
       - embedding_models:/app/models     # modele descărcate o singură dată (~120MB)
       - ./services/search-indexer/src:/app/src

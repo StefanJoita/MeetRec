@@ -106,16 +106,16 @@ export default function AdminPage() {
     role: 'operator',
   })
 
-  // Fetch all logs for stats (page 1 with large size) + current page
   const { data, isLoading, isError } = useQuery<PaginatedAuditLogs>({
     queryKey: ['audit-logs', page],
     queryFn: () => getAuditLogs(page, pageSize),
     retry: false,
   })
 
+  // Fetch recent logs for stats (max 100 — limita API)
   const { data: allData } = useQuery<PaginatedAuditLogs>({
     queryKey: ['audit-logs-all'],
-    queryFn: () => getAuditLogs(1, 1000),
+    queryFn: () => getAuditLogs(1, 100),
     retry: false,
   })
 

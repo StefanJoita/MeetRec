@@ -33,6 +33,7 @@ router = APIRouter(
     prefix="/recordings",
     tags=["recordings"],
     dependencies=[Depends(get_current_user)],
+    redirect_slashes=False,
 )
 
 
