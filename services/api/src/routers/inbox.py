@@ -213,15 +213,14 @@ async def upload_to_inbox(
     status_code=status.HTTP_200_OK,
     summary="Marchează sesiunea ca completă și lansează transcrierea imediat",
     description=(
-        "Apelat de client după ce toate segmentele au primit 200 OK la upload. "
-        "Serverul verifică că Ingest a stocat toate segmentele așteptate, "
-        "apoi publică imediat jobul de transcriere în Redis. "
+        "Apelat de client după ce ultimul segment a primit 200 OK la upload. "
+        "Serverul caută înregistrarea după session_id, verifică că Ingest a stocat "
+        "toate segmentele așteptate, apoi publică imediat jobul de transcriere în Redis. "
         "Session Watcher rămâne activ ca safety net pentru sesiuni abandonate."
     ),
 )
 async def complete_session(
     session_id: str,
-    recording_id: str = Form(description="ID-ul înregistrării principale (returnat la segment_index ≥ 1)"),
     total_segments: int = Form(
         description="Numărul total de segmente ale sesiunii (inclusiv segment 0). "
                     "Serverul verifică că are exact acest număr înainte de a dispatcha."
@@ -243,19 +242,21 @@ async def complete_session(
             detail="total_segments trebuie să fie cel puțin 1.",
         )
 
-    # ── Verificare recording există și aparține sesiunii ───────
+    # ── Lookup recording după session_id ───────────────────────
+    # Clientul nu trimite recording_id — serverul îl determină singur.
+    # Dacă ingest nu a procesat încă seg 0, recording-ul nu există → 404,
+    # clientul reîncearcă după câteva secunde.
     result = await db.execute(
-        select(Recording).where(
-            Recording.id == uuid_lib.UUID(recording_id),
-            Recording.session_id == parsed_session_id,
-        )
+        select(Recording).where(Recording.session_id == parsed_session_id)
     )
     recording = result.scalar_one_or_none()
     if recording is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Înregistrarea nu a fost găsită sau nu aparține acestei sesiuni.",
+            detail="Sesiunea nu a fost găsită. Ingest încă procesează primul segment — reîncearcă în câteva secunde.",
         )
+
+    recording_id = str(recording.id)
 
     # ── Verificare că sesiunea nu e deja dispatchată ───────────
     if recording.status not in ("queued",):
@@ -265,15 +266,13 @@ async def complete_session(
         )
 
     # ── Verificare că Ingest a stocat toate segmentele ──────────
-    # Segment 0 = recordings (întotdeauna prezent dacă am ajuns aici)
-    # Segmente 1..N-1 = recording_audio_segments (câte rânduri există)
-    # Verificăm numărul de rânduri, nu statusul lor — ingest setează 'queued'
-    # imediat după stocare, STT Worker îl schimbă în 'completed' mai târziu.
+    # Segment 0 = recordings (prezent — am trecut de 404)
+    # Segmente 1..N-1 = recording_audio_segments (verificăm numărul de rânduri)
     extra_segments_expected = total_segments - 1
     if extra_segments_expected > 0:
         stored_result = await db.execute(
             select(func.count(RecordingAudioSegment.id)).where(
-                RecordingAudioSegment.recording_id == uuid_lib.UUID(recording_id),
+                RecordingAudioSegment.recording_id == recording.id,
             )
         )
         stored_count = stored_result.scalar_one()
@@ -304,7 +303,7 @@ async def complete_session(
         r.lpush(settings.redis_transcription_queue, job)
         r.close()
     except redis_sync.RedisError as e:
-        # Rollback status — Session Watcher va prelua în max 30s
+        # Rollback status — Session Watcher va prelua după timeout
         recording.status = "queued"
         await db.commit()
         raise HTTPException(
