@@ -64,18 +64,21 @@ app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 # Verifică dacă utilizatorul trebuie să-și schimbe parola la primul login
 @app.middleware("http")
 async def check_must_change_password(request: Request, call_next):
-    exempt_paths = {"/health", "/docs", "/openapi.json", "/redoc"}
+    p = request.url.path
 
-    if request.url.path in exempt_paths:
+    exempt_paths = {"/health", "/docs", "/openapi.json", "/redoc"}
+    if p in exempt_paths:
         return await call_next(request)
 
-    if request.url.path.startswith("/auth/"):
-        if not (
-            (request.method == "GET" and request.url.path == "/auth/me") or
-            (request.method == "POST" and request.url.path == "/auth/change-password-first-login") or
-            request.url.path in {"/auth/login", "/auth/logout"}
-        ):
-            return await call_next(request)
+    # Căile care nu necesită schimbarea parolei (cu prefix /api/v1)
+    change_password_exempt = {
+        "/api/v1/auth/login",
+        "/api/v1/auth/logout",
+        "/api/v1/auth/me",
+        "/api/v1/auth/change-password-first-login",
+    }
+    if p in change_password_exempt:
+        return await call_next(request)
 
     auth_header = request.headers.get("Authorization", "")
     if auth_header.startswith("Bearer "):
@@ -91,9 +94,7 @@ async def check_must_change_password(request: Request, call_next):
                     select(User).where(User.id == user_id, User.is_active == True)
                 )
                 user = result.scalar_one_or_none()
-                if user and user.must_change_password and request.url.path not in {
-                    "/auth/me", "/auth/change-password-first-login", "/auth/logout"
-                }:
+                if user and user.must_change_password:
                     return JSONResponse(
                         status_code=403,
                         content={"detail": "Trebuie să-ți schimbi parola la primul login. Utilizează /auth/change-password-first-login"}
