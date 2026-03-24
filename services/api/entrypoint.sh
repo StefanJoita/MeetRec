@@ -59,6 +59,17 @@ TABLE_EXISTS=$(psql "$SYNC_DB_URL" -tAc \
   "SELECT EXISTS(SELECT 1 FROM information_schema.tables WHERE table_name='alembic_version')" \
   2>/dev/null || echo "f")
 
+# Verificăm că tabelele critice din init.sql există (detectează schema incompletă)
+USERS_EXISTS=$(psql "$SYNC_DB_URL" -tAc \
+  "SELECT EXISTS(SELECT 1 FROM information_schema.tables WHERE table_name='users')" \
+  2>/dev/null || echo "f")
+
+if [ "$USERS_EXISTS" = "f" ]; then
+  echo "[entrypoint] ERROR: 'users' table missing — init.sql failed to complete."
+  echo "[entrypoint] Fix: run 'docker compose down -v && docker compose up' to reinitialize."
+  exit 1
+fi
+
 if [ "$TABLE_EXISTS" = "f" ]; then
   echo "[entrypoint] alembic_version missing — stamping head (schema applied via init.sql)"
   alembic stamp head
