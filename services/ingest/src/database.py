@@ -114,6 +114,7 @@ class DatabaseClient:
         description: Optional[str] = meta.get("description")
         location: Optional[str] = meta.get("location")
         participants: Optional[List[str]] = meta.get("participants")  # list[str] sau None
+        session_id_val: Optional[str] = meta.get("session_id")  # UUID string sau None
 
         async with self._pool.acquire() as conn:
             # Folosim tranzactie pentru atomicitate:
@@ -136,9 +137,10 @@ class DatabaseClient:
                         duration_seconds,
                         sample_rate_hz,
                         channels,
+                        session_id,
                         status
                     ) VALUES (
-                        $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15
+                        $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16
                     )
                     """,
                     recording_id,
@@ -155,6 +157,7 @@ class DatabaseClient:
                     metadata.duration_seconds,
                     metadata.sample_rate_hz,
                     metadata.channels,
+                    uuid.UUID(session_id_val) if session_id_val else None,
                     "queued",
                 )
 
