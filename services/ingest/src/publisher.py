@@ -31,7 +31,7 @@ from src.validator import AudioMetadata
 
 logger=get_logger(__name__)
 
-class TranscriptionJob: 
+class TranscriptionJob:
     """
     Structura unui job de transcriere.
     Aceasta e 'comanda' trimisa la STT Worker.
@@ -44,22 +44,25 @@ class TranscriptionJob:
             duration_seconds:int,
             language_hint:str="ro", #ajutor pentru Whisper
             priority: int=0, #0 = normal, 1 = urgent
-            
+            segment_id: Optional[str] = None,    # prezent doar pentru segmente multi-part
+            segment_index: Optional[int] = None,
     ):
         self.recording_id=recording_id
         self.file_path=file_path
-        self.audio_format=audio_format 
+        self.audio_format=audio_format
         self.duration_seconds=duration_seconds
         self.language_hint=language_hint
         self.priority=priority
+        self.segment_id=segment_id
+        self.segment_index=segment_index
         self.created_at=datetime.now(timezone.utc).isoformat()
         #estimare timp de procesare (ajuta la planificare)
         #regula empirica: 1 minut audio = 1-3 minute procesare CPU cu whisper medium
         self.estimated_processing_time_minutes= max(1, duration_seconds // 30)
-    
+
     def to_dict(self):
         "Convertim la dict pentru serializare JSON"
-        return {
+        d = {
             "recording_id": self.recording_id,
             "file_path": self.file_path,
             "audio_format": self.audio_format,
@@ -67,8 +70,13 @@ class TranscriptionJob:
             "language_hint": self.language_hint,
             "priority": self.priority,
             "created_at": self.created_at,
-            "estimated_processing_time_minutes": self.estimated_processing_time_minutes
-        }  
+            "estimated_processing_time_minutes": self.estimated_processing_time_minutes,
+        }
+        if self.segment_id is not None:
+            d["segment_id"] = self.segment_id
+        if self.segment_index is not None:
+            d["segment_index"] = self.segment_index
+        return d  
     
     def to_json(self):
         "Serializam la JSON pentru a trimite in Redis"
@@ -108,6 +116,8 @@ class JobPublisher:
         recording_id:str,
         metadata:AudioMetadata,
         stored_path:Path,
+        segment_id: Optional[str] = None,
+        segment_index: Optional[int] = None,
         )->bool:
             """Publica un job de transcriere in Redis.
             Args:
@@ -122,7 +132,9 @@ class JobPublisher:
                 file_path=str(stored_path),
                 audio_format=metadata.audio_format,
                 duration_seconds=metadata.duration_seconds,
-                language_hint="ro"
+                language_hint="ro",
+                segment_id=segment_id,
+                segment_index=segment_index,
             )  
             try:
                 r=self._get_redis()
