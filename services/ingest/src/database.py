@@ -192,6 +192,56 @@ class DatabaseClient:
                 file_hash,
             )
 
+    async def find_recording_by_session_id(self, session_id: str) -> Optional[str]:
+        """
+        Returnează recording_id-ul înregistrării principale a unei sesiuni, sau None.
+        Folosit de processor pentru a decide dacă să creeze o înregistrare nouă
+        sau să atașeze un segment la una existentă.
+        """
+        async with self._pool.acquire() as conn:
+            row = await conn.fetchrow(
+                "SELECT id FROM recordings WHERE session_id = $1",
+                session_id,
+            )
+            return str(row["id"]) if row else None
+
+    async def create_audio_segment(
+        self,
+        recording_id: str,
+        segment_index: int,
+        stored_path: Path,
+        metadata: "AudioMetadata",
+    ) -> str:
+        """
+        Atașează un fișier audio suplimentar la o înregistrare existentă.
+        Returnează id-ul segmentului creat.
+        """
+        import uuid as _uuid
+        segment_id = str(_uuid.uuid4())
+        async with self._pool.acquire() as conn:
+            await conn.execute(
+                """
+                INSERT INTO recording_audio_segments
+                    (id, recording_id, segment_index, file_path,
+                     file_hash_sha256, file_size_bytes, duration_seconds, status)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, 'queued')
+                """,
+                segment_id,
+                recording_id,
+                segment_index,
+                str(stored_path),
+                metadata.file_hash_sha256,
+                metadata.file_size_bytes,
+                metadata.duration_seconds,
+            )
+        logger.info(
+            "audio_segment_attached",
+            recording_id=recording_id,
+            segment_index=segment_index,
+            segment_id=segment_id,
+        )
+        return segment_id
+
     async def mark_failed_by_id(self, recording_id: str, error_message: str) -> None:
         """
         Marchează o înregistrare ca eșuată după ID.

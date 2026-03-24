@@ -18,6 +18,7 @@ from sqlalchemy import TIMESTAMP, Enum as SAEnum, JSON, SmallInteger
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID, ARRAY
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
+from sqlalchemy import UniqueConstraint
 
 from src.models.base import Base
 
@@ -119,6 +120,17 @@ class Recording(Base):
         nullable=True,
     )
 
+    # ── Sesiuni multi-segment ───────────────────────────────
+    # Toate segmentele aceleiași ședințe partajează același session_id.
+    # Prima înregistrare creată cu un session_id devine "înregistrarea principală".
+    # Segmentele ulterioare sunt stocate în recording_audio_segments.
+    session_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        PG_UUID(as_uuid=True),
+        nullable=True,
+        unique=True,
+        index=True,
+    )
+
     # ── Relații ─────────────────────────────────────────────
     transcript: Mapped[Optional["Transcript"]] = relationship(
         "Transcript",
@@ -152,6 +164,41 @@ class Recording(Base):
  
     def __repr__(self) -> str:
         return f"<Recording id={str(self.id)[:8]} title='{self.title}' status={self.status}>"
+
+
+class RecordingAudioSegment(Base):
+    """
+    Fișiere audio suplimentare pentru o sesiune multi-segment.
+    Segmentul 0 este fișierul principal din recordings.file_path.
+    Segmentele 1, 2, ... sunt stocate aici, ordonate după segment_index.
+    """
+    __tablename__ = "recording_audio_segments"
+    __table_args__ = (
+        UniqueConstraint("recording_id", "segment_index", name="unique_audio_segment"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        PG_UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    recording_id: Mapped[uuid.UUID] = mapped_column(
+        PG_UUID(as_uuid=True),
+        ForeignKey("recordings.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    segment_index: Mapped[int] = mapped_column(Integer, nullable=False)
+    file_path: Mapped[str] = mapped_column(String(1000), nullable=False)
+    file_hash_sha256: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    file_size_bytes: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True)
+    duration_seconds: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="queued")
+    error_message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    def __repr__(self) -> str:
+        return f"<RecordingAudioSegment rec={str(self.recording_id)[:8]} idx={self.segment_index}>"
 
 
 class RecordingParticipant(Base):

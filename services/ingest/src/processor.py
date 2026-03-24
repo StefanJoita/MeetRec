@@ -103,7 +103,7 @@ class FileProcessor:
         # ── Pasul 3: Stocare pe NFS ──────────────────────────────────
         try:
              stored_path = self.storage.store_file(metadata)
-        
+
         except StorageError as e:
             logger.error(
                 "storage_failed",
@@ -111,8 +111,24 @@ class FileProcessor:
                 error=str(e),
             )
             return False
-        
-        # ── Pasul 4: Înregistrare în DB ───────────────────────────────
+
+        # ── Pasul 4: Sesiune existentă vs. înregistrare nouă ─────────
+        # Dacă sidecar-ul conține existing_recording_id (setat de API când
+        # session_id e deja cunoscut), atașăm fișierul ca segment suplimentar.
+        existing_recording_id = user_meta.get("existing_recording_id")
+        session_id = user_meta.get("session_id")
+        segment_index = user_meta.get("segment_index", 0)
+
+        if existing_recording_id:
+            return await self._attach_segment(
+                existing_recording_id=existing_recording_id,
+                segment_index=segment_index,
+                stored_path=stored_path,
+                metadata=metadata,
+                file_path=file_path,
+            )
+
+        # ── Pasul 5: Creare înregistrare nouă ────────────────────────
         try:
              recording_id = await self.database.create_recording(
                 metadata=metadata,
@@ -123,9 +139,9 @@ class FileProcessor:
              logger.error("database_error",file=file_path.name,error=str(e))
              #Rollback manual: stergem fisierul mutat daca DB a esuat
              self.storage.delete_file(stored_path)
-             return False   
-        
-        # ── Pasul 5: Publicare job de transcriere ─────────────────────
+             return False
+
+        # ── Pasul 6: Publicare job de transcriere ─────────────────────
         try:
              self.publisher.publish_transcription_job(
                 recording_id=recording_id,
@@ -153,5 +169,61 @@ class FileProcessor:
             duration_sec=metadata.duration_seconds,
             size_mb=round(metadata.file_size_bytes / 1024 / 1024, 2),
             stored_at=str(stored_path),
+        )
+        return True
+
+    async def _attach_segment(
+        self,
+        existing_recording_id: str,
+        segment_index: int,
+        stored_path: "Path",
+        metadata: "AudioMetadata",
+        file_path: "Path",
+    ) -> bool:
+        """
+        Atașează un fișier audio ca segment suplimentar la o înregistrare existentă.
+        Creează o intrare în recording_audio_segments și publică un job de transcriere
+        cu referință la segmentul specific.
+        """
+        try:
+            segment_id = await self.database.create_audio_segment(
+                recording_id=existing_recording_id,
+                segment_index=segment_index,
+                stored_path=stored_path,
+                metadata=metadata,
+            )
+        except Exception as e:
+            logger.error(
+                "segment_attach_failed",
+                file=file_path.name,
+                recording_id=existing_recording_id,
+                error=str(e),
+            )
+            self.storage.delete_file(stored_path)
+            return False
+
+        try:
+            self.publisher.publish_transcription_job(
+                recording_id=existing_recording_id,
+                metadata=metadata,
+                stored_path=stored_path,
+                segment_id=segment_id,
+                segment_index=segment_index,
+            )
+        except Exception as e:
+            logger.error(
+                "segment_publish_failed",
+                segment_id=segment_id,
+                recording_id=existing_recording_id,
+                error=str(e),
+            )
+            return False
+
+        logger.info(
+            "segment_attached",
+            file=file_path.name,
+            recording_id=existing_recording_id,
+            segment_index=segment_index,
+            segment_id=segment_id,
         )
         return True

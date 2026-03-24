@@ -14,6 +14,10 @@ export interface RecordingsParams {
 export interface InboxUploadResponse {
   message: string
   filename: string
+  recording_id?: string | null
+  session_id?: string | null
+  segment_index?: number | null
+  is_new_session?: boolean | null
 }
 
 export async function getRecordings(params: RecordingsParams = {}): Promise<PaginatedRecordings> {
