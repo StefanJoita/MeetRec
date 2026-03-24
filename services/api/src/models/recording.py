@@ -130,6 +130,10 @@ class Recording(Base):
         unique=True,
         index=True,
     )
+    last_segment_at: Mapped[Optional[datetime]] = mapped_column(
+        TIMESTAMP(timezone=True),
+        nullable=True,
+    )
 
     # ── Relații ─────────────────────────────────────────────
     transcript: Mapped[Optional["Transcript"]] = relationship(
