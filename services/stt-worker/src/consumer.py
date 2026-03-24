@@ -153,14 +153,24 @@ class JobConsumer:
             "audio_format": "mp3",
             "duration_seconds": 3600,
             "language_hint": "ro",
-            ...
+            // Prezente doar pentru segmente suplimentare (sesiuni multi-part):
+            "segment_id": "uuid",      // ID din recording_audio_segments
+            "segment_index": 1,        // ordinea fișierului audio în sesiune (1, 2, ...)
         }
         """
         recording_id = job.get("recording_id")
         file_path = job.get("file_path")
         language_hint = job.get("language_hint", settings.whisper_primary_language)
+        # Prezente doar pentru segmente suplimentare (fișier 2, 3, ... dintr-o sesiune)
+        segment_id: Optional[str] = job.get("segment_id")
+        audio_segment_index: Optional[int] = job.get("segment_index")
 
-        logger.info("job_started", recording_id=recording_id, file=file_path)
+        logger.info(
+            "job_started",
+            recording_id=recording_id,
+            file=file_path,
+            segment_index=audio_segment_index,
+        )
         job_start = time.monotonic()
 
         # ── Pasul 1: Obținem transcript_id din DB ─────────────
@@ -202,8 +212,6 @@ class JobConsumer:
             metadata = self._compute_metadata(segments, final_language, model_name, processing_time)
 
             # ── Gardă: 0 segmente = Whisper nu a detectat vorbire ─
-            # Se marchează tot ca completed (transcrierea a rulat cu succes),
-            # dar logăm un warning explicit pentru diagnosticare.
             if not segments:
                 logger.warning(
                     "no_speech_detected",
@@ -213,8 +221,33 @@ class JobConsumer:
                     hint="Consider a higher-quality recording or a larger Whisper model.",
                 )
 
-            # ── Pasul 7: Salvăm în DB ──────────────────────────
-            await self._uploader.save_results(transcript_id, recording_id, segments, metadata)
+            # ── Pasul 7: Calculăm offset-urile pentru sesiuni multi-part ──
+            # Fiecare fișier suplimentar (segment_index > 0) are nevoie de:
+            #   - index_offset: evită conflictele pe (transcript_id, segment_index)
+            #     Whisper numerotează segmentele de la 0 pentru fiecare fișier.
+            #     Dacă fișierul 1 are segmente 0..47, fișierul 2 trebuie să înceapă de la 48.
+            #   - time_offset_sec: face timestamps-urile continue în transcript
+            #     Fișierul 2 începe de la 0.0s relativ la el, dar în transcript
+            #     trebuie să înceapă de la durata totală a fișierelor anterioare.
+            if audio_segment_index and audio_segment_index > 0:
+                index_offset = await self._uploader.get_transcript_index_offset(transcript_id)
+                time_offset_sec = await self._uploader.get_time_offset_seconds(
+                    recording_id, audio_segment_index
+                )
+            else:
+                index_offset = 0
+                time_offset_sec = 0.0
+
+            # ── Pasul 8: Salvăm în DB ──────────────────────────
+            await self._uploader.save_results(
+                transcript_id=transcript_id,
+                recording_id=recording_id,
+                segments=segments,
+                metadata=metadata,
+                index_offset=index_offset,
+                time_offset_sec=time_offset_sec,
+                segment_id=segment_id,
+            )
 
             logger.info(
                 "job_completed",
@@ -222,6 +255,7 @@ class JobConsumer:
                 segments=len(segments),
                 words=metadata.word_count,
                 processing_sec=processing_time,
+                segment_index=audio_segment_index,
             )
 
         except Exception as e:
