@@ -2,21 +2,6 @@
 # ============================================================
 # Database Uploader — scrie rezultatele transcrierii în PostgreSQL
 # ============================================================
-# Folosim asyncpg direct (nu SQLAlchemy ORM) din același motiv
-# ca în ingest: control fin, query-uri explicite, performanță.
-#
-# Responsabilitățile acestei clase:
-#   1. Marchează transcript ca "processing" când jobul începe
-#   2. Inserează segmentele în bulk după transcriere
-#   3. Actualizează statusul final (completed sau failed)
-#
-# Pattern asyncpg (identic cu ingest):
-#   pool = await asyncpg.create_pool(dsn=...)
-#   async with pool.acquire() as conn:
-#       async with conn.transaction():
-#           await conn.execute(query, $1, $2, ...)
-#           await conn.executemany(query, list_of_tuples)
-# ============================================================
 
 import uuid
 from dataclasses import dataclass
@@ -60,24 +45,15 @@ class DatabaseUploader:
     # ── Lifecycle ─────────────────────────────────────────────
 
     async def connect(self) -> None:
-        """
-        Creează pool-ul de conexiuni PostgreSQL.
-        Apelat o singură dată la startup.
-
-        min_size=1, max_size=3:
-        STT Worker-ul procesează 1 job la un timp (single-concurrency).
-        Nu avem nevoie de 10 conexiuni ca în API — 3 sunt mai mult decât suficiente.
-        """
         self._pool = await asyncpg.create_pool(
             dsn=settings.database_url,
             min_size=1,
             max_size=3,
-            command_timeout=60,  # query-urile de INSERT pot dura mai mult
+            command_timeout=60,
         )
         logger.info("db_connected", min_size=1, max_size=3)
 
     async def disconnect(self) -> None:
-        """Închide pool-ul la shutdown. Așteaptă ca query-urile active să termine."""
         if self._pool:
             await self._pool.close()
             logger.info("db_disconnected")
@@ -85,15 +61,7 @@ class DatabaseUploader:
     # ── Query helpers ─────────────────────────────────────────
 
     async def get_transcript_id(self, recording_id: str) -> Optional[str]:
-        """
-        Returnează UUID-ul transcriptului asociat înregistrării.
-
-        Ingest-ul creează rândul din transcripts cu status='pending'.
-        Noi avem nevoie de transcript_id pentru a insera segmentele.
-
-        Returns:
-            UUID ca string, sau None dacă nu există (eroare de consistență).
-        """
+        """Returnează UUID-ul transcriptului asociat înregistrării."""
         async with self._pool.acquire() as conn:
             row = await conn.fetchrow(
                 "SELECT id FROM transcripts WHERE recording_id = $1",
@@ -104,22 +72,79 @@ class DatabaseUploader:
             return None
         return str(row["id"])
 
+    async def get_transcript_index_offset(self, transcript_id: str) -> int:
+        """
+        Returnează primul segment_index disponibil pentru acest transcript.
+
+        Folosit pentru sesiuni multi-part: Whisper numerotează segmentele
+        de la 0 pentru fiecare fișier audio. Dacă fișierul 1 a produs
+        segmente 0..47, fișierul 2 trebuie să înceapă de la 48 pentru a
+        nu suprascrie segmentele existente.
+
+        Exemplu:
+            transcript are segmente 0..47  → returnează 48
+            transcript fără segmente încă  → returnează 0
+        """
+        async with self._pool.acquire() as conn:
+            row = await conn.fetchrow(
+                """
+                SELECT COALESCE(MAX(segment_index) + 1, 0) AS next_index
+                FROM transcript_segments
+                WHERE transcript_id = $1
+                """,
+                transcript_id,
+            )
+        return row["next_index"]
+
+    async def get_time_offset_seconds(
+        self, recording_id: str, audio_segment_index: int
+    ) -> float:
+        """
+        Returnează offset-ul de timp (în secunde) pentru un segment suplimentar.
+
+        Whisper produce timestamps relative la începutul fișierului audio.
+        Pentru un transcript unificat, timestamps-urile trebuie să fie
+        continue: fișierul 2 începe de unde s-a terminat fișierul 1.
+
+        audio_segment_index=1 → offset = durata înregistrării principale (segment 0)
+        audio_segment_index=2 → offset = durata segment 0 + durata segment 1
+        etc.
+
+        Duratele vin din:
+            - recordings.duration_seconds  (fișierul principal, segment 0)
+            - recording_audio_segments.duration_seconds  (segmentele 1, 2, ...)
+        """
+        async with self._pool.acquire() as conn:
+            # Durata fișierului principal (segment 0 = recordings.duration_seconds)
+            main_row = await conn.fetchrow(
+                "SELECT COALESCE(duration_seconds, 0) AS dur FROM recordings WHERE id = $1",
+                recording_id,
+            )
+            main_dur = float(main_row["dur"] or 0)
+
+            if audio_segment_index == 1:
+                return main_dur
+
+            # Suma duratelor segmentelor intermediare (1 .. audio_segment_index - 1)
+            extra_row = await conn.fetchrow(
+                """
+                SELECT COALESCE(SUM(duration_seconds), 0) AS dur
+                FROM recording_audio_segments
+                WHERE recording_id = $1 AND segment_index < $2
+                """,
+                recording_id,
+                audio_segment_index,
+            )
+            extra_dur = float(extra_row["dur"] or 0)
+            return main_dur + extra_dur
+
     async def mark_processing(
         self,
         transcript_id: str,
         recording_id: str,
         model_name: str,
     ) -> None:
-        """
-        Marchează jobul ca 'în procesare' în ambele tabele.
-
-        Cele două UPDATE-uri sunt în aceeași tranzacție:
-        dacă unul eșuează, ambele se rollback → consistență garantată.
-
-        De ce actualizăm și recordings?
-        UI-ul citește din recordings.status pentru a afișa progresul.
-        'transcribing' arată utilizatorului că jobul e activ.
-        """
+        """Marchează jobul ca 'în procesare' în ambele tabele."""
         async with self._pool.acquire() as conn:
             async with conn.transaction():
                 await conn.execute(
@@ -148,40 +173,43 @@ class DatabaseUploader:
         self,
         transcript_id: str,
         recording_id: str,
-        segments: list,   # List[TranscriptSegment] — importul circular evitat
+        segments: list,
         metadata: TranscriptMetadata,
+        index_offset: int = 0,
+        time_offset_sec: float = 0.0,
+        segment_id: Optional[str] = None,
     ) -> None:
         """
-        Salvează rezultatele transcrierii: segmente + metadata finală.
+        Salvează rezultatele transcrierii și actualizează statusul.
 
-        Trei operații în ACEEAȘI tranzacție:
-            1. INSERT bulk segmente (executemany)
-            2. UPDATE transcripts → completed
-            3. UPDATE recordings → completed
+        Parametri pentru sesiuni multi-part:
+            index_offset    — adăugat la segment_index din Whisper, evită conflicte
+                              pe UNIQUE (transcript_id, segment_index)
+            time_offset_sec — adăugat la start_time/end_time, face timestamps continue
+            segment_id      — ID din recording_audio_segments; dacă prezent,
+                              marchează segmentul ca 'completed' și verifică
+                              dacă toată sesiunea e finalizată
 
-        Dacă oricare eșuează → tot se rollback → jobul poate fi reînceput.
-
-        executemany() vs execute() individual:
-            300 segmente × execute() = 300 round-trips la DB (~300ms)
-            300 segmente × executemany() = 1 batch (~5ms)
-            → de ~60x mai rapid!
-
-        IMPORTANT: executemany() acceptă EXCLUSIV liste de tuple-uri.
-        asyncpg NU acceptă dict-uri ca în MySQL/SQLite.
-        Ordinea valorilor trebuie să corespundă cu $1, $2, $3...
+        Logica de completare:
+            Fișier simplu (segment_id=None):
+                → recording + transcript = 'completed' imediat
+            Sesiune multi-part (segment_id prezent):
+                → marchează recording_audio_segments[segment_id] = 'completed'
+                → dacă TOATE segmentele suplimentare sunt 'completed' ȘI
+                   fișierul principal are deja segmente în transcript:
+                       recording + transcript = 'completed'
+                → altfel: recording rămâne 'transcribing' (mai vin segmente)
         """
-        # Construim lista de tuple-uri pentru bulk insert
-        # Ordinea: (id, transcript_id, segment_index, start, end, text, confidence, language)
         segment_tuples = [
             (
-                str(uuid.uuid4()),   # $1 — UUID nou pentru fiecare segment
-                transcript_id,       # $2
-                seg.segment_index,   # $3
-                seg.start_time,      # $4 — DECIMAL(10,3) în DB
-                seg.end_time,        # $5
-                seg.text,            # $6 — TEXT
-                seg.confidence,      # $7 — DECIMAL(4,3): 0.000 - 1.000
-                seg.language,        # $8 — VARCHAR(10): "ro", "en"
+                str(uuid.uuid4()),
+                transcript_id,
+                seg.segment_index + index_offset,   # offset pentru sesiuni multi-part
+                seg.start_time + time_offset_sec,   # timestamps continue
+                seg.end_time + time_offset_sec,
+                seg.text,
+                seg.confidence,
+                seg.language,
             )
             for seg in segments
         ]
@@ -189,9 +217,6 @@ class DatabaseUploader:
         async with self._pool.acquire() as conn:
             async with conn.transaction():
                 # ── 1. Bulk insert segmente ───────────────────────────
-                # ON CONFLICT DO NOTHING = idempotent:
-                # Dacă workerul e omorât și restartat la mijloc,
-                # a doua încercare nu va crăpa pe UNIQUE (transcript_id, segment_index).
                 await conn.executemany(
                     """
                     INSERT INTO transcript_segments
@@ -202,46 +227,108 @@ class DatabaseUploader:
                     """,
                     segment_tuples,
                 )
-                # NOTĂ: trigger-ul DB 'update_search_vector_on_segment'
-                # se execută automat după fiecare INSERT în transcript_segments.
-                # Nu trebuie să actualizăm search_vector manual!
 
-                # ── 2. Actualizăm transcriptul ────────────────────────
-                await conn.execute(
-                    """
-                    UPDATE transcripts
-                    SET status = 'completed',
-                        completed_at = NOW(),
-                        word_count = $2,
-                        confidence_avg = $3,
-                        processing_time_sec = $4,
-                        language = $5
-                    WHERE id = $1
-                    """,
-                    transcript_id,
-                    metadata.word_count,
-                    metadata.confidence_avg,
-                    metadata.processing_time_sec,
-                    metadata.language,
-                )
+                # ── 2. Actualizăm statusul ────────────────────────────
+                if segment_id is not None:
+                    # Job pentru segment suplimentar: marchează-l ca terminat
+                    await conn.execute(
+                        """
+                        UPDATE recording_audio_segments
+                        SET status = 'completed'
+                        WHERE id = $1
+                        """,
+                        segment_id,
+                    )
+                    # Verificăm dacă mai sunt segmente în așteptare
+                    pending_count = await conn.fetchval(
+                        """
+                        SELECT COUNT(*) FROM recording_audio_segments
+                        WHERE recording_id = $1 AND status != 'completed'
+                        """,
+                        recording_id,
+                    )
+                    # Verificăm dacă fișierul principal a fost deja transcris
+                    main_segments_count = await conn.fetchval(
+                        """
+                        SELECT COUNT(*) FROM transcript_segments
+                        WHERE transcript_id = $1
+                        """,
+                        transcript_id,
+                    )
+                    all_done = (pending_count == 0 and main_segments_count > 0)
+                else:
+                    # Job principal: verificăm dacă mai sunt segmente suplimentare neprocesate
+                    pending_count = await conn.fetchval(
+                        """
+                        SELECT COUNT(*) FROM recording_audio_segments
+                        WHERE recording_id = $1 AND status != 'completed'
+                        """,
+                        recording_id,
+                    )
+                    all_done = (pending_count == 0)
 
-                # ── 3. Actualizăm înregistrarea ───────────────────────
-                await conn.execute(
-                    """
-                    UPDATE recordings
-                    SET status = 'completed',
-                        updated_at = NOW()
-                    WHERE id = $1
-                    """,
-                    recording_id,
-                )
+                if all_done:
+                    # Toată sesiunea e completă — recalculăm metadatele din toate segmentele
+                    agg = await conn.fetchrow(
+                        """
+                        SELECT
+                            COALESCE(SUM(
+                                array_length(string_to_array(trim(text), ' '), 1)
+                            ), 0) AS word_count,
+                            COALESCE(AVG(confidence), 0.0) AS confidence_avg
+                        FROM transcript_segments
+                        WHERE transcript_id = $1
+                        """,
+                        transcript_id,
+                    )
+                    await conn.execute(
+                        """
+                        UPDATE transcripts
+                        SET status = 'completed',
+                            completed_at = NOW(),
+                            word_count = $2,
+                            confidence_avg = $3,
+                            processing_time_sec = $4,
+                            language = $5
+                        WHERE id = $1
+                        """,
+                        transcript_id,
+                        agg["word_count"],
+                        round(float(agg["confidence_avg"]), 3),
+                        metadata.processing_time_sec,
+                        metadata.language,
+                    )
+                    await conn.execute(
+                        """
+                        UPDATE recordings
+                        SET status = 'completed', updated_at = NOW()
+                        WHERE id = $1
+                        """,
+                        recording_id,
+                    )
+                    logger.info(
+                        "session_completed",
+                        recording_id=recording_id,
+                        word_count=agg["word_count"],
+                    )
+                else:
+                    # Sesiunea nu e completă — rămâne în 'transcribing'
+                    await conn.execute(
+                        """
+                        UPDATE recordings
+                        SET status = 'transcribing', updated_at = NOW()
+                        WHERE id = $1
+                        """,
+                        recording_id,
+                    )
 
         logger.info(
             "results_saved",
             transcript_id=transcript_id,
             segments_count=len(segments),
-            word_count=metadata.word_count,
-            language=metadata.language,
+            index_offset=index_offset,
+            time_offset_sec=time_offset_sec,
+            segment_id=segment_id,
         )
 
     async def mark_failed(
@@ -250,20 +337,7 @@ class DatabaseUploader:
         recording_id: str,
         error_message: str,
     ) -> None:
-        """
-        Marchează jobul ca eșuat cu mesajul de eroare.
-
-        Apelat din consumer.py în blocul except:
-            try:
-                await _process_job(job)
-            except Exception as e:
-                await uploader.mark_failed(..., str(e))
-                # workerul continuă cu următorul job!
-
-        De ce salvăm error_message în DB?
-        Administratorul poate vedea exact ce a eșuat fără
-        să caute prin loguri. Util pentru debug și support.
-        """
+        """Marchează jobul ca eșuat cu mesajul de eroare."""
         async with self._pool.acquire() as conn:
             async with conn.transaction():
                 await conn.execute(
@@ -291,5 +365,5 @@ class DatabaseUploader:
         logger.warning(
             "job_failed",
             transcript_id=transcript_id,
-            error=error_message[:200],  # trunchiiem pentru log
+            error=error_message[:200],
         )
