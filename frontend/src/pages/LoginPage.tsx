@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useForm } from 'react-hook-form'
-import { Eye, EyeOff } from 'lucide-react'
+import { Mic2, Eye, EyeOff } from 'lucide-react'
 import { useAuth } from '@/contexts/AuthContext'
 
 interface LoginForm {
@@ -32,8 +32,8 @@ export default function LoginPage() {
       <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-8">
         {/* Logo */}
         <div className="flex flex-col items-center mb-8">
-          <div className="h-14 w-14 rounded-2xl mb-4 shadow-md overflow-hidden">
-            <img src="/logo.png" alt="MeetRec" className="h-full w-full object-cover" />
+          <div className="h-14 w-14 bg-blue-600 rounded-2xl flex items-center justify-center mb-4 shadow-md">
+            <Mic2 className="h-7 w-7 text-white" />
           </div>
           <h1 className="text-2xl font-bold text-gray-900">MeetRec</h1>
           <p className="text-gray-500 text-sm mt-1">Sistem de transcriere ședințe</p>
