@@ -367,3 +367,119 @@ class DatabaseUploader:
             transcript_id=transcript_id,
             error=error_message[:200],
         )
+
+    # ── Session Assembly ──────────────────────────────────────
+
+    async def get_all_session_segments(self, recording_id: str) -> list:
+        """
+        Returnează toate căile audio ale unei sesiuni, sortate după segment_index.
+
+        Ordinea rezultată:
+          [0] recordings.file_path          ← fișierul principal (segment_index=0)
+          [1] recording_audio_segments[1]   ← segment_index=1
+          [2] recording_audio_segments[2]   ← segment_index=2
+          ...
+
+        Folosit de AudioAssembler pentru a ști ce fișiere să concateneze și în ce ordine.
+        Ordinea după segment_index garantează timestamps corecte indiferent de ordinea
+        în care au sosit segmentele la server.
+        """
+        async with self._pool.acquire() as conn:
+            rows = await conn.fetch(
+                """
+                SELECT file_path, 0 AS segment_index
+                FROM recordings
+                WHERE id = $1
+
+                UNION ALL
+
+                SELECT file_path, segment_index
+                FROM recording_audio_segments
+                WHERE recording_id = $1
+
+                ORDER BY segment_index ASC
+                """,
+                recording_id,
+            )
+        from pathlib import Path
+        return [Path(row["file_path"]) for row in rows]
+
+    async def save_session_results(
+        self,
+        transcript_id: str,
+        recording_id: str,
+        segments: list,
+        metadata: "TranscriptMetadata",
+    ) -> None:
+        """
+        Salvează rezultatele transcrierii unei sesiuni complete (audio concatenat).
+
+        Spre deosebire de save_results() care gestionează sesiuni multi-part
+        cu verificări de pending_count, aceasta marchează direct tot ca 'completed':
+        - Am transcris întregul audio concatenat → nu mai sunt segmente în așteptare
+        - Nu există recording_audio_segments de marcat (am transcris fișierul concatenat temp)
+        """
+        segment_tuples = [
+            (
+                str(uuid.uuid4()),
+                transcript_id,
+                seg.segment_index,
+                seg.start_time,
+                seg.end_time,
+                seg.text,
+                seg.confidence,
+                seg.language,
+            )
+            for seg in segments
+        ]
+
+        async with self._pool.acquire() as conn:
+            async with conn.transaction():
+                # ── 1. Inserăm segmentele ─────────────────────────────
+                await conn.executemany(
+                    """
+                    INSERT INTO transcript_segments
+                        (id, transcript_id, segment_index, start_time,
+                         end_time, text, confidence, language)
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+                    ON CONFLICT (transcript_id, segment_index) DO NOTHING
+                    """,
+                    segment_tuples,
+                )
+
+                # ── 2. Marcăm transcript ca 'completed' ───────────────
+                await conn.execute(
+                    """
+                    UPDATE transcripts
+                    SET status = 'completed',
+                        completed_at = NOW(),
+                        word_count = $2,
+                        confidence_avg = $3,
+                        processing_time_sec = $4,
+                        language = $5
+                    WHERE id = $1
+                    """,
+                    transcript_id,
+                    metadata.word_count,
+                    round(metadata.confidence_avg, 3),
+                    metadata.processing_time_sec,
+                    metadata.language,
+                )
+
+                # ── 3. Marcăm recording ca 'completed' ────────────────
+                await conn.execute(
+                    """
+                    UPDATE recordings
+                    SET status = 'completed', updated_at = NOW()
+                    WHERE id = $1
+                    """,
+                    recording_id,
+                )
+
+        logger.info(
+            "session_results_saved",
+            transcript_id=transcript_id,
+            recording_id=recording_id,
+            segments_count=len(segments),
+            word_count=metadata.word_count,
+        )
