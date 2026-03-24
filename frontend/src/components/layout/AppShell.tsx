@@ -1,7 +1,7 @@
 import { ReactNode, useState } from 'react'
 import { NavLink, useNavigate } from 'react-router-dom'
 import {
-  Mic2, Search, UploadCloud, LayoutDashboard, ShieldCheck,
+  Search, UploadCloud, LayoutDashboard, ShieldCheck,
   LogOut, Menu, X, ChevronRight,
 } from 'lucide-react'
 import { useAuth } from '@/contexts/AuthContext'
@@ -34,7 +34,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
     <aside className="flex flex-col h-full bg-white border-r border-gray-200 w-64">
       {/* Logo */}
       <div className="flex items-center gap-2 px-6 py-5 border-b border-gray-100">
-        <Mic2 className="h-6 w-6 text-blue-600" />
+        <img src="/logo.png" alt="MeetRec" className="h-7 w-7 rounded-lg" />
         <span className="font-bold text-gray-900 text-lg">MeetRec</span>
       </div>
 
@@ -163,7 +163,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
             {sidebarOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
           </button>
           <div className="flex items-center gap-2">
-            <Mic2 className="h-5 w-5 text-blue-600" />
+            <img src="/logo.png" alt="MeetRec" className="h-6 w-6 rounded-md" />
             <span className="font-bold text-gray-900">MeetRec</span>
           </div>
         </div>
