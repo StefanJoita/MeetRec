@@ -24,7 +24,8 @@ def make_metadata(**kwargs) -> TranscriptMetadata:
 
 def make_mock_pool():
     conn = AsyncMock()
-    conn.fetchrow = AsyncMock(return_value={"id": TRANSCRIPT_ID})
+    conn.fetchrow = AsyncMock(return_value={"word_count": 42, "confidence_avg": 0.87})
+    conn.fetchval = AsyncMock(return_value=0)   # 0 segmente pending → all_done=True
     conn.execute  = AsyncMock()
     conn.executemany = AsyncMock()
 
@@ -152,6 +153,8 @@ async def test_save_results_sql_has_on_conflict(uploader_with_mock_pool):
 
 async def test_save_results_marks_transcript_completed(uploader_with_mock_pool):
     u, conn = uploader_with_mock_pool
+    # fetchrow returnează structura agregată folosită când all_done=True
+    conn.fetchrow.return_value = {"word_count": 42, "confidence_avg": 0.87}
     await u.save_results(TRANSCRIPT_ID, RECORDING_ID, [make_segment(0)], make_metadata())
     sqls = [c[0][0] for c in conn.execute.call_args_list]
     assert any("completed" in s and "transcripts" in s for s in sqls)
@@ -159,6 +162,7 @@ async def test_save_results_marks_transcript_completed(uploader_with_mock_pool):
 
 async def test_save_results_marks_recording_completed(uploader_with_mock_pool):
     u, conn = uploader_with_mock_pool
+    conn.fetchrow.return_value = {"word_count": 42, "confidence_avg": 0.87}
     await u.save_results(TRANSCRIPT_ID, RECORDING_ID, [make_segment(0)], make_metadata())
     sqls = [c[0][0] for c in conn.execute.call_args_list]
     assert any("completed" in s and "recordings" in s for s in sqls)
@@ -166,7 +170,9 @@ async def test_save_results_marks_recording_completed(uploader_with_mock_pool):
 
 async def test_save_results_passes_word_count(uploader_with_mock_pool):
     u, conn = uploader_with_mock_pool
-    await u.save_results(TRANSCRIPT_ID, RECORDING_ID, [make_segment(0)], make_metadata(word_count=123))
+    # word_count vine din query-ul agregat (agg["word_count"]), nu din metadata
+    conn.fetchrow.return_value = {"word_count": 123, "confidence_avg": 0.87}
+    await u.save_results(TRANSCRIPT_ID, RECORDING_ID, [make_segment(0)], make_metadata())
     flat = [p for c in conn.execute.call_args_list for p in c[0][1:]]
     assert 123 in flat
 
