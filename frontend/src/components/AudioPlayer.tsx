@@ -2,9 +2,10 @@ import { useRef, useState, useEffect, useCallback } from 'react'
 import { Play, Pause, Volume2, VolumeX, SkipBack, SkipForward } from 'lucide-react'
 import { cn } from '@/lib/cn'
 import { formatTime } from '@/lib/formatTime'
+import { getAudioToken, buildAudioUrl } from '@/api/recordings'
 
 interface AudioPlayerProps {
-  src: string
+  recordingId: string
   onTimeUpdate?: (currentTime: number) => void
   seekTo?: number | null
 }
@@ -12,18 +13,7 @@ interface AudioPlayerProps {
 const SPEEDS = [0.75, 1, 1.25, 1.5, 2]
 const SKIP_SEC = 15
 
-/**
- * Construiește URL-ul audio cu token JWT ca query param.
- * <audio> nu poate trimite header-uri custom, deci autentificarea
- * se face prin ?token= — backend-ul acceptă ambele metode.
- */
-function buildAudioSrc(src: string): string {
-  const token = localStorage.getItem('access_token')
-  if (!token || src.includes('?token=')) return src
-  return `${src}?token=${encodeURIComponent(token)}`
-}
-
-export default function AudioPlayer({ src, onTimeUpdate, seekTo }: AudioPlayerProps) {
+export default function AudioPlayer({ recordingId, onTimeUpdate, seekTo }: AudioPlayerProps) {
   const audioRef = useRef<HTMLAudioElement>(null)
   const [playing, setPlaying] = useState(false)
   const [currentTime, setCurrentTime] = useState(0)
@@ -31,9 +21,18 @@ export default function AudioPlayer({ src, onTimeUpdate, seekTo }: AudioPlayerPr
   const [muted, setMuted] = useState(false)
   const [speed, setSpeed] = useState(1)
   const [error, setError] = useState(false)
+  const [audioSrc, setAudioSrc] = useState<string | undefined>(undefined)
 
-  // Construim URL-ul cu token la fiecare schimbare de src
-  const audioSrc = src ? buildAudioSrc(src) : undefined
+  // Obținem token audio de la backend și construim URL-ul
+  // Token-ul e legat de un singur recording — nu poate fi folosit pentru alte API calls
+  useEffect(() => {
+    if (!recordingId) return
+    setAudioSrc(undefined)
+    setError(false)
+    getAudioToken(recordingId)
+      .then(token => setAudioSrc(buildAudioUrl(recordingId, token)))
+      .catch(() => setError(true))
+  }, [recordingId])
 
   // Seek extern (din TranscriptViewer)
   useEffect(() => {
@@ -50,7 +49,7 @@ export default function AudioPlayer({ src, onTimeUpdate, seekTo }: AudioPlayerPr
     setPlaying(false)
     setCurrentTime(0)
     setDuration(0)
-  }, [src])
+  }, [recordingId])
 
   const handleTimeUpdate = useCallback(() => {
     const t = audioRef.current?.currentTime ?? 0

@@ -1,5 +1,6 @@
 # services/api/src/config.py
 from pathlib import Path
+from typing import List
 from pydantic import field_validator
 from pydantic_settings import BaseSettings
 
@@ -19,6 +20,7 @@ class Settings(BaseSettings):
     api_port: int = 8080
     app_env: str = "development"
     log_level: str = "INFO"
+    cors_allowed_origins: List[str] = ["https://meeting-transcriber.local"]
 
     # --- Database ---
     # Fără default: conține parola → dacă lipsește din .env = eroare la startup

@@ -26,8 +26,16 @@ def upgrade() -> None:
     """)
 
     # 2. Migrează datele existente: is_admin=TRUE → role='admin'
+    # DO block condiționat: pe schema nouă (fără is_admin) instrucțiunea e sărită
     op.execute("""
-        UPDATE users SET role = 'admin' WHERE is_admin = TRUE
+        DO $$ BEGIN
+            IF EXISTS (
+                SELECT 1 FROM information_schema.columns
+                WHERE table_name = 'users' AND column_name = 'is_admin'
+            ) THEN
+                UPDATE users SET role = 'admin' WHERE is_admin = TRUE;
+            END IF;
+        END; $$
     """)
 
     # 3. Elimină coloana is_admin (role este acum sursa de adevăr)

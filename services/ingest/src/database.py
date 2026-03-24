@@ -191,7 +191,23 @@ class DatabaseClient:
                 error_message,
                 file_hash,
             )
- 
+
+    async def mark_failed_by_id(self, recording_id: str, error_message: str) -> None:
+        """
+        Marchează o înregistrare ca eșuată după ID.
+        Apelat când publicarea în Redis eșuează după ce înregistrarea a fost creată în DB.
+        """
+        async with self._pool.acquire() as conn:
+            await conn.execute(
+                """
+                UPDATE recordings
+                SET status = 'failed', error_message = $1, updated_at = NOW()
+                WHERE id = $2
+                """,
+                error_message,
+                recording_id,
+            )
+
     @staticmethod
     def _generate_title(filename: str) -> str:
         """

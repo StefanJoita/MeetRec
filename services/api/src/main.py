@@ -108,9 +108,7 @@ async def check_must_change_password(request: Request, call_next):
 # În producție: restrânge la domeniul real!
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"] if settings.app_env == "development" else [
-        "https://meeting-transcriber.local"
-    ],
+    allow_origins=["*"] if settings.app_env == "development" else settings.cors_allowed_origins,
     allow_credentials=True,
     allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=["Content-Type", "Authorization"],
