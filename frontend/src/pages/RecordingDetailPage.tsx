@@ -158,10 +158,10 @@ export default function RecordingDetailPage() {
 
   return (
     <div className="p-6 max-w-5xl mx-auto">
-      {/* Breadcrumb */}
+      {/* Back link */}
       <button
         onClick={() => navigate(-1)}
-        className="inline-flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-700 mb-6"
+        className="inline-flex items-center gap-1.5 text-sm text-slate-500 hover:text-slate-800 mb-6 transition-colors"
       >
         <ArrowLeft className="h-4 w-4" /> Înapoi
       </button>
@@ -169,13 +169,13 @@ export default function RecordingDetailPage() {
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4 mb-6">
         <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-3 mb-2">
+          <div className="flex items-center gap-2.5 mb-2">
             <StatusBadge status={recording.status} />
-            <span className="text-xs text-gray-400">{recording.audio_format.toUpperCase()}</span>
+            <span className="text-xs text-slate-400 font-medium">{recording.audio_format.toUpperCase()}</span>
           </div>
-          <h1 className="text-2xl font-bold text-gray-900 leading-tight">{recording.title}</h1>
+          <h1 className="text-2xl font-bold text-slate-900 leading-tight tracking-tight">{recording.title}</h1>
           {recording.description && (
-            <p className="text-gray-500 text-sm mt-1">{recording.description}</p>
+            <p className="text-slate-500 text-sm mt-1.5">{recording.description}</p>
           )}
         </div>
 
@@ -202,11 +202,11 @@ export default function RecordingDetailPage() {
               >
                 <Download className="h-4 w-4" />
                 Export
-                <ChevronDown className={`h-3.5 w-3.5 transition-transform ${exportOpen ? 'rotate-180' : ''}`} />
+                <ChevronDown className={`h-3.5 w-3.5 transition-transform duration-150 ${exportOpen ? 'rotate-180' : ''}`} />
               </button>
               {exportOpen && (
                 <div
-                  className="absolute right-0 mt-1 w-40 bg-white border border-gray-200 rounded-xl shadow-lg z-10 py-1"
+                  className="absolute right-0 mt-1.5 w-44 bg-white border border-slate-200 rounded-xl shadow-lg shadow-slate-900/10 z-10 py-1 animate-fade-in"
                   role="menu"
                   aria-label="Formate export"
                 >
@@ -215,7 +215,7 @@ export default function RecordingDetailPage() {
                       key={fmt.value}
                       role="menuitem"
                       onClick={() => handleExport(fmt.value)}
-                      className="block w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
+                      className="block w-full text-left px-4 py-2.5 text-sm text-slate-700 hover:bg-slate-50 transition-colors"
                     >
                       {fmt.label}
                     </button>
@@ -229,7 +229,7 @@ export default function RecordingDetailPage() {
             <button
               onClick={() => setShowDeleteDialog(true)}
               disabled={deleteMutation.isPending}
-              className="btn-ghost text-gray-400 hover:text-red-500 hover:bg-red-50"
+              className="btn-ghost text-slate-400 hover:text-rose-500 hover:bg-rose-50"
               aria-label="Șterge înregistrarea"
             >
               <Trash2 className="h-4 w-4" />
@@ -251,22 +251,22 @@ export default function RecordingDetailPage() {
             value={recording.location} />
         )}
         {recording.participants && recording.participants.length > 0 && (
-          <div className="col-span-2 sm:col-span-4 bg-gray-50 rounded-xl p-3">
-            <div className="flex items-center gap-2 mb-1">
-              <Users className="h-4 w-4 text-gray-400" />
-              <span className="text-xs text-gray-500 font-medium">Participanți</span>
+          <div className="col-span-2 sm:col-span-4 bg-slate-50 rounded-xl p-3.5 border border-slate-200">
+            <div className="flex items-center gap-2 mb-1.5">
+              <Users className="h-4 w-4 text-slate-400" />
+              <span className="text-xs text-slate-500 font-medium">Participanți</span>
             </div>
-            <p className="text-sm text-gray-700">{recording.participants.join(', ')}</p>
+            <p className="text-sm text-slate-700">{recording.participants.join(', ')}</p>
           </div>
         )}
       </div>
 
       {/* Participanți cu acces — admin și operator */}
       {canManageParticipants && (
-        <div className="bg-white border border-gray-200 rounded-xl p-4 mb-6">
+        <div className="card p-4 mb-6">
           <div className="flex items-center gap-2 mb-3">
-            <Users className="h-4 w-4 text-gray-400" />
-            <h2 className="text-sm font-semibold text-gray-700">Participanți cu acces</h2>
+            <Users className="h-4 w-4 text-slate-400" />
+            <h2 className="text-sm font-semibold text-slate-700">Participanți cu acces</h2>
           </div>
           <ParticipantLinker
             recordingId={id!}
@@ -277,7 +277,7 @@ export default function RecordingDetailPage() {
 
       {/* Audio Player — sticky */}
       {recording.status === 'completed' && (
-        <div className="sticky top-0 z-10 bg-white/95 backdrop-blur-sm pb-4 -mx-6 px-6 pt-2 border-b border-gray-100 mb-6 shadow-sm">
+        <div className="sticky top-0 z-10 bg-slate-50/95 backdrop-blur-sm py-3 -mx-6 px-6 border-b border-slate-200 mb-6 shadow-sm">
           <AudioPlayer
             recordingId={id!}
             onTimeUpdate={setCurrentTime}
@@ -287,13 +287,13 @@ export default function RecordingDetailPage() {
       )}
 
       {/* Transcript */}
-      <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
-        <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between">
-          <h2 className="text-sm font-semibold text-gray-700">Transcript</h2>
+      <div className="card overflow-hidden">
+        <div className="px-5 py-3.5 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
+          <h2 className="text-sm font-semibold text-slate-700">Transcript</h2>
           <div className="flex items-center gap-3">
             {transcript && (
-              <span className="text-xs text-gray-400">
-                {transcript.word_count} cuvinte · {transcript.language}
+              <span className="text-xs text-slate-400">
+                {transcript.word_count} cuvinte · {transcript.language?.toUpperCase()}
               </span>
             )}
             {transcript && transcript.segments && (
@@ -302,16 +302,16 @@ export default function RecordingDetailPage() {
                   const text = transcript.segments.map((segment: Segment) => segment.text).join('\n')
                   navigator.clipboard.writeText(text)
                 }}
-                className="text-xs text-blue-500 hover:text-blue-700 transition-colors"
+                className="text-xs text-primary-600 hover:text-primary-700 font-medium transition-colors"
                 aria-label="Copiază transcriptul complet"
               >
-                Copiază
+                Copiază tot
               </button>
             )}
           </div>
         </div>
 
-        <div className="p-4">
+        <div className="p-5">
           {isProcessing && (
             <TranscriptionProgress
               status={recording.status as 'queued' | 'transcribing'}
@@ -320,9 +320,9 @@ export default function RecordingDetailPage() {
 
           {recording.status === 'failed' && (
             <div className="py-8 text-center">
-              <p className="text-red-500 text-sm">Transcrierea nu a putut fi finalizată.</p>
+              <p className="text-rose-500 text-sm font-medium">Transcrierea nu a putut fi finalizată.</p>
               {recording.error_message && (
-                <p className="text-gray-400 text-xs mt-1">{recording.error_message}</p>
+                <p className="text-slate-400 text-xs mt-1.5">{recording.error_message}</p>
               )}
             </div>
           )}
@@ -340,7 +340,7 @@ export default function RecordingDetailPage() {
           )}
 
           {recording.status === 'completed' && !txLoading && !transcript && (
-            <p className="text-center text-gray-400 text-sm py-8">Transcrierea nu este disponibilă.</p>
+            <p className="text-center text-slate-400 text-sm py-8">Transcrierea nu este disponibilă.</p>
           )}
         </div>
       </div>
@@ -363,9 +363,12 @@ export default function RecordingDetailPage() {
 
 function MetaItem({ icon, label, value }: { icon: React.ReactNode; label: string; value: string }) {
   return (
-    <div className="bg-gray-50 rounded-xl p-3">
-      <div className="flex items-center gap-1.5 mb-1 text-gray-400">{icon}<span className="text-xs font-medium">{label}</span></div>
-      <p className="text-sm font-medium text-gray-800 truncate" title={value}>{value}</p>
+    <div className="bg-slate-50 border border-slate-200 rounded-xl p-3.5">
+      <div className="flex items-center gap-1.5 mb-1.5 text-slate-400">
+        {icon}
+        <span className="text-xs font-medium text-slate-500">{label}</span>
+      </div>
+      <p className="text-sm font-semibold text-slate-800 truncate" title={value}>{value}</p>
     </div>
   )
 }

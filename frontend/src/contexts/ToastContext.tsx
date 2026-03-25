@@ -1,5 +1,5 @@
 import { createContext, useContext, useState, useCallback, ReactNode } from 'react'
-import { CheckCircle, AlertCircle, Info, X } from 'lucide-react'
+import { CheckCircle2, AlertCircle, Info, X } from 'lucide-react'
 import { cn } from '@/lib/cn'
 
 type ToastType = 'success' | 'error' | 'info'
@@ -24,11 +24,9 @@ export function ToastProvider({ children }: { children: ReactNode }) {
   const toast = useCallback((message: string, type: ToastType = 'info') => {
     const id = nextId++
     setToasts(prev => [...prev, { id, type, message }])
-    
     const timerId = setTimeout(() => {
       setToasts(prev => prev.filter(t => t.id !== id))
     }, 4500)
-    
     return () => clearTimeout(timerId)
   }, [])
 
@@ -39,11 +37,10 @@ export function ToastProvider({ children }: { children: ReactNode }) {
   return (
     <ToastContext.Provider value={{ toast }}>
       {children}
-      {/* Toast container — bottom-right */}
       <div
         aria-live="polite"
         aria-atomic="false"
-        className="fixed bottom-4 right-4 z-50 flex flex-col gap-2 max-w-sm w-full pointer-events-none"
+        className="fixed bottom-5 right-5 z-50 flex flex-col gap-2.5 max-w-sm w-full pointer-events-none"
       >
         {toasts.map(t => (
           <ToastItem key={t.id} toast={t} onDismiss={() => dismiss(t.id)} />
@@ -54,41 +51,47 @@ export function ToastProvider({ children }: { children: ReactNode }) {
 }
 
 function ToastItem({ toast: t, onDismiss }: { toast: Toast; onDismiss: () => void }) {
-  const styles: Record<ToastType, { wrapper: string; icon: React.ReactNode }> = {
+  const config: Record<ToastType, { bar: string; icon: React.ReactNode }> = {
     success: {
-      wrapper: 'bg-white border border-green-200 shadow-lg',
-      icon: <CheckCircle className="h-5 w-5 text-green-500 shrink-0" />,
+      bar:  'bg-emerald-500',
+      icon: <CheckCircle2 className="h-4.5 w-4.5 text-emerald-500 shrink-0" />,
     },
     error: {
-      wrapper: 'bg-white border border-red-200 shadow-lg',
-      icon: <AlertCircle className="h-5 w-5 text-red-500 shrink-0" />,
+      bar:  'bg-rose-500',
+      icon: <AlertCircle className="h-4.5 w-4.5 text-rose-500 shrink-0" />,
     },
     info: {
-      wrapper: 'bg-white border border-blue-200 shadow-lg',
-      icon: <Info className="h-5 w-5 text-blue-500 shrink-0" />,
+      bar:  'bg-primary-500',
+      icon: <Info className="h-4.5 w-4.5 text-primary-500 shrink-0" />,
     },
   }
 
-  const { wrapper, icon } = styles[t.type]
+  const { bar, icon } = config[t.type]
 
   return (
     <div
       role="status"
       className={cn(
-        'pointer-events-auto flex items-start gap-3 rounded-xl px-4 py-3 text-sm text-gray-800',
-        'animate-in slide-in-from-right-4 fade-in duration-200',
-        wrapper
+        'pointer-events-auto relative overflow-hidden',
+        'flex items-start gap-3 rounded-xl px-4 py-3.5 text-sm text-slate-800',
+        'bg-white shadow-lg shadow-slate-900/10 ring-1 ring-slate-900/5',
+        'animate-slide-in-right'
       )}
     >
-      {icon}
-      <p className="flex-1 leading-snug">{t.message}</p>
-      <button
-        onClick={onDismiss}
-        aria-label="Închide notificarea"
-        className="shrink-0 text-gray-400 hover:text-gray-600 transition-colors"
-      >
-        <X className="h-4 w-4" />
-      </button>
+      {/* Color accent bar */}
+      <div className={cn('absolute left-0 top-0 bottom-0 w-1 rounded-l-xl', bar)} />
+
+      <div className="pl-1 flex items-start gap-3 flex-1">
+        {icon}
+        <p className="flex-1 leading-snug pt-px">{t.message}</p>
+        <button
+          onClick={onDismiss}
+          aria-label="Închide notificarea"
+          className="shrink-0 text-slate-400 hover:text-slate-600 transition-colors ml-1"
+        >
+          <X className="h-4 w-4" />
+        </button>
+      </div>
     </div>
   )
 }

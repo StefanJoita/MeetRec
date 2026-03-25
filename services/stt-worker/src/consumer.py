@@ -24,6 +24,7 @@
 
 import asyncio
 import json
+import shutil
 import time
 from typing import Optional
 
@@ -323,12 +324,20 @@ class JobConsumer:
                 segments, detected_language, model_name, processing_time
             )
 
-            # ── 5. Salvăm în DB ─────────────────────────────────────────
+            # ── 5. Mutăm fișierul concatenat în storage permanent ────────
+            # Fișierul temp din /tmp devine fișierul principal al înregistrării,
+            # astfel player-ul audio va servi întreaga sesiune, nu doar segmentul 0.
+            permanent_path = settings.audio_storage_path / f"{recording_id}_merged.wav"
+            shutil.move(str(merged_path), str(permanent_path))
+            merged_path = None  # nu mai ștergem în finally
+
+            # ── 6. Salvăm în DB (cu calea permanentă) ───────────────────
             await self._uploader.save_session_results(
                 transcript_id=transcript_id,
                 recording_id=recording_id,
                 segments=segments,
                 metadata=metadata,
+                merged_file_path=str(permanent_path),
             )
 
             logger.info(
@@ -337,6 +346,7 @@ class JobConsumer:
                 segments=len(segments),
                 words=metadata.word_count,
                 processing_sec=processing_time,
+                merged_file=permanent_path.name,
             )
 
         except (AssemblyError, Exception) as e:
@@ -344,7 +354,7 @@ class JobConsumer:
             await self._uploader.mark_failed(transcript_id, recording_id, str(e))
 
         finally:
-            # Ștergem fișierul temporar concatenat indiferent de rezultat
+            # Ștergem fișierul temp doar dacă nu a fost mutat (caz de eroare)
             if merged_path is not None and merged_path.exists():
                 merged_path.unlink(missing_ok=True)
 
