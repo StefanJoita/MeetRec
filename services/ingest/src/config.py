@@ -46,8 +46,10 @@ class Settings(BaseSettings):
 
     # Session Assembly — reconstrucție sesiuni multi-segment
     # Cât timp (secunde) să așteptăm după ultimul segment înainte de a lansa transcrierea.
-    # Default 120s = 2 minute. Suficient pentru retry-uri de rețea ale clientului.
-    session_timeout_seconds: int = 120
+    # Safety net pentru sesiuni abandonate (client căzut). Valoarea trebuie să fie
+    # MAI MARE decât segment_duration_seconds al clientului (default 300s).
+    # Clientul trimite POST /complete explicit → dispatch imediat, fără timeout.
+    session_timeout_seconds: int = 1800
     # Cât de des (secunde) rulează Session Watcher.
     session_watcher_interval_seconds: int = 30
 

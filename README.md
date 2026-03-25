@@ -49,6 +49,9 @@ MeetRec runs **entirely on your own server**. Transcription is powered by [OpenA
 - **Web upload** — drag-and-drop interface with real-time progress; supports MP3, MP4, WAV, M4A, OGG, FLAC, WEBM
 - **Synchronized audio player** — click any transcript segment to jump to that exact moment in the recording
 - **Virtual scrolling** — renders thousands of transcript segments without lag using `@tanstack/react-virtual`
+- **Multi-segment session recording** — long meetings are split into 5-minute WAV segments, each uploaded with a shared `session_id`; the server assembles all segments before transcription so Whisper has full context at junctions; session duration is derived from ingest-measured audio durations (not Whisper timestamps)
+- **Full merged-audio playback** — after transcription, the assembled WAV is stored permanently so the audio player can play the complete recording, not just the first segment
+- **Modern UI** — complete frontend redesign with Inter font, indigo primary color system, dark slate sidebar, animated toasts, and polished card/badge/button components
 
 ### Search
 
@@ -78,14 +81,27 @@ MeetRec runs **entirely on your own server**. Transcription is powered by [OpenA
 
 ---
 
+## Desktop Client
+
+A companion **Electron desktop app** is available for conference-room deployments. It records audio continuously, splits recordings into 5-minute WAV segments, and queues uploads to the MeetRec server with automatic retry on failure.
+
+- Repository: [StefanJoita/MeetRec_desktop-client](https://github.com/StefanJoita/MeetRec_desktop-client)
+- Works with the multi-segment session API (`POST /inbox/session/{id}/complete`)
+- Queues segments locally and retries uploads if the network is temporarily unavailable
+- Designed for always-on installation in meeting rooms; no manual intervention required
+
+---
+
 ## Architecture
 
 MeetRec is composed of six independent services that communicate through PostgreSQL and Redis. Each service has a single responsibility and can be scaled independently.
 
 ```
-Browser                    Drop folder
+Browser / Desktop Client    Drop folder
     │                          │
     │ POST /api/v1/inbox/upload │ cp meeting.mp3 data/inbox/
+    │ (or multi-segment         │
+    │  session upload)          │
     ▼                          ▼
 ┌─────────────────────────────────────────────┐
 │                   Nginx                     │  ← Reverse proxy + static assets
@@ -99,8 +115,8 @@ Browser                    Drop folder
        ▼
 ┌──────────────────────────┐
 │      Ingest Service      │  ← watchdog: detect → validate → deduplicate → queue
-│  (format · size ·        │
-│   duration · SHA-256)    │
+│  (format · size ·        │     + Session Watcher: assembles multi-segment sessions
+│   duration · SHA-256)    │     → dispatches on timeout or /complete signal
 └──────┬───────────────────┘
        │ RPUSH job
        ▼
@@ -112,8 +128,9 @@ Browser                    Drop folder
 ┌──────────────────────────┐     ┌───────────────────────┐
 │      STT Worker          │────►│   Search Indexer      │
 │  (OpenAI Whisper local)  │     │  (Sentence Transformers│
-│  segments + timestamps   │     │   + pgvector HNSW)    │
-└──────┬───────────────────┘     └──────────┬────────────┘
+│  assembles segments,     │     │   + pgvector HNSW)    │
+│  stores merged WAV       │     └──────────┬────────────┘
+└──────┬───────────────────┘
        │                                    │
        └──────────────┬─────────────────────┘
                       ▼
@@ -127,15 +144,17 @@ Browser                    Drop folder
            └─────────────────────┘
 ```
 
-**Design principle:** the Ingest Service is the only entry point for audio. The API never touches audio files directly. This enforces validation and deduplication regardless of how files arrive (web upload or drop folder).
+**Design principle:** the Ingest Service is the only entry point for audio. The API never touches audio files directly. This enforces validation and deduplication regardless of how files arrive (web upload, drop folder, or desktop client multi-segment session).
+
+**Multi-segment sessions:** the desktop client uploads 5-minute WAV chunks tagged with a shared `session_id`. The Ingest Session Watcher monitors open sessions and dispatches transcription after 1800 s of inactivity or when `POST /inbox/session/{id}/complete` is called. The STT Worker then concatenates all segments before running Whisper and stores the merged WAV for full-session audio playback.
 
 ### Service summary
 
 | Service | Technology | Responsibility |
 |---|---|---|
 | **API** | FastAPI + SQLAlchemy async | REST endpoints, JWT auth, business logic |
-| **Ingest** | Python watchdog + asyncpg | File detection, validation, SHA-256 dedup, queuing |
-| **STT Worker** | OpenAI Whisper + asyncpg | Speech-to-text, segment extraction, FTS indexing |
+| **Ingest** | Python watchdog + asyncpg | File detection, validation, SHA-256 dedup, queuing; Session Watcher for multi-segment sessions |
+| **STT Worker** | OpenAI Whisper + asyncpg | Audio assembly, speech-to-text, segment extraction, merged WAV storage |
 | **Search Indexer** | Sentence Transformers + pgvector | Semantic embedding generation via LISTEN/NOTIFY |
 | **Audit Retention** | APScheduler | Nightly GDPR-compliant auto-delete |
 | **Frontend** | React 18 + Vite + TailwindCSS | SPA: upload, browse, search, export, admin |
@@ -280,6 +299,7 @@ Set with `WHISPER_MODEL=medium` in `.env`.
 | `APP_ENV` | `development` | Set `production` to disable `/docs` and restrict CORS |
 | `MAX_FILE_SIZE_BYTES` | `524288000` | Max upload size (500 MB) |
 | `SEARCH_INDEXER_ENABLED` | `true` | Enable semantic search embeddings |
+| `SESSION_TIMEOUT_SECONDS` | `1800` | Inactivity timeout before an open multi-segment session is auto-dispatched |
 
 ---
 
@@ -352,6 +372,11 @@ MeetRec/
 | Audit retention & GDPR auto-delete | ✅ Complete |
 | Virtual scrolling (1000+ segments) | ✅ Complete |
 | Database migrations (001–005) | ✅ Complete |
+| Multi-segment session recording (Session Watcher + audio assembly) | ✅ Complete |
+| Desktop client integration (Electron companion app) | ✅ Complete |
+| Full session audio playback (merged WAV stored post-transcription) | ✅ Complete |
+| Modern UI redesign (Inter font, indigo palette, dark sidebar, animated toasts) | ✅ Complete |
+| `POST /inbox/session/{id}/complete` explicit dispatch endpoint | ✅ Complete |
 
 ---
 

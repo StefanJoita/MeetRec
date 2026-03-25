@@ -410,6 +410,7 @@ class DatabaseUploader:
         recording_id: str,
         segments: list,
         metadata: "TranscriptMetadata",
+        merged_file_path: Optional[str] = None,
     ) -> None:
         """
         Salvează rezultatele transcrierii unei sesiuni complete (audio concatenat).
@@ -447,7 +448,20 @@ class DatabaseUploader:
                     segment_tuples,
                 )
 
-                # ── 2. Marcăm transcript ca 'completed' ───────────────
+                # ── 2. Marcăm toate segmentele audio ca 'completed' ───
+                # save_results() marchează segmentele individuale, dar calea
+                # de sesiune transcrie fișierul concatenat fără a trece prin
+                # save_results — le marcăm explicit aici.
+                await conn.execute(
+                    """
+                    UPDATE recording_audio_segments
+                    SET status = 'completed'
+                    WHERE recording_id = $1
+                    """,
+                    recording_id,
+                )
+
+                # ── 3. Marcăm transcript ca 'completed' ───────────────
                 await conn.execute(
                     """
                     UPDATE transcripts
@@ -466,15 +480,47 @@ class DatabaseUploader:
                     metadata.language,
                 )
 
-                # ── 3. Marcăm recording ca 'completed' ────────────────
-                await conn.execute(
+                # ── 4. Marcăm recording ca 'completed', actualizăm durata și calea audio ──
+                # Durata reală = suma duratelor măsurate de ingest din fișierele audio,
+                # NU din end_time-ul Whisper (care poate supraevalua ultimul segment).
+                dur_row = await conn.fetchrow(
                     """
-                    UPDATE recordings
-                    SET status = 'completed', updated_at = NOW()
-                    WHERE id = $1
+                    SELECT r.duration_seconds + COALESCE(SUM(ras.duration_seconds), 0) AS total
+                    FROM recordings r
+                    LEFT JOIN recording_audio_segments ras ON ras.recording_id = r.id
+                    WHERE r.id = $1
+                    GROUP BY r.duration_seconds
                     """,
                     recording_id,
                 )
+                total_duration = int(dur_row["total"] or 0)
+                if merged_file_path:
+                    await conn.execute(
+                        """
+                        UPDATE recordings
+                        SET status = 'completed',
+                            updated_at = NOW(),
+                            duration_seconds = $2,
+                            file_path = $3,
+                            audio_format = 'wav'
+                        WHERE id = $1
+                        """,
+                        recording_id,
+                        total_duration,
+                        merged_file_path,
+                    )
+                else:
+                    await conn.execute(
+                        """
+                        UPDATE recordings
+                        SET status = 'completed',
+                            updated_at = NOW(),
+                            duration_seconds = $2
+                        WHERE id = $1
+                        """,
+                        recording_id,
+                        total_duration,
+                    )
 
         logger.info(
             "session_results_saved",
@@ -482,4 +528,6 @@ class DatabaseUploader:
             recording_id=recording_id,
             segments_count=len(segments),
             word_count=metadata.word_count,
+            total_duration_sec=total_duration,  # din audio files, nu din Whisper
+            merged_file_path=merged_file_path,
         )

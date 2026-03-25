@@ -119,6 +119,20 @@ class FileProcessor:
         session_id = user_meta.get("session_id")
         segment_index = user_meta.get("segment_index", 0)
 
+        # Race condition fix: dacă session_id e prezent dar existing_recording_id
+        # lipsește din sidecar, înseamnă că API-ul a scris sidecarul înainte ca
+        # ingest să fi creat Recording-ul pentru segmentul 0. Facem lookup în DB
+        # — dacă Recording-ul există deja, atașăm ca segment, nu creăm duplicat.
+        if session_id and not existing_recording_id:
+            existing_recording_id = await self.database.find_recording_by_session_id(session_id)
+            if existing_recording_id:
+                logger.info(
+                    "session_recovery_via_db_lookup",
+                    file=file_path.name,
+                    session_id=session_id,
+                    recording_id=existing_recording_id,
+                )
+
         if existing_recording_id:
             return await self._attach_segment(
                 existing_recording_id=existing_recording_id,
