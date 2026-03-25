@@ -196,7 +196,7 @@ services:
       LOG_LEVEL: ${LOG_LEVEL}
       TZ: Europe/Bucharest
     volumes:
-      - audio_storage:/data/processed:ro   # :ro = citește audio, nu modifică
+      - audio_storage:/data/processed:rw   # :rw = poate scrie fișierul merged al sesiunii
       # Modelele Whisper (descărcate o singură dată, stocate persistent)
       - whisper_models:/app/models
       - ./services/stt-worker/src:/app/src

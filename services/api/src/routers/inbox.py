@@ -13,6 +13,7 @@
 #   fără să creeze o înregistrare separată.
 # ============================================================
 
+import asyncio
 import json
 import shutil
 import uuid as uuid_lib
@@ -268,19 +269,27 @@ async def complete_session(
     # ── Verificare că Ingest a stocat toate segmentele ──────────
     # Segment 0 = recordings (prezent — am trecut de 404)
     # Segmente 1..N-1 = recording_audio_segments (verificăm numărul de rânduri)
+    # Poll până la 15s: clientul apelează /complete imediat după 202 de la upload,
+    # dar Ingest are nevoie de ~4-10s să proceseze fișierul (watchdog + validate + DB).
     extra_segments_expected = total_segments - 1
     if extra_segments_expected > 0:
-        stored_result = await db.execute(
-            select(func.count(RecordingAudioSegment.id)).where(
-                RecordingAudioSegment.recording_id == recording.id,
+        stored_count = 0
+        for _ in range(15):
+            stored_result = await db.execute(
+                select(func.count(RecordingAudioSegment.id)).where(
+                    RecordingAudioSegment.recording_id == recording.id,
+                )
             )
-        )
-        stored_count = stored_result.scalar_one()
+            stored_count = stored_result.scalar_one()
+            if stored_count >= extra_segments_expected:
+                break
+            await asyncio.sleep(1)
+
         if stored_count < extra_segments_expected:
             missing = extra_segments_expected - stored_count
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
-                detail=f"{missing} segment(e) încă în procesare de Ingest. Reîncearcă în câteva secunde.",
+                detail=f"{missing} segment(e) încă în procesare de Ingest după 15s. Reîncearcă.",
             )
 
     # ── Marcare + dispatch ─────────────────────────────────────

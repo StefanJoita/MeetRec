@@ -20,23 +20,27 @@ make logs            # Tail logs for all services
 make logs-api        # Tail logs for a specific service (replace 'api' with any service name)
 make ps              # Show service health status
 
-make test            # Run all backend tests (pytest, inside Docker)
+make test            # Run all backend tests (pytest for api + ingest + stt-worker, inside Docker)
 make frontend-test   # Run frontend tests (Vitest, inside Docker)
 
 make db-shell        # psql into PostgreSQL
 make redis-cli       # Redis interactive shell
 make redis-queue     # Check transcription queue length
 make api-shell       # bash inside the api container
+make stt-shell       # bash inside the stt-worker container
+make audit-shell     # bash inside the audit-retention container
 make clean-all       # WARNING: destroys all containers AND volumes (data loss)
 ```
 
 ### Running tests directly
 
 ```bash
-# Backend — run inside the Docker container
+# Backend — run inside each Docker container (tests live in tests/ under each service)
 docker compose exec api pytest tests/ -v
 docker compose exec api pytest tests/test_recordings.py -v   # single file
 docker compose exec api pytest tests/ -k "test_health" -v    # single test
+docker compose exec ingest pytest tests/ -v
+docker compose exec stt-worker pytest tests/ -v
 
 # Frontend
 cd frontend
@@ -77,6 +81,10 @@ npm run build   # TypeScript compile + Vite bundle
 3. PostgreSQL NOTIFY triggers **search-indexer** to generate 384-dim multilingual embeddings stored in pgvector.
 4. **api** serves all reads/writes to the **frontend** through JWT-authenticated REST endpoints.
 
+### Multi-Segment Sessions
+
+Long meetings can be split across multiple audio files using a shared `session_id`. The first upload with a given `session_id` creates the primary `Recording`; subsequent uploads attach additional rows to `recording_audio_segments`. The **ingest** `session_watcher.py` monitors open sessions and triggers dispatch once `POST /inbox/session/{id}/complete` is called (or on timeout). **stt-worker** concatenates all segments before transcription via `audio_assembler.py`.
+
 ### API Service Structure (`services/api/src/`)
 
 - `main.py` — FastAPI app init, CORS, rate limiting (slowapi), router registration under `/api/v1`
@@ -97,9 +105,26 @@ npm run build   # TypeScript compile + Vite bundle
 - `lib/` — `cn.ts` (clsx wrapper), `formatTime.ts`
 - `test/` — Vitest + Testing Library tests
 
+### Ingest Service (`services/ingest/src/`)
+
+- `watcher.py` — watchdog filesystem monitor for `/data/inbox/`
+- `processor.py` — validates, deduplicates (SHA-256), writes `Recording` to DB
+- `publisher.py` — pushes job IDs to Redis `transcription_jobs` queue
+- `session_watcher.py` — monitors open multi-segment sessions; triggers completion
+- `validator.py` / `storage.py` — audio format validation and file management
+
+### STT Worker (`services/stt-worker/src/`)
+
+- `consumer.py` — Redis queue consumer loop
+- `transcriber.py` — wraps Whisper inference
+- `audio_assembler.py` — concatenates multi-segment audio before transcription
+- `language_detector.py` — auto-detects language when `WHISPER_PRIMARY_LANGUAGE` is unset
+- `postprocessor.py` — normalizes Whisper output before storage
+- `uploader.py` — writes transcript segments to PostgreSQL
+
 ### Database Schema
 
-Defined in `database/init.sql`. Key tables: `users`, `recordings`, `transcripts`, `audit_logs`, plus pgvector extension for semantic search. Alembic handles migrations (run automatically on API container startup).
+Defined in `database/init.sql`. Key tables: `users`, `recordings`, `recording_audio_segments` (multi-segment support), `transcripts`, `audit_logs`, plus pgvector extension for semantic search. Alembic migrations live in `services/api/alembic/versions/` and run automatically on API container startup.
 
 ## RBAC
 
