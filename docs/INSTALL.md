@@ -40,7 +40,8 @@ Platformă self-hosted de transcriere automată a ședințelor. Tot procesarea a
 | **curl** | orice | Preinstalat pe majority distribuțiilor |
 | **openssl** | orice | Necesar pentru generarea certificatelor |
 
-> **Windows / macOS:** Instalează [Docker Desktop](https://www.docker.com/products/docker-desktop/) și urmează pașii din secțiunea [Instalare manuală](#3-instalare-manuală-pas-cu-pas).
+> **Windows:** Instalează [Docker Desktop](https://www.docker.com/products/docker-desktop/) și [Git for Windows](https://git-scm.com), apoi rulează `.\install\install.ps1` — vezi [Secțiunea 2](#2-instalare-automată-recomandată).
+> **macOS:** Instalează [Docker Desktop](https://www.docker.com/products/docker-desktop/) și urmează pașii din secțiunea [Instalare manuală](#3-instalare-manuală-pas-cu-pas).
 
 ### Porturi necesare
 
@@ -92,7 +93,7 @@ bash install/install.sh --non-interactive
 
 ## 3. Instalare manuală pas cu pas
 
-Urmează acești pași dacă installer-ul automat nu funcționează sau rulezi pe Windows/macOS.
+Urmează acești pași dacă installer-ul automat nu funcționează sau rulezi pe macOS sau altă platformă neacoperită.
 
 ### Pasul 1 — Instalează Docker
 
