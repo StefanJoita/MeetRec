@@ -40,7 +40,8 @@ A self-hosted automatic meeting transcription platform. All audio processing run
 | **curl** | any | Pre-installed on most distributions |
 | **openssl** | any | Required for certificate generation |
 
-> **Windows / macOS:** Install [Docker Desktop](https://www.docker.com/products/docker-desktop/) and follow the [Manual Installation](#3-manual-step-by-step-installation) steps.
+> **Windows:** Install [Docker Desktop](https://www.docker.com/products/docker-desktop/) and [Git for Windows](https://git-scm.com), then run `.\install\install.ps1` — see [Section 2](#2-automatic-installation-recommended).
+> **macOS:** Install [Docker Desktop](https://www.docker.com/products/docker-desktop/) and follow the [Manual Installation](#3-manual-step-by-step-installation) steps.
 
 ### Required Ports
 
@@ -125,7 +126,7 @@ bash install/install.sh --non-interactive
 
 ## 3. Manual Step-by-Step Installation
 
-Follow these steps if the automatic installer doesn't work or if you're on Windows/macOS.
+Follow these steps if the automatic installer doesn't work or if you're on macOS or another unsupported platform.
 
 ### Step 1 — Install Docker
 
