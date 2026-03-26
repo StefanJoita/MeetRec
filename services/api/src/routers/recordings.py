@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Optional, List
 from fastapi import APIRouter, Depends, HTTPException, Query, status, Request
 from fastapi.responses import FileResponse
-from sqlalchemy import select
+from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.database import get_db
@@ -72,6 +72,68 @@ async def list_recordings(
         sort_desc=sort_desc,
         current_user=current_user,
     )
+
+
+# ── GET /recordings/stats ────────────────────────────────────
+@router.get(
+    "/stats",
+    summary="Statistici agregate înregistrări",
+)
+async def get_recordings_stats(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Returnează statistici agregate vizibile utilizatorului curent.
+    Participanții văd doar înregistrările la care au acces explicit.
+    """
+    from src.models.recording import RecordingParticipant
+
+    # Baza query — filtrăm după acces dacă rolul este participant
+    base_q = select(Recording)
+    if current_user.role == "participant":
+        base_q = base_q.join(
+            RecordingParticipant,
+            RecordingParticipant.recording_id == Recording.id,
+        ).where(RecordingParticipant.user_id == current_user.id)
+
+    # Count per status
+    status_q = select(
+        Recording.status,
+        func.count(Recording.id).label("cnt"),
+    )
+    if current_user.role == "participant":
+        status_q = status_q.join(
+            RecordingParticipant,
+            RecordingParticipant.recording_id == Recording.id,
+        ).where(RecordingParticipant.user_id == current_user.id)
+    status_q = status_q.group_by(Recording.status)
+
+    result = await db.execute(status_q)
+    rows = result.all()
+
+    counts = {row.status: row.cnt for row in rows}
+    total = sum(counts.values())
+
+    # Durată totală (doar completed)
+    dur_q = select(func.coalesce(func.sum(Recording.duration_seconds), 0))
+    if current_user.role == "participant":
+        dur_q = dur_q.join(
+            RecordingParticipant,
+            RecordingParticipant.recording_id == Recording.id,
+        ).where(RecordingParticipant.user_id == current_user.id)
+    dur_q = dur_q.where(Recording.status == "completed")
+
+    dur_result = await db.execute(dur_q)
+    total_duration_seconds = dur_result.scalar() or 0
+
+    return {
+        "total": total,
+        "completed": counts.get("completed", 0),
+        "processing": counts.get("queued", 0) + counts.get("transcribing", 0),
+        "failed": counts.get("failed", 0),
+        "total_duration_seconds": int(total_duration_seconds),
+    }
 
 
 # ── GET /recordings/{id} ─────────────────────────────────────

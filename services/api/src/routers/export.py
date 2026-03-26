@@ -17,7 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.database import get_db
 from src.middleware.audit import log_audit
-from src.middleware.auth import get_current_user
+from src.middleware.auth import get_current_user, check_recording_access
 from src.models.audit_log import User
 from src.models.recording import Recording
 from src.services.transcript_service import TranscriptService
@@ -92,6 +92,9 @@ async def export_transcript(
     - **txt** — text simplu, ușor de prelucrat
     """
     recording, transcript = await _get_transcript_and_recording(recording_id, db)
+
+    if not await check_recording_access(recording_id, current_user, db):
+        raise HTTPException(status_code=403, detail="Acces interzis la această înregistrare.")
 
     await log_audit(
         request, db,
