@@ -34,7 +34,7 @@ export default function RecordingDetailPage() {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const toast = useToast()
-  const [currentTime, setCurrentTime] = useState(0)
+  const currentTimeRef = useRef(0)
   const audioPlayerRef = useRef<AudioPlayerHandle>(null)
   const [exportOpen, setExportOpen] = useState(false)
   const [showDeleteDialog, setShowDeleteDialog] = useState(false)
@@ -295,7 +295,7 @@ export default function RecordingDetailPage() {
           <AudioPlayer
             ref={audioPlayerRef}
             recordingId={id!}
-            onTimeUpdate={setCurrentTime}
+            onTimeUpdate={(t) => { currentTimeRef.current = t }}
           />
         </div>
       )}
@@ -357,7 +357,7 @@ export default function RecordingDetailPage() {
           {transcript && transcript.segments && (
             <TranscriptViewer
               segments={transcript.segments}
-              currentTime={currentTime}
+              getCurrentTime={() => currentTimeRef.current}
               onSegmentClick={(t) => audioPlayerRef.current?.seek(t)}
             />
           )}
