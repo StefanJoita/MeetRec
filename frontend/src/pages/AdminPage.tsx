@@ -1,10 +1,10 @@
 import { FormEvent, useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { ShieldCheck, Activity, AlertTriangle, List, Users, UserPlus, UserX } from 'lucide-react'
+import { ShieldCheck, Activity, AlertTriangle, List, Users, UserPlus, UserX, Download, Search, X } from 'lucide-react'
 import { SkeletonTable } from '@/components/ui/Skeleton'
 import { Pagination } from '@/components/ui/Pagination'
 import type { AuditLog, PaginatedAuditLogs, PaginatedUsers, User, UserCreate, UserRole } from '@/api/types'
-import { getAuditLogs } from '@/api/auditLogs'
+import { getAuditLogs, downloadAuditLogsCsv } from '@/api/auditLogs'
 import { createUser, deleteUser, getUsers, updateUser, resetUserPassword } from '@/api/users'
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
 import { useToast } from '@/contexts/ToastContext'
@@ -87,6 +87,8 @@ export default function AdminPage() {
 
   const [page, setPage] = useState(1)
   const [actionFilter, setActionFilter] = useState('')
+  const [auditSearch, setAuditSearch] = useState('')
+  const [auditSearchInput, setAuditSearchInput] = useState('')
   const pageSize = 20
 
   const [userPage, setUserPage] = useState(1)
@@ -107,8 +109,8 @@ export default function AdminPage() {
   })
 
   const { data, isLoading, isError } = useQuery<PaginatedAuditLogs>({
-    queryKey: ['audit-logs', page],
-    queryFn: () => getAuditLogs(page, pageSize),
+    queryKey: ['audit-logs', page, auditSearch, actionFilter],
+    queryFn: () => getAuditLogs(page, pageSize, auditSearch || undefined, actionFilter || undefined),
     retry: false,
   })
 
@@ -187,12 +189,6 @@ export default function AdminPage() {
     const actionTypes = Array.from(new Set(items.map((log: AuditLog) => log.action))).sort()
     return { total, errors, actionTypes }
   }, [allData])
-
-  const filteredItems = useMemo(() => {
-    if (!data) return []
-    if (!actionFilter) return data.items
-    return data.items.filter(l => l.action === actionFilter)
-  }, [data, actionFilter])
 
   const userStats = useMemo(() => {
     if (!usersData) return null
@@ -293,30 +289,64 @@ export default function AdminPage() {
         </div>
       )}
 
-      {/* Action filter chips */}
-      {activeSection === 'audit' && stats && stats.actionTypes.length > 0 && (
-        <div className="flex flex-wrap gap-2 mb-4">
-          <button
-            onClick={() => setActionFilter('')}
-            className={[
-              'px-3 py-1.5 rounded-full text-xs font-medium border transition-colors',
-              actionFilter === '' ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-600 border-gray-300 hover:border-gray-400',
-            ].join(' ')}
-          >
-            Toate
-          </button>
-          {stats.actionTypes.map(action => (
-            <button
-              key={action}
-              onClick={() => setActionFilter(action)}
-              className={[
-                'px-3 py-1.5 rounded-full text-xs font-medium border transition-colors',
-                actionFilter === action ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-600 border-gray-300 hover:border-gray-400',
-              ].join(' ')}
+      {/* Search + Action filter chips + Export */}
+      {activeSection === 'audit' && stats && (
+        <div className="flex flex-col gap-2 mb-4">
+          <div className="flex items-center gap-2">
+            <form
+              className="relative flex-1 max-w-xs"
+              onSubmit={e => { e.preventDefault(); setAuditSearch(auditSearchInput.trim()); setPage(1) }}
             >
-              {ACTION_LABELS[action] ?? action}
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-gray-400 pointer-events-none" />
+              <input
+                value={auditSearchInput}
+                onChange={e => setAuditSearchInput(e.target.value)}
+                placeholder="Caută după utilizator sau IP…"
+                className="w-full pl-8 pr-8 py-1.5 text-sm border border-gray-300 rounded-full bg-white focus:outline-none focus:ring-2 focus:ring-blue-400 focus:border-transparent"
+              />
+              {auditSearchInput && (
+                <button
+                  type="button"
+                  onClick={() => { setAuditSearchInput(''); setAuditSearch(''); setPage(1) }}
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              )}
+            </form>
+            <button
+              onClick={() => downloadAuditLogsCsv(actionFilter || undefined)}
+              className="ml-auto inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-300 bg-white text-xs font-medium text-slate-600 hover:bg-slate-50 transition-colors"
+            >
+              <Download className="h-3.5 w-3.5" />
+              Export CSV
             </button>
-          ))}
+          </div>
+          {stats.actionTypes.length > 0 && (
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                onClick={() => { setActionFilter(''); setPage(1) }}
+                className={[
+                  'px-3 py-1.5 rounded-full text-xs font-medium border transition-colors',
+                  actionFilter === '' ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-600 border-gray-300 hover:border-gray-400',
+                ].join(' ')}
+              >
+                Toate
+              </button>
+              {stats.actionTypes.map(action => (
+                <button
+                  key={action}
+                  onClick={() => { setActionFilter(action); setPage(1) }}
+                  className={[
+                    'px-3 py-1.5 rounded-full text-xs font-medium border transition-colors',
+                    actionFilter === action ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-600 border-gray-300 hover:border-gray-400',
+                  ].join(' ')}
+                >
+                  {ACTION_LABELS[action] ?? action}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
       )}
 
@@ -342,14 +372,14 @@ export default function AdminPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-50">
-                {filteredItems.length === 0 && (
+                {data.items.length === 0 && (
                   <tr>
                     <td colSpan={5} className="px-4 py-12 text-center text-gray-400 text-sm">
                       Nu există înregistrări în jurnal.
                     </td>
                   </tr>
                 )}
-                {filteredItems.map((log: AuditLog) => {
+                {data.items.map((log: AuditLog) => {
                   const { relative, absolute } = formatRelativeTime(log.timestamp)
                   const desc = getLogDescription(log)
                   const resourceLabel = log.resource_type
