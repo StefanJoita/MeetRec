@@ -166,7 +166,29 @@ Browser / Desktop Client    Drop folder
 
 ## Quick Start
 
-**Requirements:** Docker ≥ 24.0, Docker Compose v2, 6 GB RAM, 4 GB free disk.
+### Windows (recommended)
+
+Requirements: [Docker Desktop](https://www.docker.com/products/docker-desktop/), [Git for Windows](https://git-scm.com).
+
+```powershell
+git clone https://github.com/StefanJoita/MeetRec.git
+cd MeetRec
+.\install\install.ps1
+```
+
+> If PowerShell blocks the script, run once: `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned`
+
+### Linux (Ubuntu/Debian)
+
+```bash
+git clone https://github.com/StefanJoita/MeetRec.git
+cd MeetRec
+bash install/install.sh
+```
+
+Both installers handle everything: Docker check, `.env` generation, SSL certificates, Docker build, service startup, and admin account creation.
+
+### Manual / other platforms
 
 ```bash
 # 1. Clone
@@ -175,18 +197,21 @@ cd MeetRec
 
 # 2. Configure
 cp .env.example .env
+# Edit .env: set JWT_SECRET_KEY (min 32 chars), POSTGRES_PASSWORD, SERVER_NAME
 
-# 3. Generate a secure JWT secret (required)
+# 3. Generate JWT secret
 python -c "import secrets; print(secrets.token_hex(32))"
-# Paste the output as JWT_SECRET_KEY in .env
 
-# 4. Create data directories
+# 4. SSL certificates
+bash install/scripts/gen-self-signed.sh localhost
+
+# 5. Create data directories
 mkdir -p data/inbox data/processed data/exports
 
-# 5. Start
+# 6. Start
 docker compose up --build -d
 
-# 6. Verify
+# 7. Verify
 curl http://localhost:8080/health
 # → {"status": "healthy", ...}
 ```
@@ -195,11 +220,11 @@ curl http://localhost:8080/health
 
 | Endpoint | URL |
 |---|---|
-| Web UI | `http://localhost` |
+| Web UI | `https://localhost` |
 | API docs (dev only) | `http://localhost:8080/docs` |
 | Health check | `http://localhost:8080/health` |
 
-Default credentials are set in your `.env` file. You will be prompted to change the password on first login.
+See [`docs/INSTALL.md`](docs/INSTALL.md) (Romanian) or [`docs/INSTALL.en.md`](docs/INSTALL.en.md) (English) for the full installation guide.
 
 ---
 
@@ -332,8 +357,7 @@ MeetRec/
 │   │   │   ├── models/         # SQLAlchemy ORM models
 │   │   │   ├── schemas/        # Pydantic request/response schemas
 │   │   │   └── middleware/     # JWT auth · audit logging · rate limiting
-│   │   ├── alembic/            # Database migration scripts
-│   │   └── tests/
+│   │   └── alembic/            # Database migrations (001–007)
 │   ├── ingest/                 # File watcher, validator, queue producer
 │   ├── stt-worker/             # Whisper transcription worker
 │   ├── search-indexer/         # Sentence Transformers + pgvector indexer
@@ -344,9 +368,16 @@ MeetRec/
 │       ├── components/         # AudioPlayer · TranscriptViewer · ParticipantLinker
 │       ├── api/                # Typed axios client with JWT interceptors
 │       └── contexts/           # AuthContext · ToastContext
+├── install/
+│   ├── install.ps1             # Windows automated installer
+│   ├── install.sh              # Linux automated installer
+│   └── scripts/                # gen-self-signed.sh · gen-letsencrypt.sh
+├── docs/
+│   ├── INSTALL.md              # Installation guide (Romanian)
+│   └── INSTALL.en.md           # Installation guide (English)
 ├── database/
-│   ├── init.sql                # Complete schema with indexes
-│   └── migrations/             # Incremental SQL migrations (001–005)
+│   └── init.sql                # Base schema with indexes and pgvector
+├── nginx/                      # Reverse proxy config + SSL
 ├── docker-compose.yml
 └── .env.example
 ```
@@ -371,7 +402,7 @@ MeetRec/
 | Audit log with human-readable user identity | ✅ Complete |
 | Audit retention & GDPR auto-delete | ✅ Complete |
 | Virtual scrolling (1000+ segments) | ✅ Complete |
-| Database migrations (001–005) | ✅ Complete |
+| Database migrations (001–007) | ✅ Complete |
 | Multi-segment session recording (Session Watcher + audio assembly) | ✅ Complete |
 | Desktop client integration (Electron companion app) | ✅ Complete |
 | Full session audio playback (merged WAV stored post-transcription) | ✅ Complete |
