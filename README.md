@@ -89,6 +89,9 @@ A companion **Electron desktop app** is available for conference-room deployment
 - Works with the multi-segment session API (`POST /inbox/session/{id}/complete`)
 - Queues segments locally and retries uploads if the network is temporarily unavailable
 - Designed for always-on installation in meeting rooms; no manual intervention required
+- Supports any USB audio device — select the microphone from a dropdown in the app
+
+**Recommended hardware for meeting rooms:** a USB conference microphone (e.g. Jabra Speak 510 ~€100, Jabra Speak 750 ~€200) significantly improves transcription accuracy and speaker identification for 6–15 participants compared to a built-in PC microphone. These devices connect via USB and are detected automatically by the desktop client.
 
 ---
 

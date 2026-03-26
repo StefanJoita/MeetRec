@@ -30,6 +30,28 @@ Platformă self-hosted de transcriere automată a ședințelor. Tot procesarea a
 
 > **Notă Whisper:** Modelul `medium` (implicit) procesează ~1h audio în 30–60 min pe CPU sau 3–5 min pe GPU NVIDIA. Dacă transcrierile sunt urgente, consideră un GPU sau modelul `small`.
 
+### Hardware captură audio (client desktop)
+
+Calitatea transcrierii și a diarizării vorbitorilor depinde direct de calitatea înregistrării audio.
+
+| Scenariu | Dispozitiv recomandat | Rezultat |
+|----------|-----------------------|----------|
+| 1–2 persoane, birou | Microfon PC built-in | Bun |
+| 3–5 persoane, birou mic | Microfon USB extern | Bun |
+| 6–15 persoane, sală de ședință | **Microfon de conferință USB** | Bun |
+
+**Microfoane de conferință testate și recomandate:**
+
+| Model | Preț estimat | Acoperire | Vorbitori |
+|-------|-------------|-----------|-----------|
+| Anker PowerConf S3 | ~80€ | 5m rază | până la 8 |
+| Jabra Speak 510 | ~100€ | 6m rază | până la 12 |
+| Jabra Speak 750 | ~200€ | 7m rază + beamforming | până la 15 |
+
+Microfoanele de conferință se conectează prin **USB** și apar automat în lista de dispozitive audio din clientul desktop — nu necesită configurare suplimentară.
+
+> **De ce contează:** un microfon de PC captează toți vorbitorii la distanțe și volume diferite, ceea ce degradează semnificativ atât transcrierea cât și identificarea vorbitorilor. Un microfon de conferință cu beamforming rezolvă această problemă la nivel hardware.
+
 ### Software necesar
 
 | Software | Versiune minimă | Note |

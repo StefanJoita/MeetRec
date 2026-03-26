@@ -30,6 +30,28 @@ A self-hosted automatic meeting transcription platform. All audio processing run
 
 > **Whisper note:** The `medium` model (default) processes ~1h of audio in 30–60 min on CPU or 3–5 min on an NVIDIA GPU. If transcription speed matters, consider a GPU or the `small` model.
 
+### Audio Capture Hardware (desktop client)
+
+Transcription and speaker diarization quality depends directly on the quality of the audio recording.
+
+| Scenario | Recommended device | Result |
+|----------|--------------------|--------|
+| 1–2 people, desk | Built-in PC microphone | Good |
+| 3–5 people, small office | External USB microphone | Good |
+| 6–15 people, meeting room | **USB conference microphone** | Good |
+
+**Tested and recommended conference microphones:**
+
+| Model | Estimated price | Coverage | Speakers |
+|-------|----------------|----------|----------|
+| Anker PowerConf S3 | ~€80 | 5m radius | up to 8 |
+| Jabra Speak 510 | ~€100 | 6m radius | up to 12 |
+| Jabra Speak 750 | ~€200 | 7m radius + beamforming | up to 15 |
+
+Conference microphones connect via **USB** and appear automatically in the desktop client's audio device list — no additional configuration required.
+
+> **Why it matters:** a PC microphone picks up all speakers at different distances and volumes, significantly degrading both transcription quality and speaker identification. A conference microphone with beamforming solves this at the hardware level.
+
 ### Required Software
 
 | Software | Minimum Version | Notes |
