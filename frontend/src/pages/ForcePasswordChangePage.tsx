@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useForm } from 'react-hook-form'
+import { useForm, useWatch } from 'react-hook-form'
 import { Mic2 } from 'lucide-react'
 import { Navigate } from 'react-router-dom'
 
@@ -12,21 +12,33 @@ interface PasswordForm {
   confirmPassword: string
 }
 
+function passwordStrength(pw: string): { score: number; label: string; color: string } {
+  if (!pw) return { score: 0, label: '', color: '' }
+  let score = 0
+  if (pw.length >= 8) score++
+  if (pw.length >= 12) score++
+  if (/[A-Z]/.test(pw)) score++
+  if (/[0-9]/.test(pw)) score++
+  if (/[^A-Za-z0-9]/.test(pw)) score++
+  if (score <= 1) return { score, label: 'Slabă', color: 'bg-rose-500' }
+  if (score <= 2) return { score, label: 'Acceptabilă', color: 'bg-amber-400' }
+  if (score <= 3) return { score, label: 'Bună', color: 'bg-yellow-400' }
+  if (score === 4) return { score, label: 'Puternică', color: 'bg-emerald-500' }
+  return { score, label: 'Excelentă', color: 'bg-emerald-600' }
+}
+
 export default function ForcePasswordChangePage() {
   const { user, refreshUser } = useAuth()
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
 
-  const { register, handleSubmit, formState: { isSubmitting } } = useForm<PasswordForm>()
+  const { register, handleSubmit, formState: { isSubmitting, errors }, control, getValues } = useForm<PasswordForm>()
+  const newPassword = useWatch({ control, name: 'newPassword', defaultValue: '' })
+  const strength = passwordStrength(newPassword)
 
   async function onSubmit(data: PasswordForm) {
     setError('')
     setSuccess('')
-
-    if (data.newPassword !== data.confirmPassword) {
-      setError('Parolele noi nu coincid.')
-      return
-    }
 
     try {
       await changePasswordFirstLogin(data.currentPassword, data.newPassword)
@@ -58,31 +70,68 @@ export default function ForcePasswordChangePage() {
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1.5">Parolă curentă</label>
             <input
-              {...register('currentPassword', { required: true })}
+              {...register('currentPassword', { required: 'Parola curentă este obligatorie.' })}
               type="password"
               autoComplete="current-password"
-              className="w-full px-3.5 py-2.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className={`w-full px-3.5 py-2.5 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 ${errors.currentPassword ? 'border-red-400' : 'border-gray-300'}`}
             />
+            {errors.currentPassword && (
+              <p className="mt-1.5 text-xs text-red-600">{errors.currentPassword.message}</p>
+            )}
           </div>
 
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1.5">Parolă nouă</label>
             <input
-              {...register('newPassword', { required: true, minLength: 8 })}
+              {...register('newPassword', {
+                required: 'Parola nouă este obligatorie.',
+                minLength: { value: 8, message: 'Parola trebuie să aibă cel puțin 8 caractere.' },
+              })}
               type="password"
               autoComplete="new-password"
-              className="w-full px-3.5 py-2.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className={`w-full px-3.5 py-2.5 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 ${errors.newPassword ? 'border-red-400' : 'border-gray-300'}`}
             />
+            {errors.newPassword && (
+              <p className="mt-1.5 text-xs text-red-600">{errors.newPassword.message}</p>
+            )}
+            {newPassword && (
+              <div className="mt-2 space-y-1">
+                <div className="flex gap-1">
+                  {[1, 2, 3, 4, 5].map(i => (
+                    <div
+                      key={i}
+                      className={`h-1 flex-1 rounded-full transition-all duration-300 ${
+                        i <= strength.score ? strength.color : 'bg-gray-200'
+                      }`}
+                    />
+                  ))}
+                </div>
+                <p className={`text-xs font-medium ${
+                  strength.score <= 1 ? 'text-rose-500'
+                  : strength.score <= 2 ? 'text-amber-500'
+                  : strength.score <= 3 ? 'text-yellow-600'
+                  : 'text-emerald-600'
+                }`}>
+                  {strength.label}
+                </p>
+              </div>
+            )}
           </div>
 
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1.5">Confirmă parola nouă</label>
             <input
-              {...register('confirmPassword', { required: true, minLength: 8 })}
+              {...register('confirmPassword', {
+                required: 'Confirmarea parolei este obligatorie.',
+                validate: value => value === getValues('newPassword') || 'Parolele noi nu coincid.',
+              })}
               type="password"
               autoComplete="new-password"
-              className="w-full px-3.5 py-2.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className={`w-full px-3.5 py-2.5 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 ${errors.confirmPassword ? 'border-red-400' : 'border-gray-300'}`}
             />
+            {errors.confirmPassword && (
+              <p className="mt-1.5 text-xs text-red-600">{errors.confirmPassword.message}</p>
+            )}
           </div>
 
           {error && (
