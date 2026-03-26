@@ -1,16 +1,27 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import { Link } from 'react-router-dom'
-import { Search, Clock, Loader2, Sparkles } from 'lucide-react'
+import { Search, Clock, Loader2, Sparkles, SlidersHorizontal, X } from 'lucide-react'
 import DOMPurify from 'dompurify'
-import { searchCombined } from '@/api/search'
+import { searchCombined, type SearchFilters } from '@/api/search'
 import { EmptyState } from '@/components/ui/EmptyState'
+import { cn } from '@/lib/cn'
 import type { CombinedSearchResult, CombinedSearchResponse } from '@/api/types'
+
+const DURATION_OPTIONS = [
+  { label: 'Orice durată', value: 0 },
+  { label: '> 5 minute',   value: 300 },
+  { label: '> 15 minute',  value: 900 },
+  { label: '> 30 minute',  value: 1800 },
+  { label: '> 1 oră',      value: 3600 },
+]
 
 export default function SearchPage() {
   const [query, setQuery]       = useState('')
   const [response, setResponse] = useState<CombinedSearchResponse | null>(null)
   const [loading, setLoading]   = useState(false)
   const [error, setError]       = useState('')
+  const [filtersOpen, setFiltersOpen] = useState(false)
+  const [filters, setFilters]   = useState<SearchFilters>({})
   const inputRef    = useRef<HTMLInputElement>(null)
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
@@ -19,12 +30,14 @@ export default function SearchPage() {
     return () => { if (debounceRef.current) clearTimeout(debounceRef.current) }
   }, [])
 
-  const runSearch = useCallback(async (q: string) => {
+  const hasActiveFilters = !!(filters.date_from || filters.date_to || filters.location || filters.min_duration)
+
+  const runSearch = useCallback(async (q: string, activeFilters: SearchFilters = {}) => {
     if (!q.trim()) { setResponse(null); return }
     setLoading(true)
     setError('')
     try {
-      const data = await searchCombined(q.trim())
+      const data = await searchCombined(q.trim(), 20, activeFilters)
       setResponse(data)
     } catch {
       setError('Nu am putut efectua căutarea. Încearcă din nou.')
@@ -39,13 +52,29 @@ export default function SearchPage() {
     if (debounceRef.current) clearTimeout(debounceRef.current)
     if (!val.trim()) { setResponse(null); setLoading(false); return }
     setLoading(true)
-    debounceRef.current = setTimeout(() => runSearch(val), 300)
+    debounceRef.current = setTimeout(() => runSearch(val, filters), 300)
   }
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     if (debounceRef.current) clearTimeout(debounceRef.current)
-    runSearch(query)
+    runSearch(query, filters)
+  }
+
+  function handleFilterChange(patch: Partial<SearchFilters>) {
+    const next = { ...filters, ...patch }
+    // Curăță valorile goale
+    Object.keys(next).forEach(k => {
+      const key = k as keyof SearchFilters
+      if (!next[key]) delete next[key]
+    })
+    setFilters(next)
+    if (query.trim()) runSearch(query, next)
+  }
+
+  function clearFilters() {
+    setFilters({})
+    if (query.trim()) runSearch(query, {})
   }
 
   return (
@@ -56,7 +85,7 @@ export default function SearchPage() {
       </div>
 
       {/* Search bar */}
-      <form onSubmit={handleSubmit} className="mb-6">
+      <form onSubmit={handleSubmit} className="mb-3">
         <div className="relative">
           <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-slate-400 pointer-events-none" />
           <input
@@ -65,15 +94,92 @@ export default function SearchPage() {
             onChange={handleQueryChange}
             placeholder="Caută în toate transcrierile..."
             aria-label="Caută în transcrieri"
-            className="w-full pl-12 pr-12 py-3.5 border border-slate-300 rounded-xl text-sm bg-white
+            className="w-full pl-12 pr-28 py-3.5 border border-slate-300 rounded-xl text-sm bg-white
                        focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500
                        shadow-sm placeholder:text-slate-400 transition"
           />
-          {loading && (
-            <Loader2 className="absolute right-4 top-1/2 -translate-y-1/2 h-5 w-5 text-primary-500 animate-spin pointer-events-none" />
-          )}
+          <div className="absolute right-3 top-1/2 -translate-y-1/2 flex items-center gap-2">
+            {loading && <Loader2 className="h-5 w-5 text-primary-500 animate-spin" />}
+            <button
+              type="button"
+              onClick={() => setFiltersOpen(v => !v)}
+              className={cn(
+                'inline-flex items-center gap-1.5 text-xs font-medium px-2.5 py-1.5 rounded-lg border transition-colors',
+                filtersOpen || hasActiveFilters
+                  ? 'bg-primary-50 border-primary-300 text-primary-700'
+                  : 'bg-white border-slate-200 text-slate-500 hover:border-slate-300'
+              )}
+            >
+              <SlidersHorizontal className="h-3.5 w-3.5" />
+              Filtre
+              {hasActiveFilters && (
+                <span className="h-1.5 w-1.5 rounded-full bg-primary-500 inline-block" />
+              )}
+            </button>
+          </div>
         </div>
       </form>
+
+      {/* Advanced filters panel */}
+      {filtersOpen && (
+        <div className="mb-5 p-4 bg-slate-50 border border-slate-200 rounded-xl animate-slide-up space-y-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            {/* Date range */}
+            <div>
+              <label className="block text-xs font-medium text-slate-600 mb-1">De la data</label>
+              <input
+                type="date"
+                value={filters.date_from ?? ''}
+                onChange={e => handleFilterChange({ date_from: e.target.value || undefined })}
+                className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-primary-400"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-slate-600 mb-1">Până la data</label>
+              <input
+                type="date"
+                value={filters.date_to ?? ''}
+                onChange={e => handleFilterChange({ date_to: e.target.value || undefined })}
+                className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-primary-400"
+              />
+            </div>
+            {/* Location */}
+            <div>
+              <label className="block text-xs font-medium text-slate-600 mb-1">Locație</label>
+              <input
+                type="text"
+                value={filters.location ?? ''}
+                onChange={e => handleFilterChange({ location: e.target.value || undefined })}
+                placeholder="ex. Sala Mare"
+                className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-primary-400"
+              />
+            </div>
+            {/* Min duration */}
+            <div>
+              <label className="block text-xs font-medium text-slate-600 mb-1">Durată minimă</label>
+              <select
+                value={filters.min_duration ?? 0}
+                onChange={e => handleFilterChange({ min_duration: Number(e.target.value) || undefined })}
+                className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-primary-400"
+              >
+                {DURATION_OPTIONS.map(opt => (
+                  <option key={opt.value} value={opt.value}>{opt.label}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          {hasActiveFilters && (
+            <button
+              onClick={clearFilters}
+              className="inline-flex items-center gap-1.5 text-xs text-slate-500 hover:text-rose-600 transition-colors"
+            >
+              <X className="h-3.5 w-3.5" />
+              Resetează filtrele
+            </button>
+          )}
+        </div>
+      )}
 
       {error && (
         <div className="card p-4 text-sm text-rose-600 bg-rose-50 border-rose-200 mb-4">
