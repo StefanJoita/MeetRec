@@ -17,7 +17,7 @@ import { SkeletonCard } from '@/components/ui/Skeleton'
 import { Tooltip } from '@/components/ui/Tooltip'
 import { useToast } from '@/contexts/ToastContext'
 import { useAuth } from '@/contexts/AuthContext'
-import AudioPlayer from '@/components/AudioPlayer'
+import AudioPlayer, { type AudioPlayerHandle } from '@/components/AudioPlayer'
 import TranscriptViewer from '@/components/TranscriptViewer'
 import TranscriptionProgress from '@/components/recording/TranscriptionProgress'
 import ParticipantLinker from '@/components/ParticipantLinker'
@@ -35,7 +35,7 @@ export default function RecordingDetailPage() {
   const queryClient = useQueryClient()
   const toast = useToast()
   const [currentTime, setCurrentTime] = useState(0)
-  const [seekTo, setSeekTo] = useState<number | null>(null)
+  const audioPlayerRef = useRef<AudioPlayerHandle>(null)
   const [exportOpen, setExportOpen] = useState(false)
   const [showDeleteDialog, setShowDeleteDialog] = useState(false)
   const [copied, setCopied] = useState(false)
@@ -293,9 +293,9 @@ export default function RecordingDetailPage() {
       {recording.status === 'completed' && (
         <div className="sticky top-0 z-10 bg-slate-50/95 backdrop-blur-sm py-3 -mx-6 px-6 border-b border-slate-200 mb-6 shadow-sm">
           <AudioPlayer
+            ref={audioPlayerRef}
             recordingId={id!}
             onTimeUpdate={setCurrentTime}
-            seekTo={seekTo}
           />
         </div>
       )}
@@ -358,7 +358,7 @@ export default function RecordingDetailPage() {
             <TranscriptViewer
               segments={transcript.segments}
               currentTime={currentTime}
-              onSegmentClick={(t) => setSeekTo(t)}
+              onSegmentClick={(t) => audioPlayerRef.current?.seek(t)}
             />
           )}
 

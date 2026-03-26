@@ -1,4 +1,4 @@
-import { useRef, useState, useEffect, useCallback } from 'react'
+import { useRef, useState, useEffect, useCallback, forwardRef, useImperativeHandle } from 'react'
 import { Play, Pause, Volume2, VolumeX, SkipBack, SkipForward } from 'lucide-react'
 import { cn } from '@/lib/cn'
 import { formatTime } from '@/lib/formatTime'
@@ -7,14 +7,24 @@ import { getAudioToken, buildAudioUrl } from '@/api/recordings'
 interface AudioPlayerProps {
   recordingId: string
   onTimeUpdate?: (currentTime: number) => void
-  seekTo?: number | null
+}
+
+export interface AudioPlayerHandle {
+  seek: (time: number) => void
 }
 
 const SPEEDS   = [0.75, 1, 1.25, 1.5, 2]
 const SKIP_SEC = 15
 
-export default function AudioPlayer({ recordingId, onTimeUpdate, seekTo }: AudioPlayerProps) {
+const AudioPlayer = forwardRef<AudioPlayerHandle, AudioPlayerProps>(function AudioPlayer(
+  { recordingId, onTimeUpdate },
+  ref,
+) {
   const audioRef    = useRef<HTMLAudioElement>(null)
+  const rafRef      = useRef<number | null>(null)
+  const onTimeUpdateRef = useRef(onTimeUpdate)
+  onTimeUpdateRef.current = onTimeUpdate
+
   const [playing, setPlaying]     = useState(false)
   const [currentTime, setCurrentTime] = useState(0)
   const [duration, setDuration]   = useState(0)
@@ -32,13 +42,24 @@ export default function AudioPlayer({ recordingId, onTimeUpdate, seekTo }: Audio
       .catch(() => setError(true))
   }, [recordingId])
 
-  useEffect(() => {
-    if (seekTo !== null && seekTo !== undefined && audioRef.current) {
-      audioRef.current.currentTime = seekTo
-      audioRef.current.play()
-      setPlaying(true)
-    }
-  }, [seekTo])
+  useImperativeHandle(ref, () => ({
+    seek(time: number) {
+      const audio = audioRef.current
+      if (!audio) return
+
+      const doSeek = () => {
+        audio.currentTime = time
+        audio.play().catch(() => {})
+        setPlaying(true)
+      }
+
+      if (audio.readyState >= HTMLMediaElement.HAVE_METADATA) {
+        doSeek()
+      } else {
+        audio.addEventListener('loadedmetadata', doSeek, { once: true })
+      }
+    },
+  }))
 
   useEffect(() => {
     setError(false)
@@ -47,11 +68,28 @@ export default function AudioPlayer({ recordingId, onTimeUpdate, seekTo }: Audio
     setDuration(0)
   }, [recordingId])
 
+  // RAF loop — actualizare la 60fps cât timp audio-ul e în redare
+  useEffect(() => {
+    if (!playing) {
+      if (rafRef.current) cancelAnimationFrame(rafRef.current)
+      return
+    }
+    const tick = () => {
+      const t = audioRef.current?.currentTime ?? 0
+      setCurrentTime(t)
+      onTimeUpdateRef.current?.(t)
+      rafRef.current = requestAnimationFrame(tick)
+    }
+    rafRef.current = requestAnimationFrame(tick)
+    return () => { if (rafRef.current) cancelAnimationFrame(rafRef.current) }
+  }, [playing])
+
   const handleTimeUpdate = useCallback(() => {
+    // Fallback pentru when RAF nu rulează (pauză, seek manual)
     const t = audioRef.current?.currentTime ?? 0
     setCurrentTime(t)
-    onTimeUpdate?.(t)
-  }, [onTimeUpdate])
+    onTimeUpdateRef.current?.(t)
+  }, [])
 
   const handleLoadedMetadata = () => {
     setDuration(audioRef.current?.duration ?? 0)
@@ -213,4 +251,6 @@ export default function AudioPlayer({ recordingId, onTimeUpdate, seekTo }: Audio
       </div>
     </div>
   )
-}
+})
+
+export default AudioPlayer
