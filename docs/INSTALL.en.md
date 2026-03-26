@@ -63,14 +63,14 @@ Requirements: Windows 10/11, [Docker Desktop](https://www.docker.com/products/do
 ```powershell
 git clone https://github.com/StefanJoita/MeetRec.git
 cd MeetRec
-.\install.ps1
+.\install\install.ps1
 ```
 
 The installer accepts optional parameters to skip prompts:
 
 ```powershell
-.\install.ps1 -NonInteractive
-.\install.ps1 -Domain meetrec.local -WhisperModel small -AdminUser admin -AdminEmail admin@company.com -AdminPassword "S3cur3Pass!"
+.\install\install.ps1 -NonInteractive
+.\install\install.ps1 -Domain meetrec.local -WhisperModel small -AdminUser admin -AdminEmail admin@company.com -AdminPassword "S3cur3Pass!"
 ```
 
 The script will:
@@ -101,7 +101,7 @@ cd MeetRec
 ### Step 2 — Run the installer
 
 ```bash
-bash install.sh
+bash install/install.sh
 ```
 
 The installer will:
@@ -118,7 +118,7 @@ The installer will:
 For CI/CD or to use all defaults:
 
 ```bash
-bash install.sh --non-interactive
+bash install/install.sh --non-interactive
 ```
 
 ---
@@ -198,11 +198,11 @@ mkdir -p data/inbox data/processed data/exports
 
 ```bash
 # localhost or IP
-bash scripts/gen-self-signed.sh localhost
-bash scripts/gen-self-signed.sh 192.168.1.100
+bash install/scripts/gen-self-signed.sh localhost
+bash install/scripts/gen-self-signed.sh 192.168.1.100
 
 # or with a domain
-bash scripts/gen-self-signed.sh meetrec.company.com
+bash install/scripts/gen-self-signed.sh meetrec.company.com
 ```
 
 > Your browser will show a security warning. Click **Advanced → Proceed**. The warning can be removed by adding the certificate to your system's trusted store.
@@ -212,12 +212,12 @@ bash scripts/gen-self-signed.sh meetrec.company.com
 Requirement: the server must be publicly reachable on port 80.
 
 ```bash
-bash scripts/gen-letsencrypt.sh meetrec.company.com admin@company.com
+bash install/scripts/gen-letsencrypt.sh meetrec.company.com admin@company.com
 ```
 
 Let's Encrypt certificates are valid for 90 days. For automatic renewal, add to crontab:
 ```bash
-0 3 1 * * bash /path/to/MeetRec/scripts/gen-letsencrypt.sh meetrec.company.com admin@company.com && docker compose restart nginx
+0 3 1 * * bash /path/to/MeetRec/install/scripts/gen-letsencrypt.sh meetrec.company.com admin@company.com && docker compose restart nginx
 ```
 
 ### Step 6 — Build Docker images
@@ -297,10 +297,10 @@ asyncio.run(run())
 
 ```bash
 # Specific IP
-bash scripts/gen-self-signed.sh 192.168.1.100
+bash install/scripts/gen-self-signed.sh 192.168.1.100
 
 # Internal domain
-bash scripts/gen-self-signed.sh meetrec.local
+bash install/scripts/gen-self-signed.sh meetrec.local
 
 # Apply the new certificates
 docker compose restart nginx
@@ -510,7 +510,7 @@ If you're using self-signed certificates and a non-browser client returns this e
 ls -la nginx/ssl/
 
 # Regenerate if missing
-bash scripts/gen-self-signed.sh localhost
+bash install/scripts/gen-self-signed.sh localhost
 docker compose restart nginx
 ```
 
