@@ -56,6 +56,39 @@ Make sure these ports are open in your server's firewall.
 
 ## 2. Automatic Installation (recommended)
 
+### Windows (PowerShell)
+
+Requirements: Windows 10/11, [Docker Desktop](https://www.docker.com/products/docker-desktop/), [Git for Windows](https://git-scm.com) (includes openssl).
+
+```powershell
+git clone https://github.com/StefanJoita/MeetRec.git
+cd MeetRec
+.\install.ps1
+```
+
+The installer accepts optional parameters to skip prompts:
+
+```powershell
+.\install.ps1 -NonInteractive
+.\install.ps1 -Domain meetrec.local -WhisperModel small -AdminUser admin -AdminEmail admin@company.com -AdminPassword "S3cur3Pass!"
+```
+
+The script will:
+1. Verify Docker Desktop is installed and running
+2. Ask for domain, Whisper model, and admin credentials
+3. Generate `.env` with secure random JWT key and DB password
+4. Create data directories (`data/inbox`, `data/processed`, `data/exports`)
+5. Generate self-signed SSL certificates
+6. Build Docker images (~20–40 min on first run)
+7. Start all services and wait for health checks
+8. Create the administrator account
+
+> If PowerShell blocks the script, run once: `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned`
+
+---
+
+### Linux (Ubuntu/Debian)
+
 Works on **Ubuntu 20.04/22.04/24.04** and **Debian 11/12**.
 
 ### Step 1 — Clone the repository
