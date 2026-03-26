@@ -59,6 +59,10 @@ class SearchService:
         offset: int = 0,
         language: Optional[str] = None,
         current_user: Optional[User] = None,
+        date_from: Optional[str] = None,
+        date_to: Optional[str] = None,
+        location: Optional[str] = None,
+        min_duration: Optional[int] = None,
     ) -> Tuple[List[SearchResult], int]:
         """
         Returns (results, total_count).
@@ -72,12 +76,19 @@ class SearchService:
         - "hotărâre consiliu" → caută ambele cuvinte
         Nu folosim to_tsquery care necesită sintaxă specială (& | !).
         """
-        lang_filter = "AND t.language = :language" if language else ""
+        lang_filter      = "AND t.language = :language" if language else ""
+        date_from_filter = "AND r.meeting_date >= :date_from" if date_from else ""
+        date_to_filter   = "AND r.meeting_date <= :date_to"   if date_to   else ""
+        location_filter  = "AND r.location ILIKE :location"   if location  else ""
+        duration_filter  = "AND r.duration_seconds >= :min_duration" if min_duration else ""
         participant_sql, participant_params = _participant_filter_sql(current_user)
 
         params: dict = {"query": query, "limit": limit, "offset": offset}
-        if language:
-            params["language"] = language
+        if language:     params["language"]     = language
+        if date_from:    params["date_from"]    = date_from
+        if date_to:      params["date_to"]      = date_to
+        if location:     params["location"]     = f"%{location}%"
+        if min_duration: params["min_duration"] = min_duration
         params.update(participant_params)
 
         # ── Query 1: numărul total de rezultate (pentru paginare) ──────────
@@ -90,6 +101,10 @@ class SearchService:
                 t.status = 'completed'
                 AND seg.search_vector @@ plainto_tsquery('romanian', :query)
                 {lang_filter}
+                {date_from_filter}
+                {date_to_filter}
+                {location_filter}
+                {duration_filter}
                 {participant_sql}
         """)
         total_count: int = (await self.db.scalar(count_sql, params)) or 0
@@ -118,6 +133,10 @@ class SearchService:
                 t.status = 'completed'
                 AND seg.search_vector @@ plainto_tsquery('romanian', :query)
                 {lang_filter}
+                {date_from_filter}
+                {date_to_filter}
+                {location_filter}
+                {duration_filter}
                 {participant_sql}
             ORDER BY rank DESC, r.meeting_date DESC
             LIMIT :limit OFFSET :offset
@@ -152,6 +171,10 @@ class SearchService:
         query: str,
         limit: int = 20,
         current_user: Optional[User] = None,
+        date_from: Optional[str] = None,
+        date_to: Optional[str] = None,
+        location: Optional[str] = None,
+        min_duration: Optional[int] = None,
     ) -> Tuple[List[SemanticSearchResult], int]:
         """
         Căutare semantică folosind embeddings vectoriale (pgvector).
@@ -178,6 +201,11 @@ class SearchService:
         vector_literal = "[" + ",".join(f"{x:.8f}" for x in embedding) + "]"
         participant_sql, participant_params = _participant_filter_sql(current_user)
 
+        date_from_filter = "AND r.meeting_date >= :date_from" if date_from else ""
+        date_to_filter   = "AND r.meeting_date <= :date_to"   if date_to   else ""
+        location_filter  = "AND r.location ILIKE :location"   if location  else ""
+        duration_filter  = "AND r.duration_seconds >= :min_duration" if min_duration else ""
+
         sql = text(f"""
             SELECT
                 r.id            AS recording_id,
@@ -195,12 +223,20 @@ class SearchService:
                 t.status = 'completed'
                 AND seg.embedding IS NOT NULL
                 AND 1 - (seg.embedding <=> '{vector_literal}'::vector) > 0.3
+                {date_from_filter}
+                {date_to_filter}
+                {location_filter}
+                {duration_filter}
                 {participant_sql}
             ORDER BY seg.embedding <=> '{vector_literal}'::vector ASC
             LIMIT :limit
         """)
 
-        sem_params = {"limit": limit}
+        sem_params: dict = {"limit": limit}
+        if date_from:    sem_params["date_from"]    = date_from
+        if date_to:      sem_params["date_to"]      = date_to
+        if location:     sem_params["location"]     = f"%{location}%"
+        if min_duration: sem_params["min_duration"] = min_duration
         sem_params.update(participant_params)
         result = await self.db.execute(sql, sem_params)
         rows = result.mappings().all()
@@ -226,6 +262,10 @@ class SearchService:
         query: str,
         limit: int = 20,
         current_user: Optional[User] = None,
+        date_from: Optional[str] = None,
+        date_to: Optional[str] = None,
+        location: Optional[str] = None,
+        min_duration: Optional[int] = None,
     ) -> Tuple[List[CombinedSearchResult], dict]:
         """
         Rulează FTS și semantic în paralel și merge rezultatele.
@@ -236,8 +276,9 @@ class SearchService:
 
         Sortare: 'both' primele (cele mai relevante), apoi rank/similarity descrescător.
         """
-        fts_task = self.search(query=query, limit=limit, current_user=current_user)
-        sem_task = self.semantic_search(query=query, limit=limit, current_user=current_user)
+        filter_kwargs = dict(date_from=date_from, date_to=date_to, location=location, min_duration=min_duration)
+        fts_task = self.search(query=query, limit=limit, current_user=current_user, **filter_kwargs)
+        sem_task = self.semantic_search(query=query, limit=limit, current_user=current_user, **filter_kwargs)
 
         (fts_results, _), (sem_results, _) = await asyncio.gather(fts_task, sem_task)
 
