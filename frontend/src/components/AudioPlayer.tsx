@@ -21,7 +21,7 @@ const AudioPlayer = forwardRef<AudioPlayerHandle, AudioPlayerProps>(function Aud
   ref,
 ) {
   const audioRef    = useRef<HTMLAudioElement>(null)
-  const rafRef      = useRef<number | null>(null)
+  const rafRef          = useRef<number | null>(null)
   const onTimeUpdateRef = useRef(onTimeUpdate)
   onTimeUpdateRef.current = onTimeUpdate
 
@@ -206,7 +206,7 @@ const AudioPlayer = forwardRef<AudioPlayerHandle, AudioPlayerProps>(function Aud
           >
             {/* Fill */}
             <div
-              className="h-2 bg-primary-600 rounded-full transition-all pointer-events-none"
+              className="h-2 bg-primary-600 rounded-full pointer-events-none"
               style={{ width: `${progress}%` }}
               aria-hidden="true"
             />
