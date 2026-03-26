@@ -15,7 +15,7 @@
 
 # Prima instalare completă (Ubuntu/Debian)
 install:
-	@bash install.sh
+	@bash install/install.sh
 
 # Afișează ajutor (rulat și cu "make" fără argumente)
 help:
@@ -174,7 +174,7 @@ clean-all:
 # Generează certificate SSL self-signed (pentru LAN/intranet)
 # Folosire: make ssl-self-signed  sau  make ssl-self-signed HOST=192.168.1.100
 ssl-self-signed:
-	@bash scripts/gen-self-signed.sh $(HOST)
+	@bash install/scripts/gen-self-signed.sh $(HOST)
 	@echo ""
 	@echo "  Repornește nginx pentru a aplica certificatele:"
 	@echo "  docker compose restart nginx"
