@@ -182,6 +182,11 @@ services:
     build:
       context: ./services/stt-worker
       dockerfile: Dockerfile
+      args:
+        # HF_TOKEN: necesar DOAR la build pentru descărcarea modelului pyannote
+        # La runtime containerul rulează complet offline
+        HF_TOKEN: ${HF_TOKEN:-}
+        WHISPER_MODEL: ${WHISPER_MODEL:-medium}
     container_name: mt-stt-worker
     restart: unless-stopped
     environment:
@@ -191,14 +196,18 @@ services:
       WHISPER_MODEL: ${WHISPER_MODEL}
       WHISPER_PRIMARY_LANGUAGE: ${WHISPER_PRIMARY_LANGUAGE}
       WHISPER_MODEL_PATH: ${WHISPER_MODEL_PATH}
+      WHISPER_COMPUTE_TYPE: ${WHISPER_COMPUTE_TYPE:-int8}
+      DIARIZATION_ENABLED: ${DIARIZATION_ENABLED:-false}
+      MIN_SPEAKERS: ${MIN_SPEAKERS:-}
+      MAX_SPEAKERS: ${MAX_SPEAKERS:-}
+      HF_HUB_OFFLINE: 1
       DATABASE_URL: ${DATABASE_URL}
       API_URL: http://api:8080    # comunică intern cu API-ul
       LOG_LEVEL: ${LOG_LEVEL}
       TZ: Europe/Bucharest
     volumes:
       - audio_storage:/data/processed:rw   # :rw = poate scrie fișierul merged al sesiunii
-      # Modelele Whisper (descărcate o singură dată, stocate persistent)
-      - whisper_models:/app/models
+      # Modelele WhisperX (baked în imagine la build, nu mai e nevoie de volum extern)
       - ./services/stt-worker/src:/app/src
     networks:
       - backend-network
@@ -343,8 +352,7 @@ volumes:
     driver: local
   export_storage:     # fișierele exportate (PDF, DOCX)
     driver: local
-  whisper_models:     # modelele AI (~1.5GB) — descărcate o dată
-    driver: local
+  # whisper_models: eliminat — modelele WhisperX sunt acum baked în imagine la build
   embedding_models:   # modelul de embeddings semantice (~120MB) — descărcat o dată
     driver: local
 

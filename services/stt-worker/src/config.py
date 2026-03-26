@@ -1,3 +1,4 @@
+from typing import Optional
 # services/stt-worker/src/config.py
 # ============================================================
 # Configurarea STT Worker — citit din variabile de mediu
@@ -58,9 +59,18 @@ class Settings(BaseSettings):
     whisper_primary_language: str = "ro"
 
     # Câte joburi simultan (1 = procesare serială)
-    # În viitor: asyncio.Semaphore(concurrency) pentru paralel
     stt_worker_concurrency: int = 1
 
+
+    # Tipul de calcul pentru faster-whisper (CTranslate2)
+    # "int8" cel mai rapid pe CPU, "float32" mai compatibil
+    whisper_compute_type: str = "int8"
+
+    # --- Diarizare vorbitori ---
+    diarization_enabled: bool = False
+    hf_token: str = ""
+    min_speakers: Optional[int] = None
+    max_speakers: Optional[int] = None
     # --- Logging ---
     log_level: str = "INFO"
 

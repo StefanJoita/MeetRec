@@ -13,10 +13,10 @@
 # ============================================================
 
 # --- STT ---
-openai-whisper          # Whisper STT (include ffmpeg-python ca dep.)
-numpy==1.26.4           # torch 2.1.0 is incompatible with numpy 2.x
+whisperx
 pydub==0.25.1           # Concatenare fișiere audio pentru session assembly (folosește ffmpeg din sistem)
-# torch e instalat separat în Dockerfile cu --extra-index-url pentru CPU-only
+# whisperx include faster-whisper, wav2vec2 alignment si pyannote.audio
+# torch+torchaudio sunt instalate în Dockerfile (CPU-only) ÎNAINTEA acestor dependențe
 
 # --- DATABASE ---
 asyncpg==0.29.0         # Driver PostgreSQL async (cel mai rapid disponibil)
