@@ -76,6 +76,7 @@ frontend/.vite/
 
 # ── Generated reports & presentations ─────────────────────────
 raport.html
+docs/raport-analiza.html
 *.pptx
 *.ppt
 generate_ppt.py
