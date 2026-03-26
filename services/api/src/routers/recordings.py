@@ -4,11 +4,12 @@
 # ============================================================
 
 import mimetypes
+import os
 import uuid
 from pathlib import Path
 from typing import Optional, List
 from fastapi import APIRouter, Depends, HTTPException, Query, status, Request
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -231,13 +232,14 @@ async def get_audio_token(
     summary="Streaming fișier audio",
 )
 async def stream_audio(
+    request: Request,
     recording_id: uuid.UUID,
     token: str = Query(description="Token audio temporar obținut din /audio-token"),
     db: AsyncSession = Depends(get_db),
 ):
     """
-    Servește fișierul audio. Necesită un token audio de scurtă durată (60s)
-    obținut din GET /recordings/{id}/audio-token — nu acceptă JWT-ul principal.
+    Servește fișierul audio cu suport Range requests (seek/scrub).
+    Necesită un token audio de scurtă durată (60s) obținut din /audio-token.
     """
     decoded = decode_audio_token(token)
     if not decoded:
@@ -270,10 +272,56 @@ async def stream_audio(
         raise HTTPException(status_code=404, detail="Fișierul audio nu a fost găsit pe disc.")
 
     media_type, _ = mimetypes.guess_type(str(path))
-    return FileResponse(
-        path=str(path),
-        media_type=media_type or "audio/mpeg",
-        filename=path.name,
+    media_type = media_type or "audio/mpeg"
+    file_size = os.path.getsize(path)
+
+    range_header = request.headers.get("Range")
+
+    def iter_file(start: int, length: int):
+        with open(path, "rb") as f:
+            f.seek(start)
+            remaining = length
+            while remaining > 0:
+                chunk = f.read(min(65536, remaining))
+                if not chunk:
+                    break
+                remaining -= len(chunk)
+                yield chunk
+
+    if range_header:
+        try:
+            ranges = range_header.replace("bytes=", "").split("-")
+            start = int(ranges[0]) if ranges[0] else 0
+            end = int(ranges[1]) if len(ranges) > 1 and ranges[1] else file_size - 1
+        except (ValueError, IndexError):
+            raise HTTPException(status_code=416, detail="Range invalid.")
+
+        end = min(end, file_size - 1)
+        if start > end or start >= file_size:
+            raise HTTPException(status_code=416, detail="Range out of bounds.")
+
+        chunk_size = end - start + 1
+        return StreamingResponse(
+            iter_file(start, chunk_size),
+            status_code=206,
+            media_type=media_type,
+            headers={
+                "Content-Range": f"bytes {start}-{end}/{file_size}",
+                "Accept-Ranges": "bytes",
+                "Content-Length": str(chunk_size),
+                "Content-Disposition": f'inline; filename="{path.name}"',
+            },
+        )
+
+    return StreamingResponse(
+        iter_file(0, file_size),
+        status_code=200,
+        media_type=media_type,
+        headers={
+            "Accept-Ranges": "bytes",
+            "Content-Length": str(file_size),
+            "Content-Disposition": f'inline; filename="{path.name}"',
+        },
     )
 
 
