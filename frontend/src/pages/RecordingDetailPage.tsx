@@ -4,7 +4,7 @@ import { useQuery, useMutation, useQueryClient, type Query } from '@tanstack/rea
 import axios from 'axios'
 import {
   ArrowLeft, Download, RefreshCw, Trash2,
-  Calendar, Clock, MapPin, Users, FileAudio, ChevronDown,
+  Calendar, Clock, MapPin, Users, FileAudio, ChevronDown, Check, ChevronRight,
 } from 'lucide-react'
 import client from '@/api/client'
 import { getRecording, retryTranscription, deleteRecording, getRecordingParticipants } from '@/api/recordings'
@@ -14,6 +14,7 @@ import { StatusBadge } from '@/components/ui/StatusBadge'
 import { Spinner } from '@/components/ui/Spinner'
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
 import { SkeletonCard } from '@/components/ui/Skeleton'
+import { Tooltip } from '@/components/ui/Tooltip'
 import { useToast } from '@/contexts/ToastContext'
 import { useAuth } from '@/contexts/AuthContext'
 import AudioPlayer from '@/components/AudioPlayer'
@@ -37,6 +38,7 @@ export default function RecordingDetailPage() {
   const [seekTo, setSeekTo] = useState<number | null>(null)
   const [exportOpen, setExportOpen] = useState(false)
   const [showDeleteDialog, setShowDeleteDialog] = useState(false)
+  const [copied, setCopied] = useState(false)
   const exportRef = useRef<HTMLDivElement>(null)
   const prevStatusRef = useRef<string | null>(null)
 
@@ -158,13 +160,23 @@ export default function RecordingDetailPage() {
 
   return (
     <div className="p-6 max-w-5xl mx-auto">
-      {/* Back link */}
-      <button
-        onClick={() => navigate(-1)}
-        className="inline-flex items-center gap-1.5 text-sm text-slate-500 hover:text-slate-800 mb-6 transition-colors"
-      >
-        <ArrowLeft className="h-4 w-4" /> Înapoi
-      </button>
+      {/* Breadcrumbs */}
+      <nav aria-label="Breadcrumb" className="flex items-center gap-1.5 text-sm mb-6">
+        <button
+          onClick={() => navigate(-1)}
+          className="inline-flex items-center gap-1 text-slate-500 hover:text-primary-600 transition-colors"
+        >
+          <ArrowLeft className="h-3.5 w-3.5" />
+          Înregistrări
+        </button>
+        <ChevronRight className="h-3.5 w-3.5 text-slate-300 shrink-0" />
+        <span
+          className="text-slate-800 font-medium truncate max-w-xs"
+          title={recording.title}
+        >
+          {recording.title}
+        </span>
+      </nav>
 
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4 mb-6">
@@ -226,14 +238,16 @@ export default function RecordingDetailPage() {
           )}
 
           {user?.is_admin && (
-            <button
-              onClick={() => setShowDeleteDialog(true)}
-              disabled={deleteMutation.isPending}
-              className="btn-ghost text-slate-400 hover:text-rose-500 hover:bg-rose-50"
-              aria-label="Șterge înregistrarea"
-            >
-              <Trash2 className="h-4 w-4" />
-            </button>
+            <Tooltip content="Șterge înregistrarea">
+              <button
+                onClick={() => setShowDeleteDialog(true)}
+                disabled={deleteMutation.isPending}
+                className="btn-ghost text-slate-400 hover:text-rose-500 hover:bg-rose-50"
+                aria-label="Șterge înregistrarea"
+              >
+                <Trash2 className="h-4 w-4" />
+              </button>
+            </Tooltip>
           )}
         </div>
       </div>
@@ -301,11 +315,20 @@ export default function RecordingDetailPage() {
                 onClick={() => {
                   const text = transcript.segments.map((segment: Segment) => segment.text).join('\n')
                   navigator.clipboard.writeText(text)
+                  setCopied(true)
+                  setTimeout(() => setCopied(false), 2000)
                 }}
-                className="text-xs text-primary-600 hover:text-primary-700 font-medium transition-colors"
+                className="inline-flex items-center gap-1 text-xs font-medium transition-colors text-primary-600 hover:text-primary-700"
                 aria-label="Copiază transcriptul complet"
               >
-                Copiază tot
+                {copied ? (
+                  <>
+                    <Check className="h-3.5 w-3.5 text-emerald-500" />
+                    <span className="text-emerald-500">Copiat!</span>
+                  </>
+                ) : (
+                  'Copiază tot'
+                )}
               </button>
             )}
           </div>
