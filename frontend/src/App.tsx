@@ -36,12 +36,22 @@ function AdminRoute({ children }: { children: React.ReactNode }) {
   return <>{children}</>
 }
 
+// Animated page wrapper — re-mounts on route change, triggering page-in animation
+function AnimatedPage() {
+  const location = useLocation()
+  return (
+    <div key={location.pathname} className="animate-page-in">
+      <Outlet />
+    </div>
+  )
+}
+
 // Protected layout with AppShell
 function ProtectedLayout() {
   return (
     <ProtectedRoute>
       <AppShell>
-        <Outlet />
+        <AnimatedPage />
       </AppShell>
     </ProtectedRoute>
   )

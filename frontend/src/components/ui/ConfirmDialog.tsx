@@ -53,13 +53,13 @@ export function ConfirmDialog({
     >
       {/* Overlay */}
       <div
-        className="absolute inset-0 bg-black/40"
+        className="absolute inset-0 bg-black/40 animate-fade-in"
         onClick={onClose}
         aria-hidden="true"
       />
 
       {/* Modal */}
-      <div className="relative bg-white rounded-2xl shadow-xl max-w-md w-full p-6">
+      <div className="relative bg-white rounded-2xl shadow-xl max-w-md w-full p-6 animate-scale-in">
         {/* Iconiță */}
         <div className={`mx-auto mb-4 h-12 w-12 flex items-center justify-center rounded-full ${danger ? 'bg-red-100' : 'bg-yellow-100'}`}>
           <AlertTriangle className={`h-6 w-6 ${danger ? 'text-red-600' : 'text-yellow-600'}`} />
