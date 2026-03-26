@@ -7,7 +7,7 @@ import { formatTime } from '@/lib/formatTime'
 
 interface TranscriptViewerProps {
   segments: Segment[]
-  currentTime: number
+  getCurrentTime: () => number
   onSegmentClick: (startTime: number) => void
 }
 
@@ -38,10 +38,34 @@ function HighlightedText({ text, query }: { text: string; query: string }) {
   )
 }
 
-export default function TranscriptViewer({ segments, currentTime, onSegmentClick }: TranscriptViewerProps) {
-  const activeIndex = getActiveIndex(segments, currentTime)
+export default function TranscriptViewer({ segments, getCurrentTime, onSegmentClick }: TranscriptViewerProps) {
+  const [activeIndex, setActiveIndex] = useState(-1)
   const parentRef   = useRef<HTMLDivElement>(null)
   const searchRef   = useRef<HTMLInputElement>(null)
+
+  // RAF intern — actualizează activeIndex la ~10fps fără a re-renda pagina-părinte
+  const rafRef        = useRef<number | null>(null)
+  const lastTickRef   = useRef(0)
+  const getTimeRef    = useRef(getCurrentTime)
+  getTimeRef.current  = getCurrentTime
+  const segmentsRef   = useRef(segments)
+  segmentsRef.current = segments
+
+  useEffect(() => {
+    const tick = (now: number) => {
+      if (now - lastTickRef.current >= 50) {
+        lastTickRef.current = now
+        const t = getTimeRef.current()
+        setActiveIndex(prev => {
+          const next = getActiveIndex(segmentsRef.current, t)
+          return next !== prev ? next : prev
+        })
+      }
+      rafRef.current = requestAnimationFrame(tick)
+    }
+    rafRef.current = requestAnimationFrame(tick)
+    return () => { if (rafRef.current) cancelAnimationFrame(rafRef.current) }
+  }, [])
 
   const [searchOpen,  setSearchOpen]  = useState(false)
   const [searchQuery, setSearchQuery] = useState('')

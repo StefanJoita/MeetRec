@@ -204,7 +204,7 @@ export default function RecordingsListPage() {
         <form onSubmit={handleSearchSubmit} className="relative sm:ml-auto">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400 pointer-events-none" />
           <input
-            type="search"
+            type="text"
             value={searchInput}
             onChange={e => setSearchInput(e.target.value)}
             placeholder="Caută după titlu…"
