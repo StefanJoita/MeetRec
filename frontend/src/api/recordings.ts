@@ -20,6 +20,19 @@ export interface InboxUploadResponse {
   is_new_session?: boolean | null
 }
 
+export interface RecordingStats {
+  total: number
+  completed: number
+  processing: number
+  failed: number
+  total_duration_seconds: number
+}
+
+export async function getRecordingStats(): Promise<RecordingStats> {
+  const { data } = await client.get<RecordingStats>('/recordings/stats')
+  return data
+}
+
 export async function getRecordings(params: RecordingsParams = {}): Promise<PaginatedRecordings> {
   const { data } = await client.get<PaginatedRecordings>('/recordings', { params })
   return data
