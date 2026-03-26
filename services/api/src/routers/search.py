@@ -19,6 +19,7 @@
 # ============================================================
 
 import time
+from datetime import date
 from typing import Optional
 from fastapi import APIRouter, Depends, Query, Request
 from slowapi import Limiter
@@ -127,13 +128,23 @@ async def combined_search_transcripts(
     request: Request,
     q: str = Query(min_length=2, description="Termen sau frază de căutat"),
     limit: int = Query(default=20, ge=1, le=100),
+    date_from: Optional[date] = Query(default=None, description="Data minimă ședință (YYYY-MM-DD)"),
+    date_to:   Optional[date] = Query(default=None, description="Data maximă ședință (YYYY-MM-DD)"),
+    location:  Optional[str]  = Query(default=None, description="Filtrează după locație"),
+    min_duration: Optional[int] = Query(default=None, ge=0, description="Durată minimă în secunde"),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     start = time.time()
 
     service = SearchService(db)
-    results, stats = await service.combined_search(query=q, limit=limit, current_user=current_user)
+    results, stats = await service.combined_search(
+        query=q, limit=limit, current_user=current_user,
+        date_from=str(date_from) if date_from else None,
+        date_to=str(date_to)     if date_to   else None,
+        location=location,
+        min_duration=min_duration,
+    )
 
     elapsed_ms = int((time.time() - start) * 1000)
 

@@ -293,11 +293,8 @@ async def complete_session(
             )
 
     # ── Marcare + dispatch ─────────────────────────────────────
-    # Același pattern ca Session Watcher: marchează ÎNAINTE de publish (idempotență)
-    recording.status = "transcribing"
-    recording.last_segment_at = None  # exclude din query-ul Session Watcher
-    await db.commit()
-
+    # Redis ÎNAINTE de DB: dacă Redis pică, DB rămâne 'queued' (fără commit).
+    # Session Watcher va prelua după timeout.
     try:
         r = redis_sync.from_url(
             settings.redis_url,
@@ -312,12 +309,13 @@ async def complete_session(
         r.lpush(settings.redis_transcription_queue, job)
         r.close()
     except redis_sync.RedisError as e:
-        # Rollback status — Session Watcher va prelua după timeout
-        recording.status = "queued"
-        await db.commit()
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail=f"Redis temporar indisponibil: {e}. Reîncearcă.",
         )
+
+    recording.status = "transcribing"
+    recording.last_segment_at = None  # exclude din query-ul Session Watcher
+    await db.commit()
 
     return SessionCompleteResponse(status="dispatched", recording_id=recording_id)

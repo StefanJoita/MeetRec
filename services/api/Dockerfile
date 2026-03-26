@@ -44,6 +44,7 @@ COPY --from=builder /install /usr/local
 
 # Copiem codul sursă + configurare Alembic + entrypoint
 COPY src/ ./src/
+COPY tests/ ./tests/
 COPY alembic/ ./alembic/
 COPY alembic.ini ./alembic.ini
 COPY entrypoint.sh ./entrypoint.sh
