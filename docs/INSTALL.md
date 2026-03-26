@@ -68,7 +68,7 @@ cd MeetRec
 ### Pasul 2 — Rulează installer-ul
 
 ```bash
-bash install.sh
+bash install/install.sh
 ```
 
 Installer-ul va:
@@ -85,7 +85,7 @@ Installer-ul va:
 Dacă rulezi în CI/CD sau vrei valorile implicite:
 
 ```bash
-bash install.sh --non-interactive
+bash install/install.sh --non-interactive
 ```
 
 ---
@@ -165,11 +165,11 @@ mkdir -p data/inbox data/processed data/exports
 
 ```bash
 # localhost sau IP
-bash scripts/gen-self-signed.sh localhost
-bash scripts/gen-self-signed.sh 192.168.1.100
+bash install/scripts/gen-self-signed.sh localhost
+bash install/scripts/gen-self-signed.sh 192.168.1.100
 
 # sau cu domeniu
-bash scripts/gen-self-signed.sh meetrec.companie.ro
+bash install/scripts/gen-self-signed.sh meetrec.companie.ro
 ```
 
 > Browserul va afișa un avertisment de securitate. Click **Avansat → Continuă**. Avertismentul poate fi eliminat adăugând certificatul în trusted store-ul sistemului.
@@ -179,12 +179,12 @@ bash scripts/gen-self-signed.sh meetrec.companie.ro
 Cerință: serverul trebuie să fie accesibil public pe portul 80.
 
 ```bash
-bash scripts/gen-letsencrypt.sh meetrec.companie.ro admin@companie.ro
+bash install/scripts/gen-letsencrypt.sh meetrec.companie.ro admin@companie.ro
 ```
 
 Certificatele Let's Encrypt sunt valabile 90 de zile. Pentru reînnoire automată, adaugă în crontab:
 ```bash
-0 3 1 * * bash /calea/spre/MeetRec/scripts/gen-letsencrypt.sh meetrec.companie.ro admin@companie.ro && docker compose restart nginx
+0 3 1 * * bash /calea/spre/MeetRec/install/scripts/gen-letsencrypt.sh meetrec.companie.ro admin@companie.ro && docker compose restart nginx
 ```
 
 ### Pasul 6 — Construiește imaginile Docker
@@ -264,10 +264,10 @@ asyncio.run(run())
 
 ```bash
 # IP specific
-bash scripts/gen-self-signed.sh 192.168.1.100
+bash install/scripts/gen-self-signed.sh 192.168.1.100
 
 # Domeniu intern
-bash scripts/gen-self-signed.sh meetrec.local
+bash install/scripts/gen-self-signed.sh meetrec.local
 
 # Aplică certificatele noi
 docker compose restart nginx
@@ -477,7 +477,7 @@ Dacă folosești certificate self-signed și un alt serviciu (nu browser) return
 ls -la nginx/ssl/
 
 # Regenerează dacă lipsesc
-bash scripts/gen-self-signed.sh localhost
+bash install/scripts/gen-self-signed.sh localhost
 docker compose restart nginx
 ```
 
