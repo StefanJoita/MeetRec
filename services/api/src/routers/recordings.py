@@ -47,9 +47,15 @@ def get_recording_service(db: AsyncSession = Depends(get_db)) -> RecordingServic
 
 # ── GET /recordings ──────────────────────────────────────────
 @router.get(
+    "",
+    response_model=PaginatedRecordings,
+    summary="Listează înregistrările",
+)
+@router.get(
     "/",
     response_model=PaginatedRecordings,
     summary="Listează înregistrările",
+    include_in_schema=False,
 )
 async def list_recordings(
     request: Request,

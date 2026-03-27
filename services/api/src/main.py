@@ -54,6 +54,9 @@ app = FastAPI(
     # În producție, dezactivăm /docs pentru securitate:
     docs_url="/docs" if settings.app_env == "development" else None,
     redoc_url="/redoc" if settings.app_env == "development" else None,
+    # Previne 307 redirect când ruta e apelată fără trailing slash
+    # (ex: /api/v1/recordings → /api/v1/recordings/ via Location: http://internal-host/...)
+    redirect_slashes=False,
 )
 
 # Atașăm limiter-ul la app state și handler-ul de 429
