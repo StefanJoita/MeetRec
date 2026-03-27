@@ -9,6 +9,7 @@ interface TranscriptViewerProps {
   segments: Segment[]
   getCurrentTime: () => number
   onSegmentClick: (startTime: number) => void
+  speakerMap?: Record<string, string>
 }
 
 // Culori distincte per vorbitor (rotație după index)
@@ -26,7 +27,8 @@ function getSpeakerColor(speakerId: string, allSpeakers: string[]): string {
   return SPEAKER_COLORS[idx % SPEAKER_COLORS.length]
 }
 
-function getSpeakerLabel(speakerId: string): string {
+function getSpeakerLabel(speakerId: string, speakerMap?: Record<string, string>): string {
+  if (speakerMap && speakerMap[speakerId]) return speakerMap[speakerId]
   // "SPEAKER_00" → "V1", "SPEAKER_01" → "V2" etc.
   const match = speakerId.match(/(\d+)$/)
   return match ? `V${parseInt(match[1], 10) + 1}` : speakerId
@@ -59,7 +61,7 @@ function HighlightedText({ text, query }: { text: string; query: string }) {
   )
 }
 
-export default function TranscriptViewer({ segments, getCurrentTime, onSegmentClick }: TranscriptViewerProps) {
+export default function TranscriptViewer({ segments, getCurrentTime, onSegmentClick, speakerMap }: TranscriptViewerProps) {
   const [activeIndex, setActiveIndex] = useState(-1)
   const parentRef   = useRef<HTMLDivElement>(null)
   const searchRef   = useRef<HTMLInputElement>(null)
@@ -302,9 +304,9 @@ export default function TranscriptViewer({ segments, getCurrentTime, onSegmentCl
                         'text-xs font-semibold px-1.5 py-0.5 rounded shrink-0 self-start mt-0.5',
                         getSpeakerColor(seg.speaker_id, allSpeakers)
                       )}
-                      aria-label={`Vorbitor ${getSpeakerLabel(seg.speaker_id)}`}
+                      aria-label={`Vorbitor ${getSpeakerLabel(seg.speaker_id, speakerMap)}`}
                     >
-                      {getSpeakerLabel(seg.speaker_id)}
+                      {getSpeakerLabel(seg.speaker_id, speakerMap)}
                     </span>
                   )}
                   <p className={cn('text-sm leading-relaxed', isActive ? 'text-gray-900 font-medium' : 'text-gray-700')}>

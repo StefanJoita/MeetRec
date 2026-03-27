@@ -118,6 +118,7 @@ class RecordingResponse(BaseModel):
     retain_until: Optional[date]
     transcript: Optional[TranscriptSummary] = None
     resolved_participants: List[ParticipantUserInfo] = Field(default_factory=list)
+    speaker_mapping: dict[str, str] = Field(default_factory=dict)
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -230,6 +231,14 @@ class CombinedSearchResponse(BaseModel):
 
 
 # ── AUTH ─────────────────────────────────────────────────────
+
+class SpeakerMappingUpdate(BaseModel):
+    """Mapare vorbitori diarizare → participanți linkați."""
+    mapping: dict[str, str] = Field(
+        description="SPEAKER_XX → user_id UUID string",
+        default_factory=dict
+    )
+
 
 class LoginRequest(BaseModel):
     username: str
