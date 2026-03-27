@@ -7,7 +7,7 @@
 **The self-hosted meeting transcription platform that keeps your conversations private.**
 
 [![Python](https://img.shields.io/badge/Python-3.11-3776AB?style=flat-square&logo=python&logoColor=white)](https://python.org)
-[![FastAPI](https://img.shields.io/badge/FastAPI-0.104-009688?style=flat-square&logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com)
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.111-009688?style=flat-square&logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com)
 [![React](https://img.shields.io/badge/React-18-61DAFB?style=flat-square&logo=react&logoColor=black)](https://react.dev)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5-3178C6?style=flat-square&logo=typescript&logoColor=white)](https://typescriptlang.org)
 [![PostgreSQL](https://img.shields.io/badge/PostgreSQL-15-4169E1?style=flat-square&logo=postgresql&logoColor=white)](https://postgresql.org)
@@ -214,7 +214,10 @@ mkdir -p data/inbox data/processed data/exports
 # 6. Start
 docker compose up --build -d
 
-# 7. Verify
+# 7. Create admin account
+make create-admin
+
+# 8. Verify
 curl http://localhost:8080/health
 # → {"status": "healthy", ...}
 ```
@@ -328,6 +331,74 @@ Set with `WHISPER_MODEL=medium` in `.env`.
 | `MAX_FILE_SIZE_BYTES` | `524288000` | Max upload size (500 MB) |
 | `SEARCH_INDEXER_ENABLED` | `true` | Enable semantic search embeddings |
 | `SESSION_TIMEOUT_SECONDS` | `1800` | Inactivity timeout before an open multi-segment session is auto-dispatched |
+| `DIARIZATION_ENABLED` | `false` | Enable speaker identification (requires `HF_TOKEN` and pyannote models) |
+| `HF_TOKEN` | _(empty)_ | HuggingFace token for downloading pyannote speaker diarization models |
+| `HF_HUB_OFFLINE` | `0` | Set to `1` after first `search-indexer` startup — prevents re-downloading cached models |
+| `STT_WORKER_CONCURRENCY` | `1` | Number of parallel Whisper jobs |
+| `AUDIT_LOG_RETENTION_DAYS` | `2190` | Audit log retention period in days (default 6 years) |
+
+---
+
+## GPU Acceleration
+
+By default the STT Worker runs Whisper on CPU. For organizations with a GPU server, enabling CUDA reduces transcription time dramatically:
+
+| Hardware | Whisper `medium`, 1 hour of audio |
+|---|---|
+| CPU (8-core) | 30–60 min |
+| GPU (NVIDIA, any modern card) | 3–5 min |
+
+To enable GPU support, uncomment the `deploy.resources` block in `docker-compose.yml` under the `stt-worker` service and install the [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html):
+
+```yaml
+# docker-compose.yml — stt-worker
+deploy:
+  resources:
+    reservations:
+      devices:
+        - driver: nvidia
+          count: 1
+          capabilities: [gpu]
+```
+
+No code changes are required — Whisper auto-detects CUDA at runtime.
+
+---
+
+## Testing
+
+### Backend
+
+Tests run inside Docker containers using `pytest` + `pytest-asyncio`. The API test suite uses `httpx.AsyncClient` with `ASGITransport` (in-memory, no real server needed).
+
+```bash
+# Run all backend tests
+make test
+
+# Per-service
+docker compose exec api pytest tests/ -v
+docker compose exec ingest pytest tests/ -v
+docker compose exec stt-worker pytest tests/ -v
+
+# Single file or test
+docker compose exec api pytest tests/test_recordings.py -v
+docker compose exec api pytest tests/ -k "test_health" -v
+```
+
+### Frontend
+
+Frontend tests use [Vitest](https://vitest.dev) + Testing Library in a jsdom environment.
+
+```bash
+# Single run
+make frontend-test
+
+# Watch mode (interactive)
+docker compose exec frontend npm run test:watch
+
+# Coverage report
+docker compose exec frontend npm run test:coverage
+```
 
 ---
 

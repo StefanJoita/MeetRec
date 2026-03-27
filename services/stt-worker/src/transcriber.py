@@ -111,8 +111,9 @@ class WhisperTranscriber:
         # Modelele trebuie descărcate la build time cu HF_TOKEN.
         if settings.diarization_enabled:
             try:
-                self._diarize_model = whisperx.DiarizationPipeline(
-                    use_auth_token=settings.hf_token or None,
+                from whisperx.diarize import DiarizationPipeline
+                self._diarize_model = DiarizationPipeline(
+                    token=settings.hf_token or None,
                     device="cpu",
                 )
                 logger.info("diarization_model_ready")

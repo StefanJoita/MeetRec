@@ -11,6 +11,27 @@ interface TranscriptViewerProps {
   onSegmentClick: (startTime: number) => void
 }
 
+// Culori distincte per vorbitor (rotație după index)
+const SPEAKER_COLORS = [
+  'bg-blue-100 text-blue-700',
+  'bg-emerald-100 text-emerald-700',
+  'bg-violet-100 text-violet-700',
+  'bg-amber-100 text-amber-700',
+  'bg-rose-100 text-rose-700',
+  'bg-cyan-100 text-cyan-700',
+]
+
+function getSpeakerColor(speakerId: string, allSpeakers: string[]): string {
+  const idx = allSpeakers.indexOf(speakerId)
+  return SPEAKER_COLORS[idx % SPEAKER_COLORS.length]
+}
+
+function getSpeakerLabel(speakerId: string): string {
+  // "SPEAKER_00" → "V1", "SPEAKER_01" → "V2" etc.
+  const match = speakerId.match(/(\d+)$/)
+  return match ? `V${parseInt(match[1], 10) + 1}` : speakerId
+}
+
 function getActiveIndex(segments: Segment[], currentTime: number): number {
   for (let i = segments.length - 1; i >= 0; i--) {
     if (currentTime >= segments[i].start_time) return i
@@ -80,6 +101,12 @@ export default function TranscriptViewer({ segments, getCurrentTime, onSegmentCl
       return acc
     }, [])
   }, [segments, searchQuery])
+
+  const allSpeakers = useMemo<string[]>(() => {
+    const seen = new Set<string>()
+    segments.forEach(s => { if (s.speaker_id) seen.add(s.speaker_id) })
+    return Array.from(seen).sort()
+  }, [segments])
 
   const virtualizer = useVirtualizer({
     count: segments.length,
@@ -269,6 +296,17 @@ export default function TranscriptViewer({ segments, getCurrentTime, onSegmentCl
                   <span className="text-xs font-mono text-gray-400 pt-0.5 shrink-0 w-12" aria-hidden="true">
                     {formatTime(seg.start_time)}
                   </span>
+                  {seg.speaker_id && (
+                    <span
+                      className={cn(
+                        'text-xs font-semibold px-1.5 py-0.5 rounded shrink-0 self-start mt-0.5',
+                        getSpeakerColor(seg.speaker_id, allSpeakers)
+                      )}
+                      aria-label={`Vorbitor ${getSpeakerLabel(seg.speaker_id)}`}
+                    >
+                      {getSpeakerLabel(seg.speaker_id)}
+                    </span>
+                  )}
                   <p className={cn('text-sm leading-relaxed', isActive ? 'text-gray-900 font-medium' : 'text-gray-700')}>
                     <HighlightedText text={seg.text} query={searchQuery} />
                   </p>
