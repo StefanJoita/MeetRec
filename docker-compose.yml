@@ -182,11 +182,6 @@ services:
     build:
       context: ./services/stt-worker
       dockerfile: Dockerfile
-      args:
-        # HF_TOKEN: necesar DOAR la build pentru descărcarea modelului pyannote
-        # La runtime containerul rulează complet offline
-        HF_TOKEN: ${HF_TOKEN:-}
-        WHISPER_MODEL: ${WHISPER_MODEL:-medium}
     container_name: mt-stt-worker
     restart: unless-stopped
     environment:
@@ -200,14 +195,17 @@ services:
       DIARIZATION_ENABLED: ${DIARIZATION_ENABLED:-false}
       MIN_SPEAKERS: ${MIN_SPEAKERS:-}
       MAX_SPEAKERS: ${MAX_SPEAKERS:-}
-      HF_HUB_OFFLINE: 1
+      HF_TOKEN: ${HF_TOKEN:-}
+      # Modelele se descarcă la primul start; după aceea setează HF_HUB_OFFLINE=1 în .env
+      HF_HUB_OFFLINE: ${HF_HUB_OFFLINE:-0}
       DATABASE_URL: ${DATABASE_URL}
-      API_URL: http://api:8080    # comunică intern cu API-ul
+      API_URL: http://api:8080
       LOG_LEVEL: ${LOG_LEVEL}
       TZ: Europe/Bucharest
     volumes:
-      - audio_storage:/data/processed:rw   # :rw = poate scrie fișierul merged al sesiunii
-      # Modelele WhisperX (baked în imagine la build, nu mai e nevoie de volum extern)
+      - audio_storage:/data/processed:rw
+      - whisper_models:/app/models/whisper
+      - huggingface_models:/app/models/huggingface
       - ./services/stt-worker/src:/app/src
     networks:
       - backend-network
@@ -217,11 +215,11 @@ services:
       api:
         condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "pgrep -f 'python -m src.main' > /dev/null || exit 1"]
+      test: ["CMD-SHELL", "python3 -c \"import os; os.kill(1, 0)\" 2>/dev/null || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 120s   # timp necesar pentru încărcarea modelului Whisper
+      start_period: 300s   # 5 min: model large ~3GB descarcat la primul start
     # Dacă ai GPU NVIDIA, decomentează:
     # deploy:
     #   resources:
@@ -352,7 +350,10 @@ volumes:
     driver: local
   export_storage:     # fișierele exportate (PDF, DOCX)
     driver: local
-  # whisper_models: eliminat — modelele WhisperX sunt acum baked în imagine la build
+  whisper_models:     # model Whisper (~1.5-3 GB) — descarcat la primul start
+    driver: local
+  huggingface_models: # modele pyannote + wav2vec2 (~500 MB) — descarcate la primul start
+    driver: local
   embedding_models:   # modelul de embeddings semantice (~120MB) — descărcat o dată
     driver: local
 

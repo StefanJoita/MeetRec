@@ -1,0 +1,1642 @@
+<!DOCTYPE html>
+<html lang="ro">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Verbatek — Transcriere AI a Ședințelor</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap');
+
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+
+:root{
+  --bg:#050510;
+  --indigo:#4f46e5;
+  --cyan:#06b6d4;
+  --emerald:#10b981;
+  --red:#ef4444;
+  --text:#f8fafc;
+  --text-muted:#94a3b8;
+  --glass:rgba(255,255,255,0.05);
+  --glass-border:rgba(255,255,255,0.1);
+}
+
+html{scroll-behavior:smooth;overflow:hidden}
+body{
+  background:var(--bg);
+  color:var(--text);
+  font-family:'Inter',system-ui,-apple-system,sans-serif;
+  overflow:hidden;
+  height:100vh;
+  width:100vw;
+}
+
+/* ── SLIDE SYSTEM ── */
+#slides-container{
+  width:100vw;
+  height:100vh;
+  position:relative;
+  overflow:hidden;
+}
+.slide{
+  position:absolute;
+  top:0;left:0;
+  width:100%;height:100%;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  opacity:0;
+  transform:translateX(100%);
+  transition:transform 0.7s cubic-bezier(0.77,0,0.18,1), opacity 0.7s ease;
+  will-change:transform,opacity;
+  overflow:hidden;
+}
+.slide.active{
+  opacity:1;
+  transform:translateX(0);
+  z-index:2;
+}
+.slide.exit-left{
+  opacity:0;
+  transform:translateX(-100%);
+  z-index:1;
+}
+.slide.exit-right{
+  opacity:0;
+  transform:translateX(100%);
+  z-index:1;
+}
+
+/* ── NAV DOTS ── */
+#nav-dots{
+  position:fixed;
+  right:24px;top:50%;
+  transform:translateY(-50%);
+  z-index:100;
+  display:flex;flex-direction:column;gap:10px;
+}
+.dot{
+  width:8px;height:8px;
+  border-radius:50%;
+  background:rgba(255,255,255,0.25);
+  cursor:pointer;
+  transition:all 0.3s ease;
+}
+.dot.active{
+  background:var(--indigo);
+  transform:scale(1.5);
+  box-shadow:0 0 8px var(--indigo);
+}
+.dot:hover{background:rgba(255,255,255,0.6)}
+
+/* ── SLIDE COUNTER ── */
+#slide-counter{
+  position:fixed;
+  bottom:24px;left:50%;
+  transform:translateX(-50%);
+  z-index:100;
+  font-size:13px;
+  color:var(--text-muted);
+  letter-spacing:0.1em;
+}
+
+/* ── ARROW HINTS ── */
+.arrow-hint{
+  position:fixed;
+  bottom:24px;
+  z-index:100;
+  background:var(--glass);
+  border:1px solid var(--glass-border);
+  border-radius:50%;
+  width:40px;height:40px;
+  display:flex;align-items:center;justify-content:center;
+  cursor:pointer;
+  transition:all 0.3s;
+  backdrop-filter:blur(10px);
+}
+.arrow-hint:hover{background:rgba(79,70,229,0.3);border-color:var(--indigo)}
+#arrow-prev{left:calc(50% - 60px)}
+#arrow-next{left:calc(50% + 20px)}
+
+/* ── TYPOGRAPHY ── */
+.eyebrow{
+  font-size:12px;font-weight:600;
+  letter-spacing:0.2em;text-transform:uppercase;
+  color:var(--cyan);margin-bottom:16px;
+}
+.headline{
+  font-size:clamp(2.5rem,6vw,5rem);
+  font-weight:900;
+  line-height:1.05;
+  letter-spacing:-0.03em;
+}
+.subheadline{
+  font-size:clamp(1.1rem,2.5vw,1.5rem);
+  font-weight:400;
+  color:var(--text-muted);
+  line-height:1.6;
+}
+.section-title{
+  font-size:clamp(1.8rem,4vw,3.2rem);
+  font-weight:800;
+  line-height:1.1;
+  letter-spacing:-0.02em;
+}
+
+/* ── GRADIENT TEXT ── */
+.grad-indigo{background:linear-gradient(135deg,#818cf8,#4f46e5);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
+.grad-cyan{background:linear-gradient(135deg,#67e8f9,#06b6d4);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
+.grad-multi{background:linear-gradient(135deg,#818cf8 0%,#06b6d4 50%,#10b981 100%);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
+
+/* ── GLASS CARD ── */
+.glass-card{
+  background:var(--glass);
+  border:1px solid var(--glass-border);
+  border-radius:20px;
+  backdrop-filter:blur(20px);
+  -webkit-backdrop-filter:blur(20px);
+}
+
+/* ── BUTTON ── */
+.btn{
+  display:inline-flex;align-items:center;gap:8px;
+  padding:14px 32px;
+  border-radius:12px;
+  font-size:16px;font-weight:600;
+  cursor:pointer;
+  border:none;
+  transition:all 0.3s ease;
+  text-decoration:none;
+}
+.btn-primary{
+  background:linear-gradient(135deg,#4f46e5,#7c3aed);
+  color:#fff;
+  box-shadow:0 0 30px rgba(79,70,229,0.4);
+}
+.btn-primary:hover{
+  transform:translateY(-2px);
+  box-shadow:0 0 50px rgba(79,70,229,0.6);
+}
+.btn-outline{
+  background:transparent;
+  border:1px solid var(--glass-border);
+  color:var(--text);
+  backdrop-filter:blur(10px);
+}
+.btn-outline:hover{
+  border-color:var(--indigo);
+  background:rgba(79,70,229,0.1);
+}
+
+@keyframes spin-slow{
+  0%{transform:translate(-50%,-50%) rotate(0deg)}
+  100%{transform:translate(-50%,-50%) rotate(360deg)}
+}
+
+/* ────────────────────────────────────────────
+   SLIDE 1 — HERO
+──────────────────────────────────────────── */
+#s1{background:radial-gradient(ellipse 80% 60% at 50% 0%,rgba(79,70,229,0.25) 0%,transparent 70%), var(--bg)}
+
+#hero-canvas{
+  position:absolute;
+  top:0;left:0;width:100%;height:100%;
+  pointer-events:none;
+}
+.hero-content{
+  position:relative;
+  z-index:2;
+  text-align:center;
+  max-width:900px;
+  padding:0 24px;
+}
+.hero-badge{
+  display:inline-flex;align-items:center;gap:8px;
+  background:rgba(79,70,229,0.15);
+  border:1px solid rgba(79,70,229,0.4);
+  border-radius:100px;
+  padding:8px 20px;
+  font-size:14px;font-weight:500;
+  margin-bottom:32px;
+  color:#a5b4fc;
+}
+.hero-badge-dot{
+  width:8px;height:8px;
+  border-radius:50%;
+  background:var(--emerald);
+  box-shadow:0 0 10px var(--emerald);
+  animation:pulse-dot 2s infinite;
+}
+@keyframes pulse-dot{
+  0%,100%{box-shadow:0 0 6px var(--emerald)}
+  50%{box-shadow:0 0 18px var(--emerald),0 0 30px rgba(16,185,129,0.4)}
+}
+.hero-tagline{
+  font-size:clamp(2.8rem,7vw,5.5rem);
+  font-weight:900;
+  line-height:1.05;
+  letter-spacing:-0.03em;
+  margin-bottom:24px;
+}
+.hero-sub{
+  font-size:clamp(1.1rem,2.5vw,1.4rem);
+  color:var(--text-muted);
+  margin-bottom:48px;
+  line-height:1.7;
+}
+.hero-cta-group{display:flex;gap:16px;justify-content:center;flex-wrap:wrap;margin-bottom:64px}
+.hero-cta-pulse{
+  animation:cta-glow 2s ease-in-out infinite;
+}
+@keyframes cta-glow{
+  0%,100%{box-shadow:0 0 30px rgba(79,70,229,0.4)}
+  50%{box-shadow:0 0 60px rgba(79,70,229,0.8),0 0 100px rgba(79,70,229,0.3)}
+}
+.hero-stats{
+  display:flex;gap:48px;justify-content:center;
+  border-top:1px solid var(--glass-border);
+  padding-top:40px;
+}
+.hero-stat-item{text-align:center}
+.hero-stat-num{
+  font-size:2rem;font-weight:800;
+  background:linear-gradient(135deg,#818cf8,#06b6d4);
+  -webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;
+}
+.hero-stat-label{font-size:13px;color:var(--text-muted);margin-top:4px}
+
+/* ────────────────────────────────────────────
+   SLIDE 2 — PROBLEMA
+──────────────────────────────────────────── */
+#s2{background:radial-gradient(ellipse 60% 40% at 50% 100%,rgba(239,68,68,0.1) 0%,transparent 70%), var(--bg)}
+.problema-grid{
+  display:grid;
+  grid-template-columns:repeat(3,1fr);
+  gap:32px;
+  max-width:1100px;
+  padding:0 24px;
+  width:100%;
+}
+.problema-card{
+  padding:40px 32px;
+  border-radius:24px;
+  text-align:center;
+  position:relative;
+  overflow:hidden;
+}
+.problema-card::before{
+  content:'';
+  position:absolute;inset:0;
+  border-radius:24px;
+  padding:1px;
+  background:linear-gradient(135deg,rgba(239,68,68,0.5),transparent,rgba(239,68,68,0.2));
+  -webkit-mask:linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  -webkit-mask-composite:xor;
+  mask-composite:exclude;
+  pointer-events:none;
+}
+.problema-icon{
+  font-size:48px;margin-bottom:24px;
+  display:block;
+}
+.problema-num{
+  font-size:clamp(3rem,6vw,5rem);
+  font-weight:900;
+  line-height:1;
+  background:linear-gradient(135deg,#f87171,#ef4444);
+  -webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;
+  margin-bottom:12px;
+}
+.problema-label{
+  font-size:1rem;font-weight:600;
+  color:var(--text);margin-bottom:8px;
+}
+.problema-desc{font-size:0.875rem;color:var(--text-muted);line-height:1.6}
+
+/* ────────────────────────────────────────────
+   SLIDE 3 — RISCUL CLOUD
+──────────────────────────────────────────── */
+#s3{background:radial-gradient(ellipse 50% 40% at 70% 50%,rgba(239,68,68,0.12) 0%,transparent 70%), var(--bg)}
+.cloud-risk-wrapper{
+  max-width:1100px;width:100%;padding:0 24px;
+  display:flex;flex-direction:column;align-items:center;gap:48px;
+}
+.cloud-diagram{
+  display:flex;align-items:center;gap:0;
+  width:100%;max-width:900px;
+  position:relative;
+}
+.cloud-org{
+  flex:1;
+  padding:32px;
+  border-radius:20px;
+  border:1px solid var(--glass-border);
+  background:rgba(16,185,129,0.08);
+  text-align:center;
+}
+.cloud-arrow-group{
+  flex:1;
+  display:flex;flex-direction:column;
+  align-items:center;
+  gap:12px;
+  position:relative;
+}
+.data-packet{
+  background:rgba(239,68,68,0.2);
+  border:1px solid rgba(239,68,68,0.4);
+  border-radius:8px;
+  padding:6px 14px;
+  font-size:12px;font-weight:600;
+  color:#fca5a5;
+  white-space:nowrap;
+  animation:fly-right 2s linear infinite;
+}
+.data-packet:nth-child(2){animation-delay:0.7s}
+.data-packet:nth-child(3){animation-delay:1.4s}
+@keyframes fly-right{
+  0%{transform:translateX(-40px);opacity:0}
+  20%{opacity:1}
+  80%{opacity:1}
+  100%{transform:translateX(40px);opacity:0}
+}
+.cloud-ext{
+  flex:1;
+  padding:32px;
+  border-radius:20px;
+  border:1px solid rgba(239,68,68,0.4);
+  background:rgba(239,68,68,0.08);
+  text-align:center;
+}
+.cloud-logos{
+  display:flex;gap:24px;justify-content:center;flex-wrap:wrap;
+  margin-top:8px;
+}
+.cloud-logo-badge{
+  background:rgba(255,255,255,0.07);
+  border:1px solid var(--glass-border);
+  border-radius:10px;
+  padding:8px 16px;
+  font-size:13px;font-weight:600;
+  color:var(--text-muted);
+}
+.risk-list{
+  display:flex;gap:24px;flex-wrap:wrap;justify-content:center;
+}
+.risk-item{
+  display:flex;align-items:center;gap:10px;
+  background:rgba(239,68,68,0.08);
+  border:1px solid rgba(239,68,68,0.25);
+  border-radius:12px;
+  padding:12px 20px;
+  font-size:14px;font-weight:500;
+  color:#fca5a5;
+}
+
+/* ────────────────────────────────────────────
+   SLIDE 4 — SOLUȚIA
+──────────────────────────────────────────── */
+#s4{background:var(--bg)}
+.solution-split{
+  display:grid;
+  grid-template-columns:1fr 80px 1fr;
+  gap:0;
+  max-width:1100px;
+  width:100%;
+  padding:0 24px;
+  align-items:stretch;
+}
+.solution-side{
+  padding:48px 40px;
+  border-radius:24px;
+  position:relative;
+  overflow:hidden;
+}
+.solution-cloud{
+  background:linear-gradient(135deg,rgba(239,68,68,0.12),rgba(239,68,68,0.05));
+  border:1px solid rgba(239,68,68,0.25);
+}
+.solution-meetrec{
+  background:linear-gradient(135deg,rgba(79,70,229,0.15),rgba(6,182,212,0.08));
+  border:1px solid rgba(79,70,229,0.35);
+}
+.solution-vs{
+  display:flex;align-items:center;justify-content:center;
+  font-size:1.5rem;font-weight:900;
+  color:var(--text-muted);
+  flex-shrink:0;
+}
+.solution-side-label{
+  font-size:13px;font-weight:700;
+  letter-spacing:0.15em;text-transform:uppercase;
+  margin-bottom:20px;
+}
+.solution-cloud .solution-side-label{color:#f87171}
+.solution-meetrec .solution-side-label{color:#818cf8}
+.solution-side-title{
+  font-size:clamp(1.5rem,3vw,2.2rem);
+  font-weight:800;line-height:1.2;
+  margin-bottom:24px;
+}
+.solution-list{list-style:none;display:flex;flex-direction:column;gap:12px}
+.solution-list li{
+  display:flex;align-items:flex-start;gap:10px;
+  font-size:14px;line-height:1.5;
+  color:var(--text-muted);
+}
+.solution-list li .ico{flex-shrink:0;margin-top:2px;font-size:16px}
+.sol-bad .ico{color:var(--red)}
+.sol-good .ico{color:var(--emerald)}
+.solution-meetrec .solution-list li{color:#c7d2fe}
+.solution-badge{
+  margin-top:28px;
+  display:inline-flex;align-items:center;gap:8px;
+  background:rgba(16,185,129,0.15);
+  border:1px solid rgba(16,185,129,0.35);
+  border-radius:100px;
+  padding:8px 20px;
+  font-size:13px;font-weight:600;
+  color:var(--emerald);
+}
+
+/* ────────────────────────────────────────────
+   SLIDE 5 — CUM FUNCȚIONEAZĂ
+──────────────────────────────────────────── */
+#s5{background:radial-gradient(ellipse 70% 50% at 50% 50%,rgba(79,70,229,0.12) 0%,transparent 70%), var(--bg)}
+.flow-wrapper{
+  max-width:1100px;width:100%;padding:0 24px;
+  display:flex;flex-direction:column;align-items:center;gap:48px;
+}
+.flow-steps{
+  display:flex;align-items:center;gap:0;width:100%;
+}
+.flow-step{
+  flex:1;
+  display:flex;flex-direction:column;align-items:center;
+  text-align:center;
+  opacity:0;
+  transform:translateY(30px);
+  transition:all 0.6s ease;
+  padding:0 16px;
+}
+.flow-step.revealed{opacity:1;transform:translateY(0)}
+.flow-step-num{
+  width:56px;height:56px;
+  border-radius:50%;
+  display:flex;align-items:center;justify-content:center;
+  font-size:1.5rem;font-weight:900;
+  margin-bottom:20px;
+  position:relative;
+}
+.flow-step:nth-child(1) .flow-step-num{
+  background:linear-gradient(135deg,#4f46e5,#7c3aed);
+  box-shadow:0 0 30px rgba(79,70,229,0.5);
+}
+.flow-step:nth-child(3) .flow-step-num{
+  background:linear-gradient(135deg,#0891b2,#06b6d4);
+  box-shadow:0 0 30px rgba(6,182,212,0.5);
+}
+.flow-step:nth-child(5) .flow-step-num{
+  background:linear-gradient(135deg,#059669,#10b981);
+  box-shadow:0 0 30px rgba(16,185,129,0.5);
+}
+.flow-icon-wrap{
+  width:100px;height:100px;
+  border-radius:24px;
+  display:flex;align-items:center;justify-content:center;
+  margin-bottom:20px;
+}
+.flow-step:nth-child(1) .flow-icon-wrap{background:rgba(79,70,229,0.15);border:1px solid rgba(79,70,229,0.3)}
+.flow-step:nth-child(3) .flow-icon-wrap{background:rgba(6,182,212,0.12);border:1px solid rgba(6,182,212,0.3)}
+.flow-step:nth-child(5) .flow-icon-wrap{background:rgba(16,185,129,0.12);border:1px solid rgba(16,185,129,0.3)}
+.flow-step-title{font-size:1.1rem;font-weight:700;margin-bottom:8px}
+.flow-step-desc{font-size:0.875rem;color:var(--text-muted);line-height:1.6}
+.flow-arrow{
+  width:60px;flex-shrink:0;
+  display:flex;align-items:center;justify-content:center;
+  color:var(--text-muted);
+  opacity:0.4;
+}
+
+/* ────────────────────────────────────────────
+   SLIDE 6 — FUNCȚIONALITĂȚI
+──────────────────────────────────────────── */
+#s6{background:var(--bg)}
+.features-wrapper{
+  max-width:1100px;width:100%;padding:0 24px;
+  display:flex;flex-direction:column;align-items:center;gap:48px;
+}
+.features-grid{
+  display:grid;
+  grid-template-columns:repeat(3,1fr);
+  gap:24px;
+  width:100%;
+}
+.feature-card{
+  padding:32px;
+  border-radius:20px;
+  background:var(--glass);
+  border:1px solid var(--glass-border);
+  backdrop-filter:blur(20px);
+  opacity:0;
+  transform:translateY(20px) scale(0.97);
+  transition:all 0.5s ease;
+  cursor:default;
+  position:relative;
+  overflow:hidden;
+}
+.feature-card::after{
+  content:'';
+  position:absolute;
+  top:-50%;left:-50%;
+  width:200%;height:200%;
+  background:radial-gradient(circle at center,rgba(79,70,229,0.08),transparent 60%);
+  opacity:0;
+  transition:opacity 0.3s;
+}
+.feature-card:hover::after{opacity:1}
+.feature-card:hover{
+  border-color:rgba(79,70,229,0.4);
+  transform:translateY(-4px) scale(1);
+  box-shadow:0 20px 60px rgba(79,70,229,0.15);
+}
+.feature-card.revealed{opacity:1;transform:translateY(0) scale(1)}
+.feature-icon{
+  width:52px;height:52px;
+  border-radius:14px;
+  display:flex;align-items:center;justify-content:center;
+  margin-bottom:20px;
+}
+.feature-title{font-size:1rem;font-weight:700;margin-bottom:8px}
+.feature-desc{font-size:0.85rem;color:var(--text-muted);line-height:1.6}
+</style>
+</head>
+<body>
+
+<div id="slides-container">
+
+<!-- ── SLIDE 1: HERO ── -->
+<section class="slide active" id="s1" data-slide="0">
+  <canvas id="hero-canvas"></canvas>
+  <div class="hero-content">
+    <div class="hero-badge">
+      <span class="hero-badge-dot"></span>
+      Disponibil acum · Self-hosted · Open-source
+    </div>
+    <h1 class="hero-tagline">
+      Fiecare decizie importantă,<br>
+      <span class="grad-multi">păstrată pentru totdeauna.</span>
+    </h1>
+    <p class="hero-sub">
+      Transcriere AI a ședințelor. 100% pe serverele tale.<br>
+      Whisper AI local · Fără cloud · Fără compromisuri de securitate.
+    </p>
+    <div class="hero-cta-group">
+      <button class="btn btn-primary hero-cta-pulse" onclick="goTo(12)">
+        <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M5 3l14 9-14 9V3z"/></svg>
+        Vezi Demo
+      </button>
+      <button class="btn btn-outline" onclick="goTo(1)">
+        <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 8v4l3 3"/></svg>
+        Descoperă Problema
+      </button>
+    </div>
+    <div class="hero-stats">
+      <div class="hero-stat-item">
+        <div class="hero-stat-num">99+</div>
+        <div class="hero-stat-label">Limbi suportate</div>
+      </div>
+      <div class="hero-stat-item">
+        <div class="hero-stat-num">100%</div>
+        <div class="hero-stat-label">Date on-premise</div>
+      </div>
+      <div class="hero-stat-item">
+        <div class="hero-stat-num">&lt; 1 zi</div>
+        <div class="hero-stat-label">Timp instalare</div>
+      </div>
+      <div class="hero-stat-item">
+        <div class="hero-stat-num">0€</div>
+        <div class="hero-stat-label">Cost per utilizator</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ── SLIDE 2: PROBLEMA ── -->
+<section class="slide" id="s2" data-slide="1">
+  <div style="max-width:1100px;width:100%;padding:0 24px;display:flex;flex-direction:column;align-items:center;gap:48px">
+    <div style="text-align:center">
+      <div class="eyebrow">Realitatea din organizații</div>
+      <h2 class="section-title">Ședințele costă enorm.<br><span class="grad-indigo">Dar nu lăsăm urme.</span></h2>
+    </div>
+    <div class="problema-grid">
+      <div class="problema-card glass-card">
+        <span class="problema-icon">⏱️</span>
+        <div class="problema-num" data-count="31" data-suffix=" ore">0</div>
+        <div class="problema-label">pierdute în ședințe / lună / angajat</div>
+        <div class="problema-desc">Managerul mediu român petrece 31 de ore lunar în ședințe — echivalentul aproape unei săptămâni de lucru</div>
+      </div>
+      <div class="problema-card glass-card">
+        <span class="problema-icon">🧠</span>
+        <div class="problema-num" data-count="90" data-suffix="%">0</div>
+        <div class="problema-label">din informații uitate în 24 ore</div>
+        <div class="problema-desc">Fără un transcript, deciziile și acțiunile dintr-o ședință dispar din memoria participanților în mai puțin de o zi</div>
+      </div>
+      <div class="problema-card glass-card">
+        <span class="problema-icon">⚠️</span>
+        <div class="problema-num" data-count-float="4.2" data-prefix="€" data-suffix="M">€0</div>
+        <div class="problema-label">amendă medie GDPR pentru scurgeri</div>
+        <div class="problema-desc">Înregistrările procesate în cloud extern pot constitui transfer ilegal de date personale conform GDPR Art. 44-49</div>
+      </div>
+    </div>
+    <div style="background:rgba(239,68,68,0.08);border:1px solid rgba(239,68,68,0.2);border-radius:16px;padding:20px 32px;text-align:center;max-width:700px">
+      <span style="color:#fca5a5;font-size:15px;font-weight:500">
+        <strong style="color:#f87171">Concluzie:</strong> Ședințele sunt cel mai mare generator de cunoaștere organizațională — și cel mai slab documentat.
+      </span>
+    </div>
+  </div>
+</section>
+
+<!-- ── SLIDE 3: RISCUL CLOUD ── -->
+<section class="slide" id="s3" data-slide="2">
+  <div class="cloud-risk-wrapper">
+    <div style="text-align:center">
+      <div class="eyebrow">Pericolul soluțiilor cloud</div>
+      <h2 class="section-title">Înregistrările tale ajung<br><span style="color:var(--red)">pe serverele lor.</span></h2>
+    </div>
+    <div class="cloud-diagram">
+      <div class="cloud-org">
+        <svg width="48" height="48" fill="none" viewBox="0 0 24 24" stroke="#10b981" stroke-width="1.5" style="margin-bottom:12px"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>
+        <div style="font-size:1rem;font-weight:700;color:var(--emerald);margin-bottom:8px">Organizația Ta</div>
+        <div style="font-size:13px;color:var(--text-muted)">Ședință confidențială<br>Date sensibile<br>Decizii strategice</div>
+        <div class="cloud-logos" style="margin-top:16px">
+          <span class="cloud-logo-badge">Teams</span>
+          <span class="cloud-logo-badge">Zoom</span>
+          <span class="cloud-logo-badge">Otter.ai</span>
+        </div>
+      </div>
+      <div class="cloud-arrow-group">
+        <div style="text-align:center;font-size:12px;color:var(--text-muted);margin-bottom:8px">Date transmise</div>
+        <div class="data-packet">🎙️ Audio</div>
+        <div class="data-packet">📝 Transcript</div>
+        <div class="data-packet">👤 Identitate</div>
+        <svg width="60" height="24" viewBox="0 0 60 24" fill="none" style="margin-top:4px">
+          <path d="M0 12 L52 12 M44 4 L60 12 L44 20" stroke="#ef4444" stroke-width="2" stroke-linecap="round"/>
+        </svg>
+      </div>
+      <div class="cloud-ext">
+        <svg width="48" height="48" fill="none" viewBox="0 0 24 24" stroke="#ef4444" stroke-width="1.5" style="margin-bottom:12px"><path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z"/></svg>
+        <div style="font-size:1rem;font-weight:700;color:var(--red);margin-bottom:8px">Servere Externe</div>
+        <div style="font-size:13px;color:#fca5a5">SUA / UE (necunoscut)<br>Politici opace<br>Acces terți posibil</div>
+      </div>
+    </div>
+    <div class="risk-list">
+      <div class="risk-item">
+        <svg width="16" height="16" fill="none" stroke="#ef4444" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
+        Transfer date GDPR Art. 46
+      </div>
+      <div class="risk-item">
+        <svg width="16" height="16" fill="none" stroke="#ef4444" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
+        Secrete comerciale expuse
+      </div>
+      <div class="risk-item">
+        <svg width="16" height="16" fill="none" stroke="#ef4444" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
+        Vendor lock-in
+      </div>
+      <div class="risk-item">
+        <svg width="16" height="16" fill="none" stroke="#ef4444" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
+        Costuri lunare recurente
+      </div>
+      <div class="risk-item">
+        <svg width="16" height="16" fill="none" stroke="#ef4444" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
+        Date medicale / juridice procesate extern
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ── SLIDE 4: SOLUȚIA ── -->
+<section class="slide" id="s4" data-slide="3">
+  <div style="max-width:1100px;width:100%;padding:0 24px;display:flex;flex-direction:column;align-items:center;gap:40px">
+    <div style="text-align:center">
+      <div class="eyebrow">Răspunsul nostru</div>
+      <h2 class="section-title">Aceeași putere AI.<br><span class="grad-indigo">Fără niciun compromis.</span></h2>
+    </div>
+    <div class="solution-split">
+      <div class="solution-side solution-cloud">
+        <div class="solution-side-label">Cloud — Alternativele actuale</div>
+        <div class="solution-side-title" style="color:#fca5a5">Convenabil,<br>dar riscant.</div>
+        <ul class="solution-list sol-bad">
+          <li><span class="ico">✗</span><span>Date audio procesate pe servere externe, fără control</span></li>
+          <li><span class="ico">✗</span><span>Costuri per utilizator sau per minut de transcriere</span></li>
+          <li><span class="ico">✗</span><span>Conformitate GDPR incertă pentru date sensibile</span></li>
+          <li><span class="ico">✗</span><span>Dependență de conexiune internet stabilă</span></li>
+          <li><span class="ico">✗</span><span>Furnizorul poate citi, analiza sau vinde datele tale</span></li>
+          <li><span class="ico">✗</span><span>La falimentul furnizorului — datele dispar</span></li>
+        </ul>
+      </div>
+      <div class="solution-vs">VS</div>
+      <div class="solution-side solution-meetrec">
+        <div class="solution-side-label">Verbatek — Self-hosted</div>
+        <div class="solution-side-title" style="color:#c7d2fe">Securizat,<br>al tău complet.</div>
+        <ul class="solution-list sol-good">
+          <li><span class="ico">✓</span><span>Procesare 100% locală — datele nu ies din rețeaua ta</span></li>
+          <li><span class="ico">✓</span><span>Cost fix one-time, zero abonamente per utilizator</span></li>
+          <li><span class="ico">✓</span><span>Conformitate GDPR nativă — tu controlezi totul</span></li>
+          <li><span class="ico">✓</span><span>Funcționează și offline, în rețele izolate</span></li>
+          <li><span class="ico">✓</span><span>Open-source — codul este auditabil de oricine</span></li>
+          <li><span class="ico">✓</span><span>Datele tale rămân ale tale, pentru totdeauna</span></li>
+        </ul>
+        <div class="solution-badge">
+          <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+          GDPR Compliant by Design
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ── SLIDE 5: CUM FUNCȚIONEAZĂ ── -->
+<section class="slide" id="s5" data-slide="4">
+  <div class="flow-wrapper">
+    <div style="text-align:center">
+      <div class="eyebrow">Arhitectura simplă</div>
+      <h2 class="section-title">3 pași. Fully automated.<br><span class="grad-cyan">Zero configurare zilnică.</span></h2>
+    </div>
+    <div class="flow-steps">
+      <div class="flow-step" id="flow-1">
+        <div class="flow-step-num">1</div>
+        <div class="flow-icon-wrap">
+          <svg width="48" height="48" fill="none" stroke="#818cf8" stroke-width="1.5" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+        </div>
+        <div class="flow-step-title">Upload Audio</div>
+        <div class="flow-step-desc">Încarci fișierul audio sau video direct în interfață. MP3, WAV, MP4, M4A — orice format.</div>
+      </div>
+      <div class="flow-arrow">
+        <svg width="40" height="24" viewBox="0 0 40 24" fill="none"><path d="M0 12 L32 12 M24 4 L40 12 L24 20" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+      </div>
+      <div class="flow-step" id="flow-2">
+        <div class="flow-step-num">2</div>
+        <div class="flow-icon-wrap">
+          <svg width="48" height="48" fill="none" stroke="#67e8f9" stroke-width="1.5" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 1v4M12 19v4M4.22 4.22l2.83 2.83M16.95 16.95l2.83 2.83M1 12h4M19 12h4M4.22 19.78l2.83-2.83M16.95 7.05l2.83-2.83"/></svg>
+        </div>
+        <div class="flow-step-title">Whisper AI local</div>
+        <div class="flow-step-desc">Modelul Whisper rulează pe serverul tău. Detecție automată limbă, transcriere precisă, zero latență cloud.</div>
+      </div>
+      <div class="flow-arrow">
+        <svg width="40" height="24" viewBox="0 0 40 24" fill="none"><path d="M0 12 L32 12 M24 4 L40 12 L24 20" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+      </div>
+      <div class="flow-step" id="flow-3">
+        <div class="flow-step-num">3</div>
+        <div class="flow-icon-wrap">
+          <svg width="48" height="48" fill="none" stroke="#6ee7b7" stroke-width="1.5" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+        </div>
+        <div class="flow-step-title">Transcript + Căutare</div>
+        <div class="flow-step-desc">Transcriptul apare sincronizat cu audio-ul. Căutare semantică AI în toate înregistrările. Export PDF/Word.</div>
+      </div>
+    </div>
+    <div style="display:flex;gap:32px;flex-wrap:wrap;justify-content:center">
+      <div style="display:flex;align-items:center;gap:8px;font-size:14px;color:var(--text-muted)">
+        <svg width="16" height="16" fill="none" stroke="var(--emerald)" stroke-width="2" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>
+        Suport multi-limbă automat
+      </div>
+      <div style="display:flex;align-items:center;gap:8px;font-size:14px;color:var(--text-muted)">
+        <svg width="16" height="16" fill="none" stroke="var(--emerald)" stroke-width="2" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>
+        Procesare paralelă (GPU opțional)
+      </div>
+      <div style="display:flex;align-items:center;gap:8px;font-size:14px;color:var(--text-muted)">
+        <svg width="16" height="16" fill="none" stroke="var(--emerald)" stroke-width="2" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>
+        Timestamps pentru fiecare segment
+      </div>
+      <div style="display:flex;align-items:center;gap:8px;font-size:14px;color:var(--text-muted)">
+        <svg width="16" height="16" fill="none" stroke="var(--emerald)" stroke-width="2" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>
+        Indexare automată pgvector
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ── SLIDE 6: CLIENT DESKTOP ── -->
+<section class="slide" id="s6" data-slide="5">
+  <div style="max-width:1100px;width:100%;padding:0 24px;display:flex;flex-direction:column;align-items:center;gap:40px">
+    <div style="text-align:center">
+      <div class="eyebrow">Verbatek Desktop</div>
+      <h2 class="section-title">Înregistrare automată<br><span class="grad-cyan">direct din sala de ședințe.</span></h2>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:40px;width:100%;align-items:start">
+      <div style="display:flex;flex-direction:column;gap:20px">
+        <div class="glass-card" style="padding:28px;border-radius:20px;display:flex;align-items:flex-start;gap:16px;opacity:0;transform:translateX(-30px);transition:all 0.5s ease 0s" class="desktop-item">
+          <div style="width:48px;height:48px;border-radius:14px;background:rgba(79,70,229,0.15);border:1px solid rgba(79,70,229,0.3);display:flex;align-items:center;justify-content:center;flex-shrink:0">
+            <svg width="24" height="24" fill="none" stroke="#818cf8" stroke-width="1.8" viewBox="0 0 24 24"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2M12 19v3M8 22h8"/></svg>
+          </div>
+          <div>
+            <div style="font-size:15px;font-weight:700;margin-bottom:6px">Înregistrare continuă pe segmente</div>
+            <div style="font-size:13px;color:var(--text-muted);line-height:1.6">Captează audio de la microfon, segmentează automat (configurabil 30s–60min) și trimite fiecare segment la server în timp real.</div>
+          </div>
+        </div>
+        <div class="glass-card" style="padding:28px;border-radius:20px;display:flex;align-items:flex-start;gap:16px;opacity:0;transform:translateX(-30px);transition:all 0.5s ease 0.1s" class="desktop-item">
+          <div style="width:48px;height:48px;border-radius:14px;background:rgba(6,182,212,0.12);border:1px solid rgba(6,182,212,0.3);display:flex;align-items:center;justify-content:center;flex-shrink:0">
+            <svg width="24" height="24" fill="none" stroke="#67e8f9" stroke-width="1.8" viewBox="0 0 24 24"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+          </div>
+          <div>
+            <div style="font-size:15px;font-weight:700;margin-bottom:6px">Coadă offline cu retry automat</div>
+            <div style="font-size:13px;color:var(--text-muted);line-height:1.6">Dacă serverul nu răspunde, segmentele se salvează local pe disc. La reconectare, upload-ul reia automat — fără pierderi.</div>
+          </div>
+        </div>
+        <div class="glass-card" style="padding:28px;border-radius:20px;display:flex;align-items:flex-start;gap:16px;opacity:0;transform:translateX(-30px);transition:all 0.5s ease 0.2s" class="desktop-item">
+          <div style="width:48px;height:48px;border-radius:14px;background:rgba(16,185,129,0.12);border:1px solid rgba(16,185,129,0.3);display:flex;align-items:center;justify-content:center;flex-shrink:0">
+            <svg width="24" height="24" fill="none" stroke="#6ee7b7" stroke-width="1.8" viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+          </div>
+          <div>
+            <div style="font-size:15px;font-weight:700;margin-bottom:6px">Roluri Operator / Admin</div>
+            <div style="font-size:13px;color:var(--text-muted);line-height:1.6">Operatorul pornește/oprește cu un click. Adminul accesează configurare completă, diagnostice și setări server.</div>
+          </div>
+        </div>
+        <div class="glass-card" style="padding:28px;border-radius:20px;display:flex;align-items:flex-start;gap:16px;opacity:0;transform:translateX(-30px);transition:all 0.5s ease 0.3s" class="desktop-item">
+          <div style="width:48px;height:48px;border-radius:14px;background:rgba(245,158,11,0.12);border:1px solid rgba(245,158,11,0.3);display:flex;align-items:center;justify-content:center;flex-shrink:0">
+            <svg width="24" height="24" fill="none" stroke="#fcd34d" stroke-width="1.8" viewBox="0 0 24 24"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>
+          </div>
+          <div>
+            <div style="font-size:15px;font-weight:700;margin-bottom:6px">Setup wizard la prima pornire</div>
+            <div style="font-size:13px;color:var(--text-muted);line-height:1.6">Configurare ghidată: URL server, nume sală, permisiune microfon. Sesiunea se restaurează automat la repornire.</div>
+          </div>
+        </div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:24px">
+        <div style="background:linear-gradient(135deg,rgba(79,70,229,0.15),rgba(6,182,212,0.08));border:1px solid rgba(79,70,229,0.35);border-radius:24px;padding:32px;opacity:0;transform:translateX(30px);transition:all 0.5s ease 0.1s" id="desktop-right-1">
+          <div style="font-size:13px;font-weight:700;color:#818cf8;letter-spacing:0.1em;margin-bottom:20px">FLUX AUTOMAT</div>
+          <div style="display:flex;flex-direction:column;gap:16px">
+            <div style="display:flex;align-items:center;gap:12px">
+              <div style="width:28px;height:28px;border-radius:50%;background:linear-gradient(135deg,#4f46e5,#7c3aed);display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:800;flex-shrink:0">1</div>
+              <span style="font-size:13px;color:var(--text-muted)">Operator pornește ședința → introduce titlu + participanți</span>
+            </div>
+            <div style="display:flex;align-items:center;gap:12px">
+              <div style="width:28px;height:28px;border-radius:50%;background:linear-gradient(135deg,#0891b2,#06b6d4);display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:800;flex-shrink:0">2</div>
+              <span style="font-size:13px;color:var(--text-muted)">Clientul înregistrează și taie segmente automat la interval fix</span>
+            </div>
+            <div style="display:flex;align-items:center;gap:12px">
+              <div style="width:28px;height:28px;border-radius:50%;background:linear-gradient(135deg,#059669,#10b981);display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:800;flex-shrink:0">3</div>
+              <span style="font-size:13px;color:var(--text-muted)">La final: POST /session/complete → serverul asamblează + pornește Whisper</span>
+            </div>
+            <div style="display:flex;align-items:center;gap:12px">
+              <div style="width:28px;height:28px;border-radius:50%;background:linear-gradient(135deg,#7c3aed,#a855f7);display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:800;flex-shrink:0">4</div>
+              <span style="font-size:13px;color:var(--text-muted)">Transcriptul apare în interfața web în câteva minute</span>
+            </div>
+          </div>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;opacity:0;transform:translateX(30px);transition:all 0.5s ease 0.2s" id="desktop-right-2">
+          <div style="background:rgba(16,185,129,0.08);border:1px solid rgba(16,185,129,0.25);border-radius:16px;padding:20px;text-align:center">
+            <div style="font-size:1.8rem;font-weight:900;color:var(--emerald)">Electron</div>
+            <div style="font-size:12px;color:var(--text-muted);margin-top:4px">Windows 10/11</div>
+          </div>
+          <div style="background:rgba(79,70,229,0.08);border:1px solid rgba(79,70,229,0.25);border-radius:16px;padding:20px;text-align:center">
+            <div style="font-size:1.8rem;font-weight:900;color:#818cf8">WAV PCM</div>
+            <div style="font-size:12px;color:var(--text-muted);margin-top:4px">16-bit mono, lossless</div>
+          </div>
+          <div style="background:rgba(6,182,212,0.08);border:1px solid rgba(6,182,212,0.25);border-radius:16px;padding:20px;text-align:center">
+            <div style="font-size:1.8rem;font-weight:900;color:#67e8f9">Offline</div>
+            <div style="font-size:12px;color:var(--text-muted);margin-top:4px">Coadă persistentă</div>
+          </div>
+          <div style="background:rgba(245,158,11,0.08);border:1px solid rgba(245,158,11,0.25);border-radius:16px;padding:20px;text-align:center">
+            <div style="font-size:1.8rem;font-weight:900;color:#fcd34d">.exe</div>
+            <div style="font-size:12px;color:var(--text-muted);margin-top:4px">Portable / Installer</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ── SLIDE 7: FUNCȚIONALITĂȚI ── -->
+<section class="slide" id="s7f" data-slide="6">
+  <div class="features-wrapper">
+    <div style="text-align:center">
+      <div class="eyebrow">Tot ce ai nevoie</div>
+      <h2 class="section-title">Platforma completă.<br><span class="grad-multi">Gata din prima zi.</span></h2>
+    </div>
+    <div class="features-grid">
+      <div class="feature-card" data-feat="0">
+        <div class="feature-icon" style="background:rgba(79,70,229,0.15);border:1px solid rgba(79,70,229,0.3)">
+          <svg width="28" height="28" fill="none" stroke="#818cf8" stroke-width="1.8" viewBox="0 0 24 24"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2M12 19v3M8 22h8"/></svg>
+        </div>
+        <div class="feature-title">Transcriere Whisper AI</div>
+        <div class="feature-desc">Modelul OpenAI Whisper rulează local. 99+ limbi, precizie de top, timestamps pentru fiecare cuvânt.</div>
+      </div>
+      <div class="feature-card" data-feat="1">
+        <div class="feature-icon" style="background:rgba(6,182,212,0.12);border:1px solid rgba(6,182,212,0.3)">
+          <svg width="28" height="28" fill="none" stroke="#67e8f9" stroke-width="1.8" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+        </div>
+        <div class="feature-title">Căutare Semantică AI</div>
+        <div class="feature-desc">pgvector + embeddings multilinguale. Găsești orice discuție după sens, nu doar cuvinte exacte.</div>
+      </div>
+      <div class="feature-card" data-feat="2">
+        <div class="feature-icon" style="background:rgba(16,185,129,0.12);border:1px solid rgba(16,185,129,0.3)">
+          <svg width="28" height="28" fill="none" stroke="#6ee7b7" stroke-width="1.8" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+        </div>
+        <div class="feature-title">Export PDF / Word / TXT</div>
+        <div class="feature-desc">Exportă transcriptele în orice format. Gata pentru procese-verbale, dosare, arhivă.</div>
+      </div>
+      <div class="feature-card" data-feat="3">
+        <div class="feature-icon" style="background:rgba(245,158,11,0.12);border:1px solid rgba(245,158,11,0.3)">
+          <svg width="28" height="28" fill="none" stroke="#fcd34d" stroke-width="1.8" viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+        </div>
+        <div class="feature-title">Control Acces RBAC</div>
+        <div class="feature-desc">3 roluri: admin, operator, participant. Acces per înregistrare. JWT + audit complet.</div>
+      </div>
+      <div class="feature-card" data-feat="4">
+        <div class="feature-icon" style="background:rgba(139,92,246,0.12);border:1px solid rgba(139,92,246,0.3)">
+          <svg width="28" height="28" fill="none" stroke="#c4b5fd" stroke-width="1.8" viewBox="0 0 24 24"><path d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22"/></svg>
+        </div>
+        <div class="feature-title">Open-Source &amp; Auditabil</div>
+        <div class="feature-desc">Cod disponibil public. IT-ul tău poate verifica fiecare linie. Fără backdoors, fără surprize.</div>
+      </div>
+      <div class="feature-card" data-feat="5">
+        <div class="feature-icon" style="background:rgba(239,68,68,0.1);border:1px solid rgba(239,68,68,0.25)">
+          <svg width="28" height="28" fill="none" stroke="#fca5a5" stroke-width="1.8" viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+        </div>
+        <div class="feature-title">Jurnal Audit GDPR</div>
+        <div class="feature-desc">Fiecare acces, modificare și export este înregistrat. Ștergere automată după N zile configurabil.</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- Slides 7-12 placeholder, filled below -->
+<!-- ── SLIDE 8: SECURITATE ── -->
+<section class="slide" id="s8sec" data-slide="7">
+  <div style="max-width:1100px;width:100%;padding:0 24px;display:flex;flex-direction:column;align-items:center;gap:40px">
+    <div style="text-align:center">
+      <div class="eyebrow">Arhitectura de securitate</div>
+      <h2 class="section-title">Proiectat pentru<br><span class="grad-indigo">organizații exigente.</span></h2>
+    </div>
+    <div style="display:flex;gap:32px;align-items:flex-start;width:100%">
+      <div style="flex:1;display:flex;flex-direction:column;gap:16px" id="sec-left">
+        <div class="sec-item glass-card" style="padding:20px 24px;display:flex;align-items:flex-start;gap:16px;opacity:0;transform:translateX(-30px);transition:all 0.5s ease">
+          <div style="width:44px;height:44px;border-radius:12px;background:rgba(79,70,229,0.15);border:1px solid rgba(79,70,229,0.3);display:flex;align-items:center;justify-content:center;flex-shrink:0">
+            <svg width="22" height="22" fill="none" stroke="#818cf8" stroke-width="2" viewBox="0 0 24 24"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+          </div>
+          <div><div style="font-size:15px;font-weight:700;margin-bottom:4px">JWT HS256 Authentication</div><div style="font-size:13px;color:var(--text-muted)">Tokenuri cu expirare 8h, forțare schimbare parolă la primul login, RBAC multi-nivel</div></div>
+        </div>
+        <div class="sec-item glass-card" style="padding:20px 24px;display:flex;align-items:flex-start;gap:16px;opacity:0;transform:translateX(-30px);transition:all 0.5s ease 0.1s">
+          <div style="width:44px;height:44px;border-radius:12px;background:rgba(6,182,212,0.12);border:1px solid rgba(6,182,212,0.3);display:flex;align-items:center;justify-content:center;flex-shrink:0">
+            <svg width="22" height="22" fill="none" stroke="#67e8f9" stroke-width="2" viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+          </div>
+          <div><div style="font-size:15px;font-weight:700;margin-bottom:4px">Rețele Docker Izolate</div><div style="font-size:13px;color:var(--text-muted)">Fiecare serviciu în container izolat. Comunicare internă only. Nginx TLS termination.</div></div>
+        </div>
+        <div class="sec-item glass-card" style="padding:20px 24px;display:flex;align-items:flex-start;gap:16px;opacity:0;transform:translateX(-30px);transition:all 0.5s ease 0.2s">
+          <div style="width:44px;height:44px;border-radius:12px;background:rgba(16,185,129,0.12);border:1px solid rgba(16,185,129,0.3);display:flex;align-items:center;justify-content:center;flex-shrink:0">
+            <svg width="22" height="22" fill="none" stroke="#6ee7b7" stroke-width="2" viewBox="0 0 24 24"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+          </div>
+          <div><div style="font-size:15px;font-weight:700;margin-bottom:4px">Audit Log Complet</div><div style="font-size:13px;color:var(--text-muted)">Fiecare acțiune logată cu user, timestamp, IP. Ștergere automată GDPR configurabilă.</div></div>
+        </div>
+        <div class="sec-item glass-card" style="padding:20px 24px;display:flex;align-items:flex-start;gap:16px;opacity:0;transform:translateX(-30px);transition:all 0.5s ease 0.3s">
+          <div style="width:44px;height:44px;border-radius:12px;background:rgba(245,158,11,0.12);border:1px solid rgba(245,158,11,0.3);display:flex;align-items:center;justify-content:center;flex-shrink:0">
+            <svg width="22" height="22" fill="none" stroke="#fcd34d" stroke-width="2" viewBox="0 0 24 24"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg>
+          </div>
+          <div><div style="font-size:15px;font-weight:700;margin-bottom:4px">PostgreSQL Encryption</div><div style="font-size:13px;color:var(--text-muted)">Date stocate local, backup configurable, volum Docker persistent, fără acces extern la DB.</div></div>
+        </div>
+      </div>
+      <div style="flex:1;display:flex;align-items:center;justify-content:center" id="sec-diagram">
+        <div style="position:relative;width:320px;height:320px;opacity:0;transform:scale(0.8);transition:all 0.6s ease 0.2s" id="sec-diagram-inner">
+          <!-- Server central -->
+          <div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:120px;height:120px;border-radius:24px;background:linear-gradient(135deg,rgba(79,70,229,0.3),rgba(6,182,212,0.2));border:2px solid rgba(79,70,229,0.5);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;z-index:2;box-shadow:0 0 40px rgba(79,70,229,0.3)">
+            <svg width="32" height="32" fill="none" stroke="#818cf8" stroke-width="1.5" viewBox="0 0 24 24"><rect x="2" y="2" width="20" height="8" rx="2"/><rect x="2" y="14" width="20" height="8" rx="2"/><line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/></svg>
+            <div style="font-size:11px;font-weight:700;color:#c7d2fe;text-align:center">Verbatek<br>Server</div>
+          </div>
+          <!-- Shield ring -->
+          <div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:200px;height:200px;border-radius:50%;border:2px dashed rgba(16,185,129,0.3);animation:spin-slow 20s linear infinite"></div>
+          <div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:280px;height:280px;border-radius:50%;border:1px solid rgba(79,70,229,0.15)"></div>
+          <!-- Nodes -->
+          <div style="position:absolute;top:10px;left:50%;transform:translateX(-50%);background:rgba(16,185,129,0.15);border:1px solid rgba(16,185,129,0.4);border-radius:10px;padding:8px 12px;font-size:11px;font-weight:600;color:#6ee7b7;white-space:nowrap">SSL/TLS</div>
+          <div style="position:absolute;bottom:10px;left:50%;transform:translateX(-50%);background:rgba(79,70,229,0.15);border:1px solid rgba(79,70,229,0.4);border-radius:10px;padding:8px 12px;font-size:11px;font-weight:600;color:#a5b4fc;white-space:nowrap">PostgreSQL</div>
+          <div style="position:absolute;top:50%;left:10px;transform:translateY(-50%);background:rgba(6,182,212,0.12);border:1px solid rgba(6,182,212,0.4);border-radius:10px;padding:8px 12px;font-size:11px;font-weight:600;color:#67e8f9;white-space:nowrap">Redis</div>
+          <div style="position:absolute;top:50%;right:10px;transform:translateY(-50%);background:rgba(245,158,11,0.12);border:1px solid rgba(245,158,11,0.4);border-radius:10px;padding:8px 12px;font-size:11px;font-weight:600;color:#fcd34d;white-space:nowrap">Whisper</div>
+          <!-- No external -->
+          <div style="position:absolute;bottom:-40px;left:50%;transform:translateX(-50%);display:flex;align-items:center;gap:6px;font-size:12px;color:#f87171;white-space:nowrap">
+            <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
+            Zero conexiuni externe
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ── SLIDE 9: PENTRU CINE ── -->
+<section class="slide" id="s9pt" data-slide="8">
+  <div style="max-width:1100px;width:100%;padding:0 24px;display:flex;flex-direction:column;align-items:center;gap:48px">
+    <div style="text-align:center">
+      <div class="eyebrow">Piața țintă</div>
+      <h2 class="section-title">Construit pentru organizații<br><span class="grad-cyan">unde datele contează.</span></h2>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:20px;width:100%" id="sectors-grid">
+      <div class="sector-card glass-card" style="padding:28px 20px;text-align:center;border-radius:20px;opacity:0;transform:translateY(30px);transition:all 0.5s ease;cursor:default">
+        <div style="font-size:40px;margin-bottom:16px">⚖️</div>
+        <div style="font-size:15px;font-weight:700;margin-bottom:8px">Juridic</div>
+        <div style="font-size:12px;color:var(--text-muted);line-height:1.5">Ședințe confidențiale avocat-client. Secret profesional protejat.</div>
+      </div>
+      <div class="sector-card glass-card" style="padding:28px 20px;text-align:center;border-radius:20px;opacity:0;transform:translateY(30px);transition:all 0.5s ease 0.1s;cursor:default">
+        <div style="font-size:40px;margin-bottom:16px">🏥</div>
+        <div style="font-size:15px;font-weight:700;margin-bottom:8px">Medical</div>
+        <div style="font-size:12px;color:var(--text-muted);line-height:1.5">Consultații, conferințe clinice. Date pacienți rămân local.</div>
+      </div>
+      <div class="sector-card glass-card" style="padding:28px 20px;text-align:center;border-radius:20px;opacity:0;transform:translateY(30px);transition:all 0.5s ease 0.2s;cursor:default">
+        <div style="font-size:40px;margin-bottom:16px">🏛️</div>
+        <div style="font-size:15px;font-weight:700;margin-bottom:8px">Instituții Publice</div>
+        <div style="font-size:12px;color:var(--text-muted);line-height:1.5">Ședințe de consiliu, deliberări. Transparență + conformitate legală.</div>
+      </div>
+      <div class="sector-card glass-card" style="padding:28px 20px;text-align:center;border-radius:20px;opacity:0;transform:translateY(30px);transition:all 0.5s ease 0.3s;cursor:default">
+        <div style="font-size:40px;margin-bottom:16px">🏦</div>
+        <div style="font-size:15px;font-weight:700;margin-bottom:8px">Financiar</div>
+        <div style="font-size:12px;color:var(--text-muted);line-height:1.5">Boarduri, comitete de risc. Reglementări BNR / EBA respectate.</div>
+      </div>
+      <div class="sector-card glass-card" style="padding:28px 20px;text-align:center;border-radius:20px;opacity:0;transform:translateY(30px);transition:all 0.5s ease 0.4s;cursor:default">
+        <div style="font-size:40px;margin-bottom:16px">🏢</div>
+        <div style="font-size:15px;font-weight:700;margin-bottom:8px">Enterprise</div>
+        <div style="font-size:12px;color:var(--text-muted);line-height:1.5">Corporații cu politici stricte IT. Departamente R&amp;D, management strategic.</div>
+      </div>
+    </div>
+    <div style="background:rgba(79,70,229,0.08);border:1px solid rgba(79,70,229,0.2);border-radius:16px;padding:20px 40px;text-align:center">
+      <span style="font-size:15px;color:#c7d2fe;font-weight:500">
+        Orice organizație cu <strong style="color:#818cf8">obligații legale de confidențialitate</strong> sau politici interne stricte de securitate a datelor
+      </span>
+    </div>
+  </div>
+</section>
+
+<!-- ── SLIDE 10: COMPARAȚIE ── -->
+<section class="slide" id="s10cmp" data-slide="9">
+  <div style="max-width:1000px;width:100%;padding:0 24px;display:flex;flex-direction:column;align-items:center;gap:40px">
+    <div style="text-align:center">
+      <div class="eyebrow">Comparație directă</div>
+      <h2 class="section-title">Verbatek vs <span style="color:var(--text-muted)">Alternativele Cloud</span></h2>
+    </div>
+    <div style="width:100%;overflow:auto">
+      <table id="comp-table" style="width:100%;border-collapse:separate;border-spacing:0;font-size:14px">
+        <thead>
+          <tr>
+            <th style="padding:16px 20px;text-align:left;color:var(--text-muted);font-weight:600;border-bottom:1px solid var(--glass-border)">Criteriu</th>
+            <th style="padding:16px 20px;text-align:center;background:rgba(79,70,229,0.12);border:1px solid rgba(79,70,229,0.3);border-bottom:none;border-radius:16px 16px 0 0">
+              <div style="font-size:16px;font-weight:800;color:#818cf8">Verbatek</div>
+              <div style="font-size:11px;color:var(--text-muted);font-weight:400">Self-hosted</div>
+            </th>
+            <th style="padding:16px 20px;text-align:center;color:var(--text-muted);border-bottom:1px solid var(--glass-border)">Microsoft Teams</th>
+            <th style="padding:16px 20px;text-align:center;color:var(--text-muted);border-bottom:1px solid var(--glass-border)">Zoom AI</th>
+            <th style="padding:16px 20px;text-align:center;color:var(--text-muted);border-bottom:1px solid var(--glass-border)">Otter.ai</th>
+          </tr>
+        </thead>
+        <tbody id="comp-tbody">
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<!-- ── SLIDE 11: CALCULATOR ROI ── -->
+<section class="slide" id="s11roi" data-slide="10">
+  <div style="max-width:900px;width:100%;padding:0 24px;display:flex;flex-direction:column;align-items:center;gap:40px">
+    <div style="text-align:center">
+      <div class="eyebrow">Calculează economiile tale</div>
+      <h2 class="section-title">ROI în primul an.<br><span class="grad-multi">Numere reale.</span></h2>
+    </div>
+    <div class="glass-card" style="padding:48px;width:100%;border-radius:28px">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:48px;align-items:start">
+        <div>
+          <label style="display:block;font-size:14px;font-weight:600;color:var(--text-muted);margin-bottom:12px;letter-spacing:0.05em">NUMARUL DE UTILIZATORI</label>
+          <div style="display:flex;align-items:center;gap:16px;margin-bottom:8px">
+            <input type="range" id="roi-slider" min="1" max="100" value="20"
+              style="flex:1;height:6px;border-radius:3px;outline:none;cursor:pointer;accent-color:var(--indigo)">
+            <div id="roi-users-display" style="font-size:2rem;font-weight:900;color:#818cf8;min-width:60px;text-align:right">20</div>
+          </div>
+          <div style="display:flex;justify-content:space-between;font-size:12px;color:var(--text-muted);margin-bottom:32px"><span>1 user</span><span>100 users</span></div>
+
+          <label style="display:block;font-size:14px;font-weight:600;color:var(--text-muted);margin-bottom:12px;letter-spacing:0.05em">COST CLOUD / UTILIZATOR / LUNĂ</label>
+          <div style="display:flex;gap:12px;flex-wrap:wrap" id="roi-plan-btns">
+            <button class="roi-plan-btn" data-cost="15" onclick="selectPlan(this,15)" style="padding:10px 18px;border-radius:10px;border:1px solid rgba(79,70,229,0.4);background:rgba(79,70,229,0.15);color:#a5b4fc;font-size:13px;font-weight:600;cursor:pointer;transition:all 0.2s">Teams €15</button>
+            <button class="roi-plan-btn active" data-cost="25" onclick="selectPlan(this,25)" style="padding:10px 18px;border-radius:10px;border:1px solid var(--indigo);background:rgba(79,70,229,0.3);color:#c7d2fe;font-size:13px;font-weight:600;cursor:pointer;transition:all 0.2s">Zoom €25</button>
+            <button class="roi-plan-btn" data-cost="35" onclick="selectPlan(this,35)" style="padding:10px 18px;border-radius:10px;border:1px solid rgba(79,70,229,0.4);background:rgba(79,70,229,0.15);color:#a5b4fc;font-size:13px;font-weight:600;cursor:pointer;transition:all 0.2s">Otter €35</button>
+          </div>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:20px">
+          <div style="background:rgba(239,68,68,0.08);border:1px solid rgba(239,68,68,0.2);border-radius:16px;padding:24px">
+            <div style="font-size:13px;font-weight:600;color:#f87171;margin-bottom:8px">COST CLOUD / AN</div>
+            <div id="roi-cloud-cost" style="font-size:2.5rem;font-weight:900;color:#fca5a5">€6.000</div>
+            <div style="font-size:12px;color:var(--text-muted);margin-top:4px">subscripție anuală recurentă</div>
+          </div>
+          <div style="background:rgba(16,185,129,0.08);border:1px solid rgba(16,185,129,0.2);border-radius:16px;padding:24px">
+            <div style="font-size:13px;font-weight:600;color:var(--emerald);margin-bottom:8px">COST VERBATEK (SERVER ONE-TIME)</div>
+            <div id="roi-meetrec-cost" style="font-size:2.5rem;font-weight:900;color:#6ee7b7">€2.500</div>
+            <div style="font-size:12px;color:var(--text-muted);margin-top:4px">server dedicat + instalare (o singură dată)</div>
+          </div>
+          <div style="background:linear-gradient(135deg,rgba(79,70,229,0.2),rgba(6,182,212,0.1));border:1px solid rgba(79,70,229,0.4);border-radius:16px;padding:24px">
+            <div style="font-size:13px;font-weight:700;color:#818cf8;margin-bottom:8px">ECONOMIE ANUL 1</div>
+            <div id="roi-saving" style="font-size:2.8rem;font-weight:900;background:linear-gradient(135deg,#818cf8,#06b6d4);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text">€3.500</div>
+            <div id="roi-saving-years" style="font-size:12px;color:var(--text-muted);margin-top:4px">Anul 2+: economie totală de <span id="roi-y2" style="color:#67e8f9">€6.000/an</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ── SLIDE 12: IMPLEMENTARE ── -->
+<section class="slide" id="s12impl" data-slide="11">
+  <div style="max-width:1000px;width:100%;padding:0 24px;display:flex;flex-direction:column;align-items:center;gap:48px">
+    <div style="text-align:center">
+      <div class="eyebrow">Instalare simplă</div>
+      <h2 class="section-title">De la zero la funcțional<br><span class="grad-cyan">în mai puțin de o zi.</span></h2>
+    </div>
+    <div style="display:flex;gap:40px;width:100%;align-items:flex-start">
+      <div style="flex:1.4">
+        <div style="display:flex;flex-direction:column;gap:0" id="timeline-steps">
+          <div class="tl-step" style="display:flex;gap:20px;opacity:0;transform:translateX(-20px);transition:all 0.5s ease">
+            <div style="display:flex;flex-direction:column;align-items:center">
+              <div style="width:40px;height:40px;border-radius:50%;background:linear-gradient(135deg,#4f46e5,#7c3aed);display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:800;flex-shrink:0;box-shadow:0 0 20px rgba(79,70,229,0.4)">1</div>
+              <div style="width:2px;height:40px;background:linear-gradient(to bottom,rgba(79,70,229,0.5),rgba(79,70,229,0.1));margin-top:4px"></div>
+            </div>
+            <div style="padding-bottom:32px">
+              <div style="font-size:15px;font-weight:700;margin-bottom:4px">Pregătire server</div>
+              <div style="font-size:13px;color:var(--text-muted);margin-bottom:8px">Linux (Ubuntu, Debian, RHEL, Rocky) sau Windows Server, Docker instalat, port 443 deschis</div>
+              <code style="font-size:12px;background:rgba(0,0,0,0.4);border:1px solid var(--glass-border);padding:6px 12px;border-radius:8px;color:#67e8f9;display:block">sudo apt install docker.io docker-compose &nbsp;# sau yum/dnf pe RHEL</code>
+            </div>
+          </div>
+          <div class="tl-step" style="display:flex;gap:20px;opacity:0;transform:translateX(-20px);transition:all 0.5s ease 0.15s">
+            <div style="display:flex;flex-direction:column;align-items:center">
+              <div style="width:40px;height:40px;border-radius:50%;background:linear-gradient(135deg,#0891b2,#06b6d4);display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:800;flex-shrink:0;box-shadow:0 0 20px rgba(6,182,212,0.4)">2</div>
+              <div style="width:2px;height:40px;background:linear-gradient(to bottom,rgba(6,182,212,0.5),rgba(6,182,212,0.1));margin-top:4px"></div>
+            </div>
+            <div style="padding-bottom:32px">
+              <div style="font-size:15px;font-weight:700;margin-bottom:4px">Clonare + configurare</div>
+              <div style="font-size:13px;color:var(--text-muted);margin-bottom:8px">Copiezi .env, setezi JWT secret și URL bază de date</div>
+              <code style="font-size:12px;background:rgba(0,0,0,0.4);border:1px solid var(--glass-border);padding:6px 12px;border-radius:8px;color:#67e8f9;display:block">git clone &amp;&amp; make setup</code>
+            </div>
+          </div>
+          <div class="tl-step" style="display:flex;gap:20px;opacity:0;transform:translateX(-20px);transition:all 0.5s ease 0.3s">
+            <div style="display:flex;flex-direction:column;align-items:center">
+              <div style="width:40px;height:40px;border-radius:50%;background:linear-gradient(135deg,#059669,#10b981);display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:800;flex-shrink:0;box-shadow:0 0 20px rgba(16,185,129,0.4)">3</div>
+            </div>
+            <div style="padding-bottom:0">
+              <div style="font-size:15px;font-weight:700;margin-bottom:4px">Start &amp; gata</div>
+              <div style="font-size:13px;color:var(--text-muted);margin-bottom:8px">O singură comandă lansează toate serviciile. Prima transcriere în 5 minute.</div>
+              <code style="font-size:12px;background:rgba(0,0,0,0.4);border:1px solid var(--glass-border);padding:6px 12px;border-radius:8px;color:#67e8f9;display:block">make build &amp;&amp; make start</code>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div style="flex:1;display:flex;flex-direction:column;gap:20px">
+        <div class="glass-card" style="padding:24px;border-radius:20px">
+          <div style="font-size:14px;font-weight:700;color:var(--cyan);margin-bottom:16px;letter-spacing:0.05em">CERINTE MINIME</div>
+          <div style="display:flex;flex-direction:column;gap:10px">
+            <div style="display:flex;justify-content:space-between;font-size:13px">
+              <span style="color:var(--text-muted)">RAM</span><span style="font-weight:600">8 GB (16 GB recomandat)</span>
+            </div>
+            <div style="display:flex;justify-content:space-between;font-size:13px">
+              <span style="color:var(--text-muted)">CPU</span><span style="font-weight:600">4 core-uri</span>
+            </div>
+            <div style="display:flex;justify-content:space-between;font-size:13px">
+              <span style="color:var(--text-muted)">Stocare</span><span style="font-weight:600">50 GB SSD</span>
+            </div>
+            <div style="display:flex;justify-content:space-between;font-size:13px">
+              <span style="color:var(--text-muted)">OS</span><span style="font-weight:600">Linux / Windows Server</span>
+            </div>
+            <div style="display:flex;justify-content:space-between;font-size:13px">
+              <span style="color:var(--text-muted)">GPU</span><span style="font-weight:600;color:var(--emerald)">Opțional (10x rapid)</span>
+            </div>
+          </div>
+        </div>
+        <div style="background:linear-gradient(135deg,rgba(16,185,129,0.15),rgba(6,182,212,0.08));border:1px solid rgba(16,185,129,0.3);border-radius:20px;padding:24px;text-align:center">
+          <div style="font-size:40px;font-weight:900;color:var(--emerald);margin-bottom:8px">&lt; 1 zi</div>
+          <div style="font-size:14px;font-weight:600;color:var(--emerald)">Timp de instalare</div>
+          <div style="font-size:12px;color:var(--text-muted);margin-top:8px">de la server gol la platform funcțională</div>
+        </div>
+        <div class="glass-card" style="padding:20px;border-radius:16px;display:flex;align-items:center;gap:12px">
+          <svg width="24" height="24" fill="none" stroke="var(--indigo)" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 8v4l3 3"/></svg>
+          <div>
+            <div style="font-size:13px;font-weight:600">Suport tehnic inclus</div>
+            <div style="font-size:12px;color:var(--text-muted)">Documentație completă + asistență la instalare</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ── SLIDE 13: CTA FINAL ── -->
+<section class="slide" id="s13cta" data-slide="12">
+  <canvas id="final-canvas" style="position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none"></canvas>
+  <div style="position:relative;z-index:2;text-align:center;max-width:900px;padding:0 24px">
+    <div class="eyebrow" style="margin-bottom:24px">Ești gata să faci pasul?</div>
+    <h2 style="font-size:clamp(2.5rem,7vw,5.5rem);font-weight:900;line-height:1.05;letter-spacing:-0.03em;margin-bottom:24px">
+      Datele tale.<br>
+      <span class="grad-indigo">Serverele tale.</span><br>
+      <span class="grad-cyan">Regulile tale.</span>
+    </h2>
+    <p style="font-size:1.2rem;color:var(--text-muted);margin-bottom:56px;line-height:1.7">
+      Instalare în mai puțin de o zi. Zero cost per utilizator.<br>
+      Conformitate GDPR nativă. Datele nu ies niciodată din infrastructura ta.
+    </p>
+    <div style="display:flex;gap:20px;justify-content:center;flex-wrap:wrap;margin-bottom:64px">
+      <button class="btn btn-primary" style="font-size:17px;padding:18px 40px;box-shadow:0 0 40px rgba(79,70,229,0.5);animation:cta-glow 2s ease-in-out infinite">
+        <svg width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M5 3l14 9-14 9V3z"/></svg>
+        Solicită Demo Live
+      </button>
+      <button class="btn btn-outline" style="font-size:17px;padding:18px 40px">
+        <svg width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22"/></svg>
+        GitHub Repository
+      </button>
+      <button class="btn btn-outline" style="font-size:17px;padding:18px 40px">
+        <svg width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
+        Contact
+      </button>
+    </div>
+    <div style="display:flex;gap:48px;justify-content:center;border-top:1px solid var(--glass-border);padding-top:40px;flex-wrap:wrap">
+      <div style="text-align:center">
+        <div style="font-size:2rem;font-weight:800;color:#818cf8">100%</div>
+        <div style="font-size:13px;color:var(--text-muted)">Date on-premise</div>
+      </div>
+      <div style="text-align:center">
+        <div style="font-size:2rem;font-weight:800;color:#67e8f9">99+</div>
+        <div style="font-size:13px;color:var(--text-muted)">Limbi suportate</div>
+      </div>
+      <div style="text-align:center">
+        <div style="font-size:2rem;font-weight:800;color:#6ee7b7">0€</div>
+        <div style="font-size:13px;color:var(--text-muted)">Cost per user</div>
+      </div>
+      <div style="text-align:center">
+        <div style="font-size:2rem;font-weight:800;color:#fcd34d">&lt;1zi</div>
+        <div style="font-size:13px;color:var(--text-muted)">Instalare</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+</div><!-- /slides-container -->
+
+<!-- Navigation -->
+<div id="nav-dots"></div>
+<div id="slide-counter">1 / 13</div>
+<button class="arrow-hint" id="arrow-prev" onclick="prevSlide()">
+  <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><polyline points="15 18 9 12 15 6"/></svg>
+</button>
+<button class="arrow-hint" id="arrow-next" onclick="nextSlide()">
+  <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><polyline points="9 18 15 12 9 6"/></svg>
+</button>
+
+<script>
+// ── SLIDE ENGINE ──
+const TOTAL = 13;
+let current = 0;
+let animating = false;
+
+function buildDots(){
+  const c = document.getElementById('nav-dots');
+  for(let i=0;i<TOTAL;i++){
+    const d = document.createElement('div');
+    d.className = 'dot' + (i===0?' active':'');
+    d.onclick = ()=>goTo(i);
+    c.appendChild(d);
+  }
+}
+buildDots();
+
+function updateDots(){
+  document.querySelectorAll('.dot').forEach((d,i)=>{
+    d.classList.toggle('active',i===current);
+  });
+  document.getElementById('slide-counter').textContent = (current+1)+' / '+TOTAL;
+}
+
+function goTo(n, dir){
+  if(animating || n===current || n<0 || n>=TOTAL) return;
+  animating = true;
+  const direction = (dir !== undefined) ? dir : (n > current ? 1 : -1);
+  const prev = document.querySelector('.slide.active');
+  const next = document.querySelectorAll('.slide')[n];
+
+  // Pozitionează next fără tranziție
+  next.style.transition = 'none';
+  next.style.transform = direction > 0 ? 'translateX(100%)' : 'translateX(-100%)';
+  next.style.opacity = '0';
+  next.classList.remove('exit-left', 'exit-right', 'active');
+
+  // Forțează reflow — browserul „vede" poziția de start
+  void next.getBoundingClientRect();
+
+  // Reactivează tranziția și animează spre centru
+  next.style.transition = '';
+  next.style.transform = 'translateX(0)';
+  next.style.opacity = '1';
+
+  // Scoate prev cu animație
+  prev.style.transition = '';
+  prev.style.transform = direction > 0 ? 'translateX(-100%)' : 'translateX(100%)';
+  prev.style.opacity = '0';
+
+  setTimeout(()=>{
+    // Curăță inline styles, lasă CSS classes să preia
+    next.style.transform = '';
+    next.style.opacity = '';
+    next.style.transition = '';
+    next.classList.add('active');
+
+    prev.classList.remove('active');
+    prev.style.transform = '';
+    prev.style.opacity = '';
+    prev.style.transition = '';
+
+    animating = false;
+    triggerSlideAnimation(n);
+  }, 750);
+
+  current = n;
+  updateDots();
+}
+
+function nextSlide(){ goTo(current+1, 1) }
+function prevSlide(){ goTo(current-1, -1) }
+
+document.addEventListener('keydown', e=>{
+  if(e.key==='ArrowRight'||e.key==='ArrowDown') nextSlide();
+  if(e.key==='ArrowLeft'||e.key==='ArrowUp') prevSlide();
+});
+
+let touchStart = 0;
+document.addEventListener('touchstart', e=>{ touchStart=e.touches[0].clientX });
+document.addEventListener('touchend', e=>{
+  const dx = touchStart - e.changedTouches[0].clientX;
+  if(Math.abs(dx)>60) dx>0 ? nextSlide() : prevSlide();
+});
+
+// ── COUNTER ANIMATION ──
+function animateCounter(el){
+  const target = parseFloat(el.dataset.count || el.dataset.countFloat || '0');
+  const isFloat = !!el.dataset.countFloat;
+  const prefix = el.dataset.prefix || '';
+  const suffix = el.dataset.suffix || '';
+  const duration = 2000;
+  const start = performance.now();
+  function step(now){
+    const p = Math.min((now-start)/duration, 1);
+    const ease = 1 - Math.pow(1-p, 3);
+    const val = isFloat ? (ease*target).toFixed(1) : Math.round(ease*target);
+    el.textContent = prefix + val + suffix;
+    if(p < 1) requestAnimationFrame(step);
+  }
+  requestAnimationFrame(step);
+}
+
+// ── FLOW STEP REVEAL ──
+function revealFlow(){
+  ['flow-1','flow-2','flow-3'].forEach((id,i)=>{
+    setTimeout(()=>{
+      const el = document.getElementById(id);
+      if(el) el.classList.add('revealed');
+    }, i*300);
+  });
+}
+
+// ── FEATURE CARDS REVEAL ──
+function revealFeatures(){
+  document.querySelectorAll('.feature-card').forEach((c,i)=>{
+    setTimeout(()=>c.classList.add('revealed'), i*120);
+  });
+}
+
+// ── SLIDE-SPECIFIC ANIMATIONS ──
+function triggerSlideAnimation(n){
+  if(n===1){
+    document.querySelectorAll('[data-count],[data-count-float]').forEach(animateCounter);
+  }
+  if(n===4) revealFlow();
+  if(n===5) revealDesktop();
+  if(n===6) revealFeatures();
+  if(n===7) revealSecurity();
+  if(n===8) revealSectors();
+  if(n===9) revealComparison();
+  if(n===11) revealTimeline();
+  if(n===12) revealFinalParticles();
+}
+// trigger for slide 0 on load
+triggerSlideAnimation(0);
+
+// ── DESKTOP SLIDE REVEAL ──
+function revealDesktop(){
+  document.querySelectorAll('#s6 .glass-card').forEach((el,i)=>{
+    setTimeout(()=>{
+      el.style.opacity='1';
+      el.style.transform='translateX(0)';
+    }, i*120);
+  });
+  const r1 = document.getElementById('desktop-right-1');
+  const r2 = document.getElementById('desktop-right-2');
+  if(r1) setTimeout(()=>{ r1.style.opacity='1'; r1.style.transform='translateX(0)'; }, 100);
+  if(r2) setTimeout(()=>{ r2.style.opacity='1'; r2.style.transform='translateX(0)'; }, 250);
+}
+
+// ── SECURITY SLIDE REVEAL ──
+function revealSecurity(){
+  document.querySelectorAll('.sec-item').forEach(el=>{
+    el.style.opacity='1';
+    el.style.transform='translateX(0)';
+  });
+  const d = document.getElementById('sec-diagram-inner');
+  if(d){ d.style.opacity='1'; d.style.transform='scale(1)'; }
+}
+
+// ── SECTORS REVEAL ──
+function revealSectors(){
+  document.querySelectorAll('.sector-card').forEach(el=>{
+    el.style.opacity='1';
+    el.style.transform='translateY(0)';
+  });
+}
+
+// ── COMPARISON TABLE ──
+(function buildComparison(){
+  const rows=[
+    {label:'Procesare date',     meetrec:'100% local, pe serverul tău', teams:'Servere Microsoft (SUA)',  zoom:'Servere Zoom (SUA)',   otter:'AWS cloud extern'},
+    {label:'Conformitate GDPR',  meetrec:'Nativă — tu controlezi tot',  teams:'Parțial (SCCs necesare)',  zoom:'Parțial (audit limitat)', otter:'Depinde de plan'},
+    {label:'Cost anual (20 usr)',meetrec:'~€0 (server propriu)',         teams:'€3.600/an',               zoom:'€6.000/an',             otter:'€8.400/an'},
+    {label:'Funcționare offline',meetrec:'Da — fără internet',           teams:'Nu',                      zoom:'Nu',                    otter:'Nu'},
+    {label:'Client desktop inclus',meetrec:'Da — înregistrare automată',teams:'Nu',                      zoom:'Nu',                    otter:'Nu'},
+    {label:'Open-source',        meetrec:'Da — cod auditabil',           teams:'Nu',                      zoom:'Nu',                    otter:'Nu'},
+    {label:'Căutare semantică AI',meetrec:'Da — pgvector local',         teams:'Limitată',                zoom:'Nu',                    otter:'Parțial (cloud)'},
+  ];
+  const ok='<span style="color:var(--emerald);font-size:18px;font-weight:700">✓</span>';
+  const no='<span style="color:var(--red);font-size:18px;font-weight:700">✗</span>';
+  const tbody=document.getElementById('comp-tbody');
+  if(!tbody) return;
+  rows.forEach((r,i)=>{
+    const tr=document.createElement('tr');
+    tr.style.cssText='opacity:0;transform:translateX(-20px);transition:all 0.4s ease '+((i*0.1).toFixed(1))+'s';
+    tr.innerHTML=`
+      <td style="padding:14px 20px;border-bottom:1px solid var(--glass-border);font-size:13px;font-weight:600;color:var(--text-muted)">${r.label}</td>
+      <td style="padding:14px 20px;border-bottom:1px solid rgba(79,70,229,0.2);background:rgba(79,70,229,0.07);text-align:center;font-size:13px;color:#c7d2fe">${r.meetrec}</td>
+      <td style="padding:14px 20px;border-bottom:1px solid var(--glass-border);text-align:center;font-size:13px;color:var(--text-muted)">${r.teams}</td>
+      <td style="padding:14px 20px;border-bottom:1px solid var(--glass-border);text-align:center;font-size:13px;color:var(--text-muted)">${r.zoom}</td>
+      <td style="padding:14px 20px;border-bottom:1px solid var(--glass-border);text-align:center;font-size:13px;color:var(--text-muted)">${r.otter}</td>`;
+    tr.setAttribute('data-comp-row','');
+    tbody.appendChild(tr);
+  });
+})();
+
+function revealComparison(){
+  document.querySelectorAll('[data-comp-row]').forEach(tr=>{
+    tr.style.opacity='1';
+    tr.style.transform='translateX(0)';
+  });
+}
+
+// ── ROI CALCULATOR ──
+let roiCloudPerUser = 25;
+function selectPlan(btn, cost){
+  roiCloudPerUser = cost;
+  document.querySelectorAll('.roi-plan-btn').forEach(b=>{
+    b.style.background='rgba(79,70,229,0.15)';
+    b.style.borderColor='rgba(79,70,229,0.4)';
+    b.style.color='#a5b4fc';
+  });
+  btn.style.background='rgba(79,70,229,0.3)';
+  btn.style.borderColor='var(--indigo)';
+  btn.style.color='#c7d2fe';
+  updateROI();
+}
+function updateROI(){
+  const users = parseInt(document.getElementById('roi-slider').value)||1;
+  document.getElementById('roi-users-display').textContent = users;
+  const cloudAnnual = users * roiCloudPerUser * 12;
+  const serverCost = users <= 10 ? 1500 : users <= 30 ? 2500 : users <= 60 ? 4000 : 6000;
+  const saving1 = cloudAnnual - serverCost;
+  document.getElementById('roi-cloud-cost').textContent = '€'+cloudAnnual.toLocaleString('ro-RO');
+  document.getElementById('roi-meetrec-cost').textContent = '€'+serverCost.toLocaleString('ro-RO');
+  document.getElementById('roi-saving').textContent = (saving1 >= 0 ? '€' : '-€')+Math.abs(saving1).toLocaleString('ro-RO');
+  document.getElementById('roi-y2').textContent = '€'+cloudAnnual.toLocaleString('ro-RO')+'/an';
+}
+const roiSlider = document.getElementById('roi-slider');
+if(roiSlider) roiSlider.addEventListener('input', updateROI);
+updateROI();
+
+// ── TIMELINE REVEAL ──
+function revealTimeline(){
+  document.querySelectorAll('.tl-step').forEach(el=>{
+    el.style.opacity='1';
+    el.style.transform='translateX(0)';
+  });
+}
+
+// ── FINAL CANVAS PARTICLES ──
+function revealFinalParticles(){
+  const canvas = document.getElementById('final-canvas');
+  if(!canvas || canvas._running) return;
+  canvas._running = true;
+  const ctx = canvas.getContext('2d');
+  let W = canvas.width = window.innerWidth;
+  let H = canvas.height = window.innerHeight;
+  const particles = [];
+  class FP{
+    constructor(){this.reset(true)}
+    reset(init){
+      this.x = Math.random()*W;
+      this.y = init ? Math.random()*H : H+20;
+      this.r = Math.random()*3+1;
+      this.vy = -(Math.random()*1.5+0.5);
+      this.vx = (Math.random()-0.5)*0.5;
+      this.a = 0;
+      this.maxA = Math.random()*0.7+0.2;
+      this.color = ['79,70,229','6,182,212','16,185,129'][Math.floor(Math.random()*3)];
+    }
+    update(){
+      this.y += this.vy; this.x += this.vx;
+      this.a = Math.min(this.a+0.02, this.maxA);
+      if(this.y < -20) this.reset(false);
+    }
+    draw(){
+      ctx.beginPath();
+      ctx.arc(this.x,this.y,this.r,0,Math.PI*2);
+      ctx.fillStyle=`rgba(${this.color},${this.a})`;
+      ctx.fill();
+    }
+  }
+  for(let i=0;i<80;i++) particles.push(new FP());
+  function loop(){
+    if(current!==12){canvas._running=false;return;}
+    ctx.clearRect(0,0,W,H);
+    particles.forEach(p=>{p.update();p.draw()});
+    requestAnimationFrame(loop);
+  }
+  loop();
+}
+
+// ── HERO CANVAS PARTICLES ──
+(function(){
+  const canvas = document.getElementById('hero-canvas');
+  const ctx = canvas.getContext('2d');
+  let W,H,particles=[];
+  function resize(){ W=canvas.width=window.innerWidth; H=canvas.height=window.innerHeight }
+  window.addEventListener('resize',resize); resize();
+  class P{
+    constructor(){this.reset()}
+    reset(){
+      this.x=Math.random()*W;
+      this.y=Math.random()*H;
+      this.r=Math.random()*2+0.5;
+      this.vx=(Math.random()-0.5)*0.4;
+      this.vy=(Math.random()-0.5)*0.4;
+      this.a=Math.random()*0.6+0.1;
+      this.color=Math.random()>0.5?'79,70,229':'6,182,212';
+    }
+    update(){
+      this.x+=this.vx; this.y+=this.vy;
+      if(this.x<0||this.x>W||this.y<0||this.y>H) this.reset();
+    }
+    draw(){
+      ctx.beginPath();
+      ctx.arc(this.x,this.y,this.r,0,Math.PI*2);
+      ctx.fillStyle=`rgba(${this.color},${this.a})`;
+      ctx.fill();
+    }
+  }
+  for(let i=0;i<120;i++) particles.push(new P());
+  // audio wave lines
+  function drawWaves(t){
+    for(let w=0;w<3;w++){
+      ctx.beginPath();
+      const amp=30+w*15, freq=0.008+w*0.002, speed=0.001+w*0.0005;
+      const alpha=0.06-w*0.015;
+      ctx.strokeStyle=`rgba(79,70,229,${alpha})`;
+      ctx.lineWidth=1;
+      for(let x=0;x<=W;x+=4){
+        const y=H/2 + amp*Math.sin(freq*x + t*speed*(w+1)*100);
+        x===0 ? ctx.moveTo(x,y) : ctx.lineTo(x,y);
+      }
+      ctx.stroke();
+    }
+  }
+  let t=0;
+  function loop(){
+    ctx.clearRect(0,0,W,H);
+    t++;
+    drawWaves(t);
+    particles.forEach(p=>{p.update();p.draw()});
+    // connect nearby particles
+    for(let i=0;i<particles.length;i++){
+      for(let j=i+1;j<particles.length;j++){
+        const dx=particles[i].x-particles[j].x;
+        const dy=particles[i].y-particles[j].y;
+        const d=Math.sqrt(dx*dx+dy*dy);
+        if(d<100){
+          ctx.beginPath();
+          ctx.strokeStyle=`rgba(79,70,229,${0.15*(1-d/100)})`;
+          ctx.lineWidth=0.5;
+          ctx.moveTo(particles[i].x,particles[i].y);
+          ctx.lineTo(particles[j].x,particles[j].y);
+          ctx.stroke();
+        }
+      }
+    }
+    requestAnimationFrame(loop);
+  }
+  loop();
+})();
+</script>
+</body>
+</html>

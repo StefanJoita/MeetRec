@@ -71,6 +71,14 @@ class Settings(BaseSettings):
     hf_token: str = ""
     min_speakers: Optional[int] = None
     max_speakers: Optional[int] = None
+
+    @field_validator("min_speakers", "max_speakers", mode="before")
+    @classmethod
+    def _empty_str_to_none(cls, v: object) -> object:
+        """String gol din env var ("") → None, înainte ca Pydantic să parseze ca int."""
+        if isinstance(v, str) and not v.strip():
+            return None
+        return v
     # --- Logging ---
     log_level: str = "INFO"
 
