@@ -51,18 +51,9 @@
     justify-content: center;
     align-items: center;
     padding: 60px 80px;
-    transform: translateX(100%);
-    transition: transform 0.65s cubic-bezier(0.77, 0, 0.175, 1);
+    transition: transform 0.65s cubic-bezier(0.77, 0, 0.175, 1), opacity 0.65s ease;
     overflow-y: auto;
     overflow-x: hidden;
-  }
-
-  .slide.active {
-    transform: translateX(0);
-  }
-
-  .slide.prev {
-    transform: translateX(-100%);
   }
 
   /* Navigation Dots */
@@ -1012,7 +1003,7 @@
     <div class="slide-content" style="display:flex;flex-direction:column;align-items:center;max-width:960px;margin:0 auto;">
       <div class="eyebrow reveal">Comparație</div>
       <h2 class="slide-h2 reveal">
-        <span class="grad-cyan">"Nu toate transcrierile sunt la fel."</span>
+        <span class="grad-indigo">"Nu toate transcrierile sunt la fel."</span>
       </h2>
       <table class="comparison-table reveal" id="compTable">
         <thead>
@@ -1080,7 +1071,7 @@
     <div class="slide-content" style="display:flex;flex-direction:column;align-items:center;max-width:960px;margin:0 auto;">
       <div class="eyebrow reveal">Verbatek Desktop</div>
       <h2 class="slide-h2 reveal">
-        <span class="grad-emerald">"Sala ta de ședințe devine mai inteligentă. Fără să schimbi nimic din ce ai deja."</span>
+        <span class="grad-indigo">"Sala ta de ședințe devine mai inteligentă. Fără să schimbi nimic din ce ai deja."</span>
       </h2>
       <div class="desktop-split">
         <div class="desktop-left">
@@ -1275,7 +1266,7 @@
     <canvas class="bg-canvas" id="finalCanvas"></canvas>
     <div class="slide-content" style="display:flex;flex-direction:column;align-items:center;text-align:center;z-index:2;">
       <div class="eyebrow reveal">Ești gata să faci pasul?</div>
-      <div class="cta-headline grad-multi reveal">Vorbim?</div>
+      <div class="cta-headline grad-gold reveal">Vorbim?</div>
       <p class="cta-sub reveal">
         Nu există o demonstrație mai bună decât să vezi Verbatek transcriind o ședință reală — pe infrastructura ta, cu datele tale. Oferim un pilot gratuit de 30 de zile pentru organizații calificate.
       </p>
@@ -1339,38 +1330,26 @@ function goTo(n) {
   if (isAnimating || n === current || n < 0 || n >= totalSlides) return;
   isAnimating = true;
 
-  const prevSlideEl = slides[current];
-  const nextSlideEl = slides[n];
+  const dir = n > current ? 1 : -1;
+  const from = slides[current];
+  const to   = slides[n];
 
-  if (n > current) {
-    nextSlideEl.style.transform = 'translateX(100%)';
-    nextSlideEl.classList.add('active');
-    requestAnimationFrame(() => {
-      requestAnimationFrame(() => {
-        prevSlideEl.classList.add('prev');
-        prevSlideEl.classList.remove('active');
-        nextSlideEl.style.transform = '';
-      });
-    });
-  } else {
-    nextSlideEl.style.transform = 'translateX(-100%)';
-    nextSlideEl.classList.add('active');
-    requestAnimationFrame(() => {
-      requestAnimationFrame(() => {
-        prevSlideEl.style.transform = 'translateX(100%)';
-        prevSlideEl.classList.remove('active');
-        nextSlideEl.style.transform = '';
-        setTimeout(() => { prevSlideEl.style.transform = ''; prevSlideEl.classList.remove('prev'); }, 650);
-      });
-    });
-  }
+  // Poziționează slide-ul următor instant, fără tranziție
+  to.style.transition = 'none';
+  to.style.transform  = dir > 0 ? 'translateX(100%)' : 'translateX(-100%)';
 
-  // Update dots
-  document.querySelectorAll('.dot').forEach((d, i) => {
-    d.classList.toggle('active', i === n);
-  });
+  // Forțează reflow — browserul confirmă poziția de start
+  to.offsetHeight;
 
-  // Update counter
+  // Animează ambele slide-uri cu tranziție explicită inline
+  const T = 'transform 0.65s cubic-bezier(0.77,0,0.175,1)';
+  to.style.transition   = T;
+  to.style.transform    = 'translateX(0)';
+  from.style.transition = T;
+  from.style.transform  = dir > 0 ? 'translateX(-100%)' : 'translateX(100%)';
+
+  // Update dots și counter
+  document.querySelectorAll('.dot').forEach((d, i) => d.classList.toggle('active', i === n));
   document.getElementById('counter').textContent = (n + 1) + ' / ' + totalSlides;
 
   current = n;
@@ -1378,25 +1357,16 @@ function goTo(n) {
   setTimeout(() => {
     isAnimating = false;
     triggerSlideAnimation(current);
-    // Clean up prev slide
-    slides.forEach((s, i) => {
-      if (i !== current) {
-        s.classList.remove('active', 'prev');
-        s.style.transform = '';
-        if (i < current) s.style.transform = 'translateX(-100%)';
-        if (i > current) s.style.transform = 'translateX(100%)';
-      }
-    });
-  }, 650);
+  }, 700);
 }
 
 function nextSlide() { goTo(current + 1); }
 function prevSlide() { goTo(current - 1); }
 
-// Init: position all slides
+// Init: poziționează toate slide-urile fără tranziție
 slides.forEach((s, i) => {
-  if (i === 0) { s.classList.add('active'); s.style.transform = ''; }
-  else s.style.transform = 'translateX(100%)';
+  s.style.transition = 'none';
+  s.style.transform  = i === 0 ? 'translateX(0)' : 'translateX(100%)';
 });
 
 // Keyboard
