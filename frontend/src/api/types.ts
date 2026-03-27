@@ -62,6 +62,7 @@ export interface RecordingResponse {
   retain_until: string | null
   transcript: TranscriptSummary | null
   resolved_participants: ParticipantUserInfo[]  // useri linkați explicit
+  speaker_mapping?: Record<string, string>
 }
 
 // ── Transcript summary (embedded in RecordingResponse) ───────

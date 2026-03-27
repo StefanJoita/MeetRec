@@ -259,3 +259,36 @@ class RecordingService:
         await self.db.delete(link)
         await self.db.flush()
         return True
+
+    # ── SPEAKER MAPPING ───────────────────────────────────────
+
+    async def update_speaker_mapping(
+        self,
+        recording_id: str,
+        mapping: dict[str, str],
+        current_user,
+    ) -> Optional[Recording]:
+        """
+        Actualizează maparea vorbitori → participanți.
+        Validează că toți user_id din mapping sunt participanți linkați la înregistrare.
+        """
+        result = await self.db.execute(
+            select(Recording).where(Recording.id == recording_id)
+        )
+        recording = result.scalar_one_or_none()
+        if not recording:
+            return None
+
+        # Validăm că toți user_id sunt participanți linkați
+        linked_ids = {str(p.user_id) for p in recording.participant_links}
+        for speaker, user_id in mapping.items():
+            if user_id and user_id not in linked_ids:
+                from fastapi import HTTPException
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Utilizatorul {user_id} nu este participant la această înregistrare.",
+                )
+
+        recording.speaker_mapping = mapping
+        await self.db.flush()
+        return recording

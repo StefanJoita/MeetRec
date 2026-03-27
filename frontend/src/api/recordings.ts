@@ -89,3 +89,14 @@ export async function addRecordingParticipant(recordingId: string, userId: strin
 export async function removeRecordingParticipant(recordingId: string, userId: string): Promise<void> {
   await client.delete(`/recordings/${recordingId}/participants/${userId}`)
 }
+
+export async function updateSpeakerMapping(
+  recordingId: string,
+  mapping: Record<string, string>
+): Promise<Recording> {
+  const { data } = await client.patch<Recording>(
+    `/recordings/${recordingId}/speaker-mapping`,
+    { mapping }
+  )
+  return data
+}
