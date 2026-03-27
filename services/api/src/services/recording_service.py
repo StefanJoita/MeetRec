@@ -273,7 +273,12 @@ class RecordingService:
         Validează că toți user_id din mapping sunt participanți linkați la înregistrare.
         """
         result = await self.db.execute(
-            select(Recording).where(Recording.id == recording_id)
+            select(Recording)
+            .options(
+                selectinload(Recording.transcript),
+                selectinload(Recording.participant_links),
+            )
+            .where(Recording.id == recording_id)
         )
         recording = result.scalar_one_or_none()
         if not recording:
@@ -291,4 +296,5 @@ class RecordingService:
 
         recording.speaker_mapping = mapping
         await self.db.flush()
+        await self.db.refresh(recording)
         return recording
