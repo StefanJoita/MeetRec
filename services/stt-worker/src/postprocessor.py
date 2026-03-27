@@ -67,6 +67,7 @@ class PostProcessor:
             text=text,
             confidence=seg.confidence,
             language=seg.language,
+            speaker_id=seg.speaker_id,
         )
 
     def _fix_diacritics(self, text: str) -> str:
