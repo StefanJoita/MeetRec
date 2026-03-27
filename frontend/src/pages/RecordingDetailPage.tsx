@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, useMemo } from 'react'
 import { useParams, useNavigate, Link } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient, type Query } from '@tanstack/react-query'
 import axios from 'axios'
@@ -21,6 +21,7 @@ import AudioPlayer, { type AudioPlayerHandle } from '@/components/AudioPlayer'
 import TranscriptViewer from '@/components/TranscriptViewer'
 import TranscriptionProgress from '@/components/recording/TranscriptionProgress'
 import ParticipantLinker from '@/components/ParticipantLinker'
+import SpeakerMappingEditor from '@/components/SpeakerMappingEditor'
 
 const EXPORT_FORMATS = [
   { value: 'txt', label: 'Text (.txt)' },
@@ -114,6 +115,16 @@ export default function RecordingDetailPage() {
       toast(message ?? 'Înregistrarea nu a putut fi ștearsă.', 'error')
     },
   })
+
+  const speakerMap = useMemo(() => {
+    if (!recording?.speaker_mapping || !recording?.resolved_participants) return {}
+    const byId = Object.fromEntries(
+      recording.resolved_participants.map(p => [p.user_id.toString(), p.full_name ?? p.username])
+    )
+    return Object.fromEntries(
+      Object.entries(recording.speaker_mapping).map(([spk, uid]) => [spk, byId[uid] ?? uid])
+    )
+  }, [recording])
 
   function handleExport(format: string) {
     client
@@ -286,6 +297,17 @@ export default function RecordingDetailPage() {
             recordingId={id!}
             linked={resolvedParticipants ?? recording.resolved_participants ?? []}
           />
+          {transcript?.segments && (recording.resolved_participants?.length ?? 0) > 0 && (
+            <div className="mt-4 pt-4 border-t border-slate-100">
+              <h3 className="text-xs font-semibold text-slate-500 mb-3">Atribuire vorbitori</h3>
+              <SpeakerMappingEditor
+                recordingId={id!}
+                segments={transcript.segments}
+                participants={recording.resolved_participants ?? []}
+                speakerMapping={recording.speaker_mapping ?? {}}
+              />
+            </div>
+          )}
         </div>
       )}
 
@@ -359,6 +381,7 @@ export default function RecordingDetailPage() {
               segments={transcript.segments}
               getCurrentTime={() => currentTimeRef.current}
               onSegmentClick={(t) => audioPlayerRef.current?.seek(t)}
+              speakerMap={speakerMap}
             />
           )}
 
