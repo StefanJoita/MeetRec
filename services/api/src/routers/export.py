@@ -50,6 +50,51 @@ def _format_time(seconds: float) -> str:
     return f"{m:02d}:{s:02d}"
 
 
+async def _build_speaker_display_map(
+    segments, speaker_mapping: dict, db: AsyncSession
+) -> dict[str, str]:
+    """
+    Construiește un dict {speaker_id → nume afișabil} pentru toate segmentele.
+
+    Rezolvă două cazuri:
+      1. speaker_id este deja un UUID de user (post-rezolvare directă)
+      2. speaker_id este "SPEAKER_XX" → speaker_mapping["SPEAKER_XX"] = user_uuid → nume user
+    """
+    speaker_ids = {seg.speaker_id for seg in segments if seg.speaker_id}
+    if not speaker_ids:
+        return {}
+
+    display_map: dict[str, str] = {}
+    # speaker_id (cheie în segmente) → UUID de user de rezolvat
+    to_resolve: dict[str, uuid.UUID] = {}
+
+    for sid in speaker_ids:
+        try:
+            # Cazul 1: speaker_id este direct un UUID de user
+            to_resolve[sid] = uuid.UUID(sid)
+        except ValueError:
+            # Cazul 2: "SPEAKER_XX" — căutăm în speaker_mapping
+            raw = speaker_mapping.get(sid)
+            if raw:
+                try:
+                    to_resolve[sid] = uuid.UUID(raw)
+                except ValueError:
+                    display_map[sid] = raw  # valoare neparsabilă, o afișăm direct
+
+    if to_resolve:
+        unique_uuids = list({str(u) for u in to_resolve.values()})
+        result = await db.execute(
+            select(User).where(User.id.in_([uuid.UUID(u) for u in unique_uuids]))
+        )
+        user_names = {str(u.id): (u.full_name or u.username) for u in result.scalars().all()}
+        for sid, uid in to_resolve.items():
+            name = user_names.get(str(uid))
+            if name:
+                display_map[sid] = name
+
+    return display_map
+
+
 async def _get_transcript_and_recording(
     recording_id: uuid.UUID,
     db: AsyncSession,
@@ -105,18 +150,21 @@ async def export_transcript(
     )
 
     filename_base = _safe_filename(recording.title)
+    display_map = await _build_speaker_display_map(
+        transcript.segments, recording.speaker_mapping or {}, db
+    )
 
     if format == "txt":
-        return _export_txt(recording, transcript, filename_base)
+        return _export_txt(recording, transcript, filename_base, display_map)
     elif format == "pdf":
-        return _export_pdf(recording, transcript, filename_base)
+        return _export_pdf(recording, transcript, filename_base, display_map)
     elif format == "docx":
-        return _export_docx(recording, transcript, filename_base)
+        return _export_docx(recording, transcript, filename_base, display_map)
 
 
 # ── TXT ──────────────────────────────────────────────────────
 
-def _export_txt(recording, transcript, filename_base: str) -> StreamingResponse:
+def _export_txt(recording, transcript, filename_base: str, display_map: dict) -> StreamingResponse:
     lines = [
         f"TRANSCRIERE: {recording.title}",
         f"Data ședinței: {recording.meeting_date}",
@@ -129,7 +177,11 @@ def _export_txt(recording, transcript, filename_base: str) -> StreamingResponse:
     ]
     for seg in transcript.segments:
         timestamp = f"[{_format_time(float(seg.start_time))}]"
-        lines.append(f"{timestamp}  {seg.text}")
+        label = display_map.get(seg.speaker_id) if seg.speaker_id else None
+        if label:
+            lines.append(f"{timestamp} {label}: {seg.text}")
+        else:
+            lines.append(f"{timestamp}  {seg.text}")
 
     content = "\n".join(lines)
     buf = io.BytesIO(content.encode("utf-8"))
@@ -144,12 +196,34 @@ def _export_txt(recording, transcript, filename_base: str) -> StreamingResponse:
 
 # ── PDF ──────────────────────────────────────────────────────
 
-def _export_pdf(recording, transcript, filename_base: str) -> StreamingResponse:
+def _register_pdf_fonts() -> tuple[str, str]:
+    """
+    Înregistrează fonturile DejaVu (suport Unicode complet, inclusiv diacritice românești).
+    Returnează (font_normal, font_bold).
+    Fallback la Helvetica dacă fonturile nu sunt disponibile în container.
+    """
+    from reportlab.pdfbase import pdfmetrics
+    from reportlab.pdfbase.ttfonts import TTFont
+
+    font_path_normal = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
+    font_path_bold = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
+
+    import os
+    if os.path.exists(font_path_normal) and os.path.exists(font_path_bold):
+        pdfmetrics.registerFont(TTFont("DejaVuSans", font_path_normal))
+        pdfmetrics.registerFont(TTFont("DejaVuSans-Bold", font_path_bold))
+        return "DejaVuSans", "DejaVuSans-Bold"
+    return "Helvetica", "Helvetica-Bold"
+
+
+def _export_pdf(recording, transcript, filename_base: str, display_map: dict) -> StreamingResponse:
     from reportlab.lib.pagesizes import A4
     from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
     from reportlab.lib.units import cm
     from reportlab.lib import colors
     from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
+
+    font_normal, font_bold = _register_pdf_fonts()
 
     buf = io.BytesIO()
     doc = SimpleDocTemplate(
@@ -167,6 +241,7 @@ def _export_pdf(recording, transcript, filename_base: str) -> StreamingResponse:
         parent=styles["Title"],
         fontSize=16,
         spaceAfter=6,
+        fontName=font_bold,
     )
     meta_style = ParagraphStyle(
         "Meta",
@@ -174,6 +249,7 @@ def _export_pdf(recording, transcript, filename_base: str) -> StreamingResponse:
         fontSize=9,
         textColor=colors.gray,
         spaceAfter=2,
+        fontName=font_normal,
     )
     segment_style = ParagraphStyle(
         "Segment",
@@ -181,6 +257,7 @@ def _export_pdf(recording, transcript, filename_base: str) -> StreamingResponse:
         fontSize=10,
         spaceAfter=4,
         leading=14,
+        fontName=font_normal,
     )
     timestamp_style = ParagraphStyle(
         "Timestamp",
@@ -188,6 +265,15 @@ def _export_pdf(recording, transcript, filename_base: str) -> StreamingResponse:
         fontSize=8,
         textColor=colors.HexColor("#666666"),
         spaceAfter=1,
+        fontName=font_normal,
+    )
+    speaker_style = ParagraphStyle(
+        "Speaker",
+        parent=styles["Normal"],
+        fontSize=8,
+        textColor=colors.HexColor("#1a56a0"),
+        spaceAfter=1,
+        fontName=font_bold,
     )
 
     story = []
@@ -217,7 +303,11 @@ def _export_pdf(recording, transcript, filename_base: str) -> StreamingResponse:
     # Segmente
     for seg in transcript.segments:
         ts = _format_time(float(seg.start_time))
-        story.append(Paragraph(ts, timestamp_style))
+        label = display_map.get(seg.speaker_id) if seg.speaker_id else None
+        if label:
+            story.append(Paragraph(f"{ts} · {label}", speaker_style))
+        else:
+            story.append(Paragraph(ts, timestamp_style))
         story.append(Paragraph(seg.text, segment_style))
 
     doc.build(story)
@@ -233,7 +323,7 @@ def _export_pdf(recording, transcript, filename_base: str) -> StreamingResponse:
 
 # ── DOCX ─────────────────────────────────────────────────────
 
-def _export_docx(recording, transcript, filename_base: str) -> StreamingResponse:
+def _export_docx(recording, transcript, filename_base: str, display_map: dict) -> StreamingResponse:
     from docx import Document
     from docx.shared import Pt, RGBColor, Cm
     from docx.enum.text import WD_ALIGN_PARAGRAPH
@@ -267,10 +357,17 @@ def _export_docx(recording, transcript, filename_base: str) -> StreamingResponse
 
     # Segmente
     for seg in transcript.segments:
+        ts = _format_time(float(seg.start_time))
+        label = display_map.get(seg.speaker_id) if seg.speaker_id else None
+
         ts_par = doc.add_paragraph()
-        ts_run = ts_par.add_run(f"[{_format_time(float(seg.start_time))}]")
+        if label:
+            ts_run = ts_par.add_run(f"[{ts}] {label}")
+            ts_run.font.color.rgb = RGBColor(0x1A, 0x56, 0xA0)
+        else:
+            ts_run = ts_par.add_run(f"[{ts}]")
+            ts_run.font.color.rgb = RGBColor(0x88, 0x88, 0x88)
         ts_run.font.size = Pt(8)
-        ts_run.font.color.rgb = RGBColor(0x88, 0x88, 0x88)
         ts_run.bold = True
 
         text_par = doc.add_paragraph(seg.text)
