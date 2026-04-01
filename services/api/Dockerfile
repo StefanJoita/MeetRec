@@ -33,10 +33,12 @@ FROM python:3.11-slim
 WORKDIR /app
 
 # Dependențe runtime (libpq pentru asyncpg, postgresql-client pentru psql în entrypoint)
+# fonts-dejavu-core: fonturi TTF cu suport Unicode complet pentru export PDF (diacritice)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libpq5 \
     curl \
     postgresql-client \
+    fonts-dejavu-core \
     && rm -rf /var/lib/apt/lists/*
 
 # Copiem pachetele instalate din stage 1
