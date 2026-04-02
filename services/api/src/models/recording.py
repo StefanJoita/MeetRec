@@ -26,6 +26,7 @@ from src.models.base import Base
 import enum
 
 class RecordingStatus(str, enum.Enum):
+    SESSION_REGISTERED = "session_registered"  # sesiune pre-înregistrată, niciun fișier audio încă
     UPLOADED = "uploaded"
     VALIDATING= "validating"
     QUEUED = "queued"
