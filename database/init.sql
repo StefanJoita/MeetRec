@@ -24,13 +24,14 @@ CREATE EXTENSION IF NOT EXISTS vector;
 
 -- Statusurile unei înregistrări audio
 CREATE TYPE recording_status AS ENUM (
-    'uploaded',       -- fișierul a ajuns în sistem
-    'validating',     -- se verifică integritatea
-    'queued',         -- în așteptare pentru transcriere
-    'transcribing',   -- transcriere în curs
-    'completed',      -- transcriere finalizată
-    'failed',         -- eroare la procesare
-    'archived'        -- arhivat (nu mai e activ)
+    'session_registered', -- sesiune pre-înregistrată de client, niciun fișier audio încă
+    'uploaded',           -- fișierul a ajuns în sistem
+    'validating',         -- se verifică integritatea
+    'queued',             -- în așteptare pentru transcriere
+    'transcribing',       -- transcriere în curs
+    'completed',          -- transcriere finalizată
+    'failed',             -- eroare la procesare
+    'archived'            -- arhivat (nu mai e activ)
 );
 
 -- Statusurile unui job de transcriere
