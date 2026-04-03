@@ -49,15 +49,11 @@ class RecordingService:
         query = select(Recording).options(selectinload(Recording.transcript))
 
         # Participantul vede DOAR înregistrările la care e linkat explicit
-        # și doar cele create DUPĂ crearea contului său
         if current_user and current_user.is_participant:
             query = (
                 query
                 .join(RecordingParticipant, RecordingParticipant.recording_id == Recording.id)
-                .where(
-                    RecordingParticipant.user_id == current_user.id,
-                    Recording.created_at > current_user.created_at,
-                )
+                .where(RecordingParticipant.user_id == current_user.id)
             )
 
         if status_filter:
