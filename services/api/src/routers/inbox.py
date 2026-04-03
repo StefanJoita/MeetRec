@@ -370,6 +370,9 @@ async def complete_session(
             detail="Segmentul 0 încă în procesare de Ingest după 15s. Reîncearcă.",
         )
 
+    # Segmentele extra lipsă după timeout = respinse de ingest (prea scurte, duplicate etc.)
+    # Dispatchăm oricum cu ce avem — STT worker concatenează segmentele disponibile.
+    import logging as _logging
     if extra_segments_expected > 0:
         stored_result = await db.execute(
             select(func.count(RecordingAudioSegment.id)).where(
@@ -379,9 +382,9 @@ async def complete_session(
         stored_count = stored_result.scalar_one()
         if stored_count < extra_segments_expected:
             missing = extra_segments_expected - stored_count
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail=f"{missing} segment(e) încă în procesare de Ingest după 15s. Reîncearcă.",
+            _logging.getLogger(__name__).warning(
+                "complete_dispatching_with_missing_segments recording_id=%s expected=%d stored=%d missing=%d",
+                recording_id, extra_segments_expected, stored_count, missing,
             )
 
     # ── Dispatch la Redis ──────────────────────────────────────
