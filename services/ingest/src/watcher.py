@@ -23,7 +23,7 @@ import time
 from pathlib import Path
 from typing import Optional
 
-from watchdog.observers import Observer
+from watchdog.observers.polling import PollingObserver
 from watchdog.events import (
     FileSystemEventHandler,
     FileCreatedEvent,
@@ -176,7 +176,7 @@ class InboxWatcher:
     def __init__(self, processor: FileProcessor, event_loop: asyncio.AbstractEventLoop):
         self.processor = processor
         self._event_loop = event_loop
-        self._observer: Optional[Observer] = None
+        self._observer: Optional[PollingObserver] = None
 
     def start(self) -> None:
         """Pornește monitorizarea directorului inbox."""
@@ -187,7 +187,7 @@ class InboxWatcher:
 
         handler = AudioFileHandler(self.processor, self._event_loop)
 
-        self._observer = Observer()
+        self._observer = PollingObserver(timeout=2)
         self._observer.schedule(
             handler,
             path=str(inbox_path),
