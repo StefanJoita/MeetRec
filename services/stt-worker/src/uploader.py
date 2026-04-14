@@ -210,6 +210,7 @@ class DatabaseUploader:
                 seg.text,
                 seg.confidence,
                 seg.language,
+                seg.speaker_id,
             )
             for seg in segments
         ]
@@ -221,8 +222,8 @@ class DatabaseUploader:
                     """
                     INSERT INTO transcript_segments
                         (id, transcript_id, segment_index, start_time,
-                         end_time, text, confidence, language)
-                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+                         end_time, text, confidence, language, speaker_id)
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
                     ON CONFLICT (transcript_id, segment_index) DO NOTHING
                     """,
                     segment_tuples,
@@ -430,6 +431,7 @@ class DatabaseUploader:
                 seg.text,
                 seg.confidence,
                 seg.language,
+                seg.speaker_id,
             )
             for seg in segments
         ]
@@ -441,8 +443,8 @@ class DatabaseUploader:
                     """
                     INSERT INTO transcript_segments
                         (id, transcript_id, segment_index, start_time,
-                         end_time, text, confidence, language)
-                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+                         end_time, text, confidence, language, speaker_id)
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
                     ON CONFLICT (transcript_id, segment_index) DO NOTHING
                     """,
                     segment_tuples,
