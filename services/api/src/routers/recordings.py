@@ -24,7 +24,7 @@ from src.models.audit_log import User
 from src.models.recording import Recording, RecordingParticipant
 from src.schemas.recording import (
     RecordingUpdate, RecordingResponse,
-    PaginatedRecordings, ParticipantUserInfo,
+    PaginatedRecordings, ParticipantUserInfo, SpeakerMappingUpdate,
 )
 from src.services.recording_service import RecordingService, RecordingDeletionError
 from src.middleware.audit import log_audit
@@ -47,9 +47,15 @@ def get_recording_service(db: AsyncSession = Depends(get_db)) -> RecordingServic
 
 # ── GET /recordings ──────────────────────────────────────────
 @router.get(
+    "",
+    response_model=PaginatedRecordings,
+    summary="Listează înregistrările",
+)
+@router.get(
     "/",
     response_model=PaginatedRecordings,
     summary="Listează înregistrările",
+    include_in_schema=False,
 )
 async def list_recordings(
     request: Request,
@@ -437,3 +443,33 @@ async def remove_participant(
         resource_type="recording_participant",
         resource_id=recording_id,
     )
+
+
+# ── PATCH /recordings/{id}/speaker-mapping ───────────────────
+@router.patch(
+    "/{recording_id}/speaker-mapping",
+    response_model=RecordingResponse,
+    summary="Atribuie vorbitori diarizare la participanți",
+)
+async def update_speaker_mapping(
+    recording_id: uuid.UUID,
+    body: SpeakerMappingUpdate,
+    request: Request,
+    current_user: User = Depends(get_current_operator_or_above),
+    service: RecordingService = Depends(get_recording_service),
+    db: AsyncSession = Depends(get_db),
+):
+    recording = await service.update_speaker_mapping(
+        recording_id=str(recording_id),
+        mapping=body.mapping,
+        current_user=current_user,
+    )
+    if not recording:
+        raise HTTPException(status_code=404, detail="Înregistrarea nu a fost găsită.")
+    await log_audit(
+        request, db,
+        action="UPDATE",
+        resource_type="recording_speaker_mapping",
+        resource_id=recording_id,
+    )
+    return await service.to_recording_response(recording)

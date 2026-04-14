@@ -363,7 +363,7 @@ Urmărești progresul cu:
 docker compose logs -f stt-worker
 ```
 
-Modelul se descarcă o singură dată și se stochează în volumul Docker `whisper_models`.
+Modelul este descărcat la build time și este baked în imaginea Docker — la runtime nu e nevoie de internet.
 
 ---
 

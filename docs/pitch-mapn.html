@@ -1,0 +1,1898 @@
+<!DOCTYPE html>
+<html lang="ro">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Verbatek — Sistem Informatic de Transcriere Automată a Ședințelor</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg-dark: #1C2331;
+    --accent: #1A5276;
+    --accent-light: #2E86C1;
+    --bg-light: #F8F9FA;
+    --bg-card: #FFFFFF;
+    --border: #DEE2E6;
+    --text-dark: #1A1A2E;
+    --text-body: #2C3E50;
+    --text-muted: #6C757D;
+    --green: #1E8449;
+    --red: #C0392B;
+    --yellow: #D4AC0D;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    font-family: 'Inter', sans-serif;
+    background: var(--bg-dark);
+    color: var(--text-body);
+    overflow: hidden;
+    width: 100vw;
+    height: 100vh;
+    user-select: none;
+  }
+
+  #slideshow {
+    width: 100%;
+    height: 100%;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .slide {
+    position: absolute;
+    top: 0; left: 0;
+    width: 100%;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    padding: 64px 80px 72px 80px;
+    transform: translateX(100%);
+    transition: transform 0.6s cubic-bezier(0.77, 0, 0.175, 1);
+    overflow-y: auto;
+    overflow-x: hidden;
+  }
+
+  .slide.active {
+    transform: translateX(0);
+  }
+
+  .slide.prev {
+    transform: translateX(-100%);
+  }
+
+  .slide-dark {
+    background: var(--bg-dark);
+    color: #ffffff;
+  }
+
+  .slide-light {
+    background: var(--bg-light);
+    color: var(--text-body);
+  }
+
+  /* Accent top bar on content slides */
+  .slide-light::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0;
+    width: 100%;
+    height: 3px;
+    background: var(--accent);
+  }
+
+  /* Slide number bottom-right */
+  .slide-number {
+    position: absolute;
+    bottom: 20px;
+    right: 28px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    opacity: 0.5;
+  }
+
+  .slide-dark .slide-number {
+    color: #ffffff;
+  }
+
+  .slide-light .slide-number {
+    color: var(--text-muted);
+  }
+
+  /* Logo bottom-left */
+  .slide-logo {
+    position: absolute;
+    bottom: 20px;
+    left: 28px;
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+  }
+
+  .slide-dark .slide-logo {
+    color: rgba(255,255,255,0.35);
+  }
+
+  .slide-light .slide-logo {
+    color: var(--text-muted);
+  }
+
+  /* Navigation dots */
+  #dots {
+    position: fixed;
+    right: 20px;
+    top: 50%;
+    transform: translateY(-50%);
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    z-index: 1000;
+  }
+
+  .dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: rgba(26,82,118,0.3);
+    cursor: pointer;
+    transition: all 0.3s ease;
+    border: 1px solid rgba(26,82,118,0.5);
+    padding: 0;
+  }
+
+  .dot.active {
+    background: var(--accent);
+    border-color: var(--accent);
+    transform: scale(1.35);
+  }
+
+  /* Navigation arrows */
+  #nav-arrows {
+    position: fixed;
+    bottom: 22px;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    gap: 16px;
+    z-index: 1000;
+  }
+
+  .nav-btn {
+    background: var(--accent);
+    border: 1px solid var(--accent);
+    color: #ffffff;
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    cursor: pointer;
+    font-size: 1rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s ease;
+    opacity: 0.85;
+  }
+
+  .nav-btn:hover {
+    opacity: 1;
+  }
+
+  /* ============================================================
+     SLIDE 1 — HERO
+  ============================================================ */
+  .hero-wrap {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    max-width: 700px;
+    gap: 0;
+  }
+
+  .hero-accent-line {
+    width: 80px;
+    height: 2px;
+    background: var(--accent-light);
+    margin-bottom: 28px;
+  }
+
+  .hero-title {
+    font-size: clamp(3.5rem, 7vw, 6rem);
+    font-weight: 900;
+    letter-spacing: 0.1em;
+    color: #ffffff;
+    line-height: 1;
+    margin-bottom: 20px;
+  }
+
+  .hero-sep {
+    width: 200px;
+    height: 1px;
+    background: rgba(255,255,255,0.3);
+    margin: 0 auto 20px auto;
+  }
+
+  .hero-subtitle {
+    color: rgba(255,255,255,0.85);
+    font-size: 1.15rem;
+    font-weight: 400;
+    line-height: 1.5;
+    margin-bottom: 24px;
+  }
+
+  .hero-paragraph {
+    color: #94a3b8;
+    font-size: 0.95rem;
+    max-width: 560px;
+    text-align: center;
+    line-height: 1.7;
+    margin-bottom: 14px;
+  }
+
+  .hero-tagline {
+    font-style: italic;
+    color: var(--accent-light);
+    font-size: 0.88rem;
+  }
+
+  .hero-badge {
+    position: absolute;
+    bottom: 20px;
+    right: 28px;
+    border: 1px solid rgba(255,255,255,0.3);
+    color: rgba(255,255,255,0.7);
+    font-size: 0.7rem;
+    letter-spacing: 0.15em;
+    padding: 4px 10px;
+    border-radius: 3px;
+    font-weight: 600;
+    text-transform: uppercase;
+  }
+
+  /* ============================================================
+     SLIDE CONTENT HEADER
+  ============================================================ */
+  .slide-header {
+    width: 100%;
+    max-width: 960px;
+    margin-bottom: 32px;
+    flex-shrink: 0;
+  }
+
+  .eyebrow {
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--accent-light);
+    margin-bottom: 10px;
+  }
+
+  .slide-title {
+    font-size: clamp(1.35rem, 2.5vw, 1.75rem);
+    font-weight: 700;
+    color: var(--text-dark);
+    line-height: 1.25;
+    margin-bottom: 10px;
+  }
+
+  .title-underline {
+    width: 48px;
+    height: 3px;
+    background: var(--accent);
+    margin-bottom: 14px;
+  }
+
+  .slide-subtext {
+    font-size: 0.9rem;
+    color: var(--text-muted);
+    line-height: 1.6;
+    max-width: 760px;
+  }
+
+  .slide-content {
+    width: 100%;
+    max-width: 960px;
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-start;
+  }
+
+  /* ============================================================
+     CARDS
+  ============================================================ */
+  .cards-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 16px;
+  }
+
+  .cards-grid-4 {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 14px;
+  }
+
+  .cards-grid-3 {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 16px;
+  }
+
+  .card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 20px 22px;
+    opacity: 0;
+    animation: fadeCard 0.4s ease forwards;
+  }
+
+  @keyframes fadeCard {
+    to { opacity: 1; }
+  }
+
+  .card:nth-child(1) { animation-delay: 0.05s; }
+  .card:nth-child(2) { animation-delay: 0.10s; }
+  .card:nth-child(3) { animation-delay: 0.15s; }
+  .card:nth-child(4) { animation-delay: 0.20s; }
+
+  .card-num {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    background: var(--accent);
+    color: #ffffff;
+    font-size: 0.78rem;
+    font-weight: 700;
+    border-radius: 4px;
+    margin-bottom: 12px;
+  }
+
+  .card-title {
+    font-size: 0.88rem;
+    font-weight: 700;
+    color: var(--text-dark);
+    margin-bottom: 8px;
+    line-height: 1.3;
+  }
+
+  .card-body {
+    font-size: 0.82rem;
+    color: var(--text-muted);
+    line-height: 1.55;
+  }
+
+  /* ============================================================
+     TABLES
+  ============================================================ */
+  .data-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.83rem;
+  }
+
+  .data-table th {
+    background: var(--accent);
+    color: #ffffff;
+    padding: 10px 16px;
+    text-align: left;
+    font-weight: 600;
+    font-size: 0.78rem;
+    letter-spacing: 0.04em;
+  }
+
+  .data-table th:first-child {
+    border-radius: 6px 0 0 0;
+  }
+
+  .data-table th:last-child {
+    border-radius: 0 6px 0 0;
+  }
+
+  .data-table td {
+    padding: 9px 16px;
+    border-bottom: 1px solid var(--border);
+    color: var(--text-body);
+    vertical-align: middle;
+  }
+
+  .data-table tr:last-child td {
+    border-bottom: none;
+  }
+
+  .data-table tr:nth-child(even) td {
+    background: rgba(248,249,250,0.8);
+  }
+
+  .data-table .col-vuln td:nth-child(2) {
+    background: rgba(192,57,43,0.05);
+    color: var(--red);
+    font-size: 0.8rem;
+  }
+
+  .icon-red { color: var(--red); font-weight: 700; }
+  .icon-green { color: var(--green); font-weight: 700; }
+
+  .table-note {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    font-style: italic;
+    margin-top: 10px;
+    line-height: 1.5;
+    padding-left: 4px;
+    border-left: 2px solid var(--border);
+    padding-left: 10px;
+  }
+
+  /* ============================================================
+     SLIDE 4 — PRINCIPIU
+  ============================================================ */
+  .blockquote-card {
+    border-left: 4px solid var(--accent);
+    padding: 16px 24px;
+    margin-bottom: 20px;
+    background: rgba(26,82,118,0.05);
+    border-radius: 0 6px 6px 0;
+  }
+
+  .blockquote-text {
+    font-size: 1.3rem;
+    font-style: italic;
+    color: var(--accent);
+    line-height: 1.4;
+    font-weight: 500;
+  }
+
+  .blockquote-sub {
+    font-size: 0.87rem;
+    color: var(--text-muted);
+    line-height: 1.6;
+    margin-top: 10px;
+  }
+
+  /* ============================================================
+     SLIDE 5 — ARHITECTURA AIR-GAP
+  ============================================================ */
+  .arch-diagram {
+    border: 2px solid var(--accent);
+    border-radius: 12px;
+    padding: 24px 28px;
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    margin-bottom: 20px;
+    background: rgba(26,82,118,0.03);
+  }
+
+  .arch-label {
+    position: absolute;
+    top: -11px;
+    left: 20px;
+    background: var(--bg-light);
+    color: var(--accent);
+    font-size: 0.7rem;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    padding: 0 10px;
+  }
+
+  .arch-box {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 14px 18px;
+    flex: 1;
+    text-align: center;
+  }
+
+  .arch-box-title {
+    font-size: 0.78rem;
+    font-weight: 700;
+    color: var(--text-dark);
+    margin-bottom: 6px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+  }
+
+  .arch-box-item {
+    font-size: 0.77rem;
+    color: var(--text-muted);
+    margin-top: 3px;
+  }
+
+  .arch-arrow {
+    font-size: 1.2rem;
+    color: var(--accent);
+    font-weight: 700;
+    flex-shrink: 0;
+  }
+
+  .arch-network {
+    flex: 0.8;
+    text-align: center;
+  }
+
+  .arch-network-label {
+    font-size: 0.75rem;
+    color: var(--accent);
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    border: 1px dashed var(--accent);
+    border-radius: 20px;
+    padding: 6px 14px;
+    display: inline-block;
+  }
+
+  .arch-external {
+    position: absolute;
+    top: 10px;
+    right: 14px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 0.72rem;
+    font-weight: 700;
+    color: var(--red);
+    letter-spacing: 0.06em;
+    background: rgba(192,57,43,0.07);
+    border: 1px solid rgba(192,57,43,0.2);
+    border-radius: 4px;
+    padding: 3px 8px;
+  }
+
+  .arch-tech-notes {
+    display: flex;
+    gap: 16px;
+  }
+
+  .arch-note {
+    flex: 1;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 10px 14px;
+    font-size: 0.8rem;
+    color: var(--text-muted);
+    line-height: 1.4;
+    text-align: center;
+  }
+
+  /* ============================================================
+     SLIDE 6 — FLUX
+  ============================================================ */
+  .flow-cols {
+    display: flex;
+    gap: 0;
+  }
+
+  .flow-col {
+    flex: 1;
+    padding: 20px 22px;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 0;
+    position: relative;
+  }
+
+  .flow-col:first-child {
+    border-radius: 8px 0 0 8px;
+  }
+
+  .flow-col:last-child {
+    border-radius: 0 8px 8px 0;
+  }
+
+  .flow-col + .flow-col {
+    border-left: none;
+  }
+
+  .flow-step-num {
+    width: 32px;
+    height: 32px;
+    background: var(--accent);
+    color: #ffffff;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.82rem;
+    font-weight: 700;
+    margin-bottom: 12px;
+  }
+
+  .flow-step-title {
+    font-size: 0.85rem;
+    font-weight: 700;
+    color: var(--text-dark);
+    margin-bottom: 8px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+
+  .flow-step-body {
+    font-size: 0.82rem;
+    color: var(--text-muted);
+    line-height: 1.6;
+  }
+
+  .flow-note {
+    font-size: 0.8rem;
+    font-style: italic;
+    color: var(--text-muted);
+    margin-top: 14px;
+    padding: 10px 14px;
+    border-left: 3px solid var(--border);
+    line-height: 1.5;
+  }
+
+  /* ============================================================
+     SLIDE 7 — SECURITATE
+  ============================================================ */
+  .audit-section {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 16px 20px;
+    margin-top: 16px;
+  }
+
+  .audit-section-title {
+    font-size: 0.78rem;
+    font-weight: 700;
+    color: var(--text-dark);
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    margin-bottom: 10px;
+  }
+
+  .audit-items {
+    display: flex;
+    gap: 20px;
+  }
+
+  .audit-item {
+    flex: 1;
+    font-size: 0.8rem;
+    color: var(--text-muted);
+    padding-left: 12px;
+    border-left: 2px solid var(--accent-light);
+    line-height: 1.4;
+  }
+
+  /* ============================================================
+     SLIDE 8 — CLIENT DESKTOP
+  ============================================================ */
+  .cols-2 {
+    display: flex;
+    gap: 24px;
+    width: 100%;
+    align-items: flex-start;
+  }
+
+  .col-left {
+    flex: 1.1;
+  }
+
+  .col-right {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+  }
+
+  .app-mockup {
+    background: #1a1a2e;
+    border-radius: 10px;
+    overflow: hidden;
+    border: 1px solid rgba(255,255,255,0.1);
+  }
+
+  .app-titlebar {
+    background: rgba(255,255,255,0.07);
+    padding: 9px 14px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    border-bottom: 1px solid rgba(255,255,255,0.08);
+  }
+
+  .titlebar-dots {
+    display: flex;
+    gap: 5px;
+  }
+
+  .titlebar-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: rgba(255,255,255,0.15);
+  }
+
+  .titlebar-title {
+    font-size: 0.72rem;
+    color: rgba(255,255,255,0.6);
+    margin-left: 6px;
+    font-weight: 500;
+  }
+
+  .app-body {
+    padding: 16px;
+  }
+
+  .app-timer {
+    font-size: 1.8rem;
+    font-weight: 700;
+    color: #ffffff;
+    letter-spacing: 0.05em;
+    margin-bottom: 4px;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .app-status {
+    font-size: 0.75rem;
+    color: #4ade80;
+    margin-bottom: 14px;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+  }
+
+  .app-status-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: #4ade80;
+    animation: blink 1.5s ease-in-out infinite;
+  }
+
+  @keyframes blink {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.3; }
+  }
+
+  .app-btn-stop {
+    width: 100%;
+    background: rgba(192,57,43,0.8);
+    color: #ffffff;
+    border: none;
+    border-radius: 6px;
+    padding: 9px;
+    font-size: 0.78rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    cursor: default;
+    margin-bottom: 14px;
+  }
+
+  .app-transcript {
+    background: rgba(255,255,255,0.04);
+    border-radius: 6px;
+    padding: 10px 12px;
+    border: 1px solid rgba(255,255,255,0.07);
+  }
+
+  .app-transcript-line {
+    font-size: 0.73rem;
+    color: rgba(255,255,255,0.5);
+    margin-bottom: 5px;
+    line-height: 1.4;
+    padding-bottom: 5px;
+    border-bottom: 1px solid rgba(255,255,255,0.05);
+  }
+
+  .app-transcript-line:last-child {
+    border-bottom: none;
+    margin-bottom: 0;
+    padding-bottom: 0;
+  }
+
+  .app-transcript-line span {
+    color: rgba(46,134,193,0.9);
+    font-weight: 600;
+    font-size: 0.7rem;
+    margin-right: 4px;
+  }
+
+  .feature-block {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 12px 14px;
+  }
+
+  .feature-block-title {
+    font-size: 0.78rem;
+    font-weight: 700;
+    color: var(--text-dark);
+    margin-bottom: 5px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+  }
+
+  .feature-block-body {
+    font-size: 0.79rem;
+    color: var(--text-muted);
+    line-height: 1.5;
+  }
+
+  /* ============================================================
+     SLIDE 9 — COMPARATIE
+  ============================================================ */
+  .compare-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.82rem;
+  }
+
+  .compare-table th {
+    padding: 10px 14px;
+    text-align: left;
+    font-size: 0.76rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    border-bottom: 2px solid var(--border);
+    color: var(--text-dark);
+  }
+
+  .compare-table th:first-child {
+    color: var(--text-muted);
+    font-weight: 600;
+  }
+
+  .compare-table th.col-verbatek {
+    background: rgba(26,82,118,0.08);
+    border-left: 3px solid var(--accent);
+    color: var(--accent);
+  }
+
+  .compare-table td {
+    padding: 8px 14px;
+    border-bottom: 1px solid var(--border);
+    color: var(--text-body);
+    vertical-align: middle;
+  }
+
+  .compare-table tr:last-child td {
+    border-bottom: none;
+  }
+
+  .compare-table td.col-verbatek {
+    background: rgba(26,82,118,0.06);
+    border-left: 3px solid var(--accent);
+    font-weight: 600;
+  }
+
+  .compare-conclusion {
+    font-size: 0.79rem;
+    font-style: italic;
+    color: var(--text-muted);
+    margin-top: 12px;
+    padding-top: 10px;
+    border-top: 1px solid var(--border);
+    line-height: 1.5;
+  }
+
+  /* ============================================================
+     SLIDE 10 — IMPLEMENTARE
+  ============================================================ */
+  .req-cols {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+    margin-bottom: 20px;
+  }
+
+  .req-box {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 16px 18px;
+  }
+
+  .req-box-title {
+    font-size: 0.78rem;
+    font-weight: 700;
+    color: var(--text-dark);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    margin-bottom: 10px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .req-item {
+    display: flex;
+    gap: 8px;
+    font-size: 0.8rem;
+    color: var(--text-muted);
+    margin-bottom: 5px;
+    line-height: 1.4;
+  }
+
+  .req-item-label {
+    font-weight: 600;
+    color: var(--text-body);
+    min-width: 90px;
+    flex-shrink: 0;
+  }
+
+  .timeline {
+    display: flex;
+    gap: 0;
+  }
+
+  .timeline-step {
+    flex: 1;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    padding: 14px 16px;
+    position: relative;
+  }
+
+  .timeline-step:first-child {
+    border-radius: 8px 0 0 8px;
+  }
+
+  .timeline-step:last-child {
+    border-radius: 0 8px 8px 0;
+  }
+
+  .timeline-step + .timeline-step {
+    border-left: none;
+  }
+
+  .timeline-step::after {
+    content: '';
+    position: absolute;
+    top: 22px;
+    right: -1px;
+    width: 0;
+    height: 0;
+    border-top: 8px solid transparent;
+    border-bottom: 8px solid transparent;
+    border-left: 8px solid var(--accent);
+    z-index: 2;
+  }
+
+  .timeline-step:last-child::after {
+    display: none;
+  }
+
+  .timeline-tag {
+    font-size: 0.68rem;
+    font-weight: 700;
+    color: var(--accent-light);
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    margin-bottom: 5px;
+  }
+
+  .timeline-title {
+    font-size: 0.82rem;
+    font-weight: 700;
+    color: var(--text-dark);
+    margin-bottom: 6px;
+  }
+
+  .timeline-body {
+    font-size: 0.77rem;
+    color: var(--text-muted);
+    line-height: 1.45;
+  }
+
+  /* ============================================================
+     SLIDE 11 — SUPORT
+  ============================================================ */
+  .support-cards {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 14px;
+    margin-bottom: 16px;
+  }
+
+  .support-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-top: 3px solid var(--accent);
+    border-radius: 0 0 8px 8px;
+    padding: 16px 18px;
+    opacity: 0;
+    animation: fadeCard 0.4s ease forwards;
+  }
+
+  .support-card-title {
+    font-size: 0.85rem;
+    font-weight: 700;
+    color: var(--text-dark);
+    margin-bottom: 10px;
+  }
+
+  .support-item {
+    display: flex;
+    gap: 8px;
+    font-size: 0.79rem;
+    color: var(--text-muted);
+    margin-bottom: 5px;
+    line-height: 1.4;
+  }
+
+  .support-item-label {
+    font-weight: 600;
+    color: var(--text-body);
+    font-size: 0.77rem;
+    min-width: 100px;
+    flex-shrink: 0;
+  }
+
+  .guarantee-cols {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 14px;
+    margin-top: 14px;
+  }
+
+  .guarantee-box {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 14px 16px;
+  }
+
+  .guarantee-title {
+    font-size: 0.76rem;
+    font-weight: 700;
+    color: var(--text-dark);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    margin-bottom: 8px;
+    padding-bottom: 7px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .guarantee-item {
+    font-size: 0.79rem;
+    color: var(--text-muted);
+    margin-bottom: 5px;
+    padding-left: 12px;
+    position: relative;
+    line-height: 1.4;
+  }
+
+  .guarantee-item::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 7px;
+    width: 5px;
+    height: 1px;
+    background: var(--accent);
+  }
+
+  /* ============================================================
+     SLIDE 12 — CALL TO ACTION
+  ============================================================ */
+  .cta-wrap {
+    display: flex;
+    gap: 40px;
+    width: 100%;
+    max-width: 980px;
+    align-items: flex-start;
+  }
+
+  .cta-left {
+    flex: 1.15;
+  }
+
+  .cta-eyebrow {
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: rgba(255,255,255,0.55);
+    margin-bottom: 14px;
+  }
+
+  .cta-title {
+    font-size: clamp(1.5rem, 3vw, 2.2rem);
+    font-weight: 700;
+    color: #ffffff;
+    line-height: 1.2;
+    margin-bottom: 14px;
+  }
+
+  .cta-subtext {
+    font-size: 0.88rem;
+    color: rgba(255,255,255,0.55);
+    line-height: 1.65;
+    margin-bottom: 18px;
+  }
+
+  .cta-bullets {
+    list-style: none;
+    margin-bottom: 18px;
+  }
+
+  .cta-bullets li {
+    font-size: 0.85rem;
+    color: rgba(255,255,255,0.75);
+    padding: 5px 0;
+    padding-left: 16px;
+    position: relative;
+    line-height: 1.4;
+    border-bottom: 1px solid rgba(255,255,255,0.07);
+  }
+
+  .cta-bullets li:first-child {
+    border-top: 1px solid rgba(255,255,255,0.07);
+  }
+
+  .cta-bullets li::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 13px;
+    width: 6px;
+    height: 1px;
+    background: var(--accent-light);
+  }
+
+  .cta-docdesc {
+    font-size: 0.8rem;
+    color: rgba(255,255,255,0.4);
+    line-height: 1.5;
+    font-style: italic;
+    padding-top: 12px;
+    border-top: 1px solid rgba(255,255,255,0.08);
+  }
+
+  .cta-right {
+    flex: 0.85;
+    background: rgba(255,255,255,0.05);
+    border: 1px solid rgba(255,255,255,0.15);
+    border-radius: 10px;
+    padding: 24px 26px;
+  }
+
+  .contact-label {
+    font-size: 0.68rem;
+    font-weight: 700;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: rgba(255,255,255,0.45);
+    margin-bottom: 18px;
+  }
+
+  .contact-field {
+    margin-bottom: 10px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid rgba(255,255,255,0.08);
+  }
+
+  .contact-field:last-of-type {
+    border-bottom: none;
+  }
+
+  .contact-field-name {
+    font-size: 0.7rem;
+    color: rgba(255,255,255,0.35);
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    margin-bottom: 2px;
+    font-weight: 600;
+  }
+
+  .contact-field-value {
+    font-size: 0.9rem;
+    color: #ffffff;
+    font-weight: 500;
+  }
+
+  .contact-field-value.accent {
+    color: var(--accent-light);
+  }
+
+  .cta-contact-sep {
+    height: 1px;
+    background: rgba(255,255,255,0.1);
+    margin: 16px 0;
+  }
+
+  .cta-proc-note {
+    font-size: 0.77rem;
+    color: rgba(255,255,255,0.45);
+    font-style: italic;
+    line-height: 1.55;
+  }
+</style>
+</head>
+<body>
+
+<div id="slideshow">
+
+  <!-- ============================================================
+       SLIDE 1 — HERO
+  ============================================================ -->
+  <div class="slide slide-dark active" id="s1" data-slide="0">
+    <div class="hero-wrap">
+      <div class="hero-accent-line"></div>
+      <h1 class="hero-title">VERBATEK</h1>
+      <div class="hero-sep"></div>
+      <p class="hero-subtitle">Sistem Informatic de Transcriere Automată a Ședințelor</p>
+      <p class="hero-paragraph">Implementat exclusiv pe infrastructura IT proprie a instituției beneficiare. Fără conexiuni externe. Fără date transmise în afara rețelei.</p>
+      <p class="hero-tagline">Confidențialitate operațională garantată prin arhitectură, nu prin politici.</p>
+    </div>
+    <div class="hero-badge">UZ INTERN</div>
+    <span class="slide-logo">Verbatek</span>
+    <span class="slide-number">01 / 12</span>
+  </div>
+
+  <!-- ============================================================
+       SLIDE 2 — CONTEXTUL OPERATIONAL
+  ============================================================ -->
+  <div class="slide slide-light" id="s2" data-slide="1">
+    <div class="slide-header" style="max-width:960px">
+      <div class="eyebrow">Contextul operațional</div>
+      <h2 class="slide-title">Documentarea Ședințelor — O Necesitate Operațională Neacoperită Adecvat</h2>
+      <div class="title-underline"></div>
+      <p class="slide-subtext">Ședințele operative, briefing-urile și ședințele de stat major generează volume semnificative de informații verbale care necesită consemnare fidelă și rapidă.</p>
+    </div>
+    <div class="slide-content">
+      <div class="cards-grid-4">
+        <div class="card">
+          <div class="card-num">1</div>
+          <div class="card-title">Documentare manuală cu risc de omisiuni</div>
+          <div class="card-body">Redactarea manuală de către personal desemnat introduce riscul omisiunilor, al interpretărilor subiective și al inconsistenței între documente.</div>
+        </div>
+        <div class="card">
+          <div class="card-num">2</div>
+          <div class="card-title">Consum de resurse umane calificate</div>
+          <div class="card-body">Personal calificat este alocat activităților administrative de transcriere, în detrimentul atribuțiilor operaționale principale.</div>
+        </div>
+        <div class="card">
+          <div class="card-num">3</div>
+          <div class="card-title">Latență în producerea documentelor</div>
+          <div class="card-body">Procesele-verbale sunt disponibile, uneori, la ore sau zile după ședință, întârziind diseminarea deciziilor.</div>
+        </div>
+        <div class="card">
+          <div class="card-num">4</div>
+          <div class="card-title">Risc de conformitate</div>
+          <div class="card-body">Documentarea imperfectă a ședințelor cu conținut sensibil constituie risc atât operațional, cât și de conformitate cu reglementările în vigoare.</div>
+        </div>
+      </div>
+    </div>
+    <span class="slide-logo">Verbatek</span>
+    <span class="slide-number">02 / 12</span>
+  </div>
+
+  <!-- ============================================================
+       SLIDE 3 — VULNERABILITATILE SOLUTIILOR ACTUALE
+  ============================================================ -->
+  <div class="slide slide-light" id="s3" data-slide="2">
+    <div class="slide-header">
+      <div class="eyebrow">Analiza riscurilor</div>
+      <h2 class="slide-title">Soluțiile Comerciale de Transcriere Sunt Incompatibile cu Cerințele MApN</h2>
+      <div class="title-underline"></div>
+      <p class="slide-subtext">Soluțiile disponibile pe piață operează prin transmiterea înregistrărilor audio sau a transcrierii brute către servere externe, controlate de furnizori privați din jurisdicții străine.</p>
+    </div>
+    <div class="slide-content">
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th style="width:55%">Vulnerabilitate</th>
+            <th>Soluție cloud comercială</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Transmitere date în afara instituției</td>
+            <td style="background:rgba(192,57,43,0.05); color:var(--red); font-size:0.8rem;"><span class="icon-red">X</span> &nbsp;Conținut audio procesat pe infrastructură terță</td>
+          </tr>
+          <tr>
+            <td>Control retenție date</td>
+            <td style="background:rgba(192,57,43,0.05); color:var(--red); font-size:0.8rem;"><span class="icon-red">X</span> &nbsp;Politicile furnizorului, neverificabile independent</td>
+          </tr>
+          <tr>
+            <td>Compatibilitate rețele izolate</td>
+            <td style="background:rgba(192,57,43,0.05); color:var(--red); font-size:0.8rem;"><span class="icon-red">X</span> &nbsp;Necesită conectivitate internet prin definiție</td>
+          </tr>
+          <tr>
+            <td>Conformitate Legea 182/2002</td>
+            <td style="background:rgba(192,57,43,0.05); color:var(--red); font-size:0.8rem;"><span class="icon-red">X</span> &nbsp;Risc de încălcare la procesarea informațiilor sensibile</td>
+          </tr>
+          <tr>
+            <td>Independență față de furnizor extern</td>
+            <td style="background:rgba(192,57,43,0.05); color:var(--red); font-size:0.8rem;"><span class="icon-red">X</span> &nbsp;Dependență structurală, risc de discontinuitate</td>
+          </tr>
+        </tbody>
+      </table>
+      <p class="table-note">Legea 182/2002 privind protecția informațiilor clasificate, Art. 17-21 — regimul accesului la informații clasificate în sisteme informatice.</p>
+    </div>
+    <span class="slide-logo">Verbatek</span>
+    <span class="slide-number">03 / 12</span>
+  </div>
+
+  <!-- ============================================================
+       SLIDE 4 — PRINCIPIUL FUNDAMENTAL
+  ============================================================ -->
+  <div class="slide slide-light" id="s4" data-slide="3">
+    <div class="slide-header">
+      <div class="eyebrow">Arhitectura sistemului</div>
+      <h2 class="slide-title">Suveranitatea Datelor — Datele Rămân Exclusiv pe Infrastructura MApN</h2>
+      <div class="title-underline"></div>
+    </div>
+    <div class="slide-content">
+      <div class="blockquote-card">
+        <div class="blockquote-text">"Niciun bit de date nu părăsește infrastructura instituției beneficiare."</div>
+        <div class="blockquote-sub">Aceasta nu este o setare de configurare. Aceasta nu este o opțiune activată prin politică. Este o consecință directă a modului în care sistemul este proiectat: nu există mecanism tehnic prin care datele să fie transmise extern.</div>
+      </div>
+      <div class="cards-grid-3">
+        <div class="card">
+          <div class="card-title">Fără conexiuni de rețea externe</div>
+          <div class="card-body">Serverul nu inițiază și nu acceptă conexiuni în afara rețelei locale. Nu există endpoint de telemetrie, actualizare automată sau raportare.</div>
+        </div>
+        <div class="card">
+          <div class="card-title">Procesare locală integrală</div>
+          <div class="card-body">Modelele de transcriere rulează exclusiv pe hardware-ul serverului local. Nu se utilizează API-uri externe sau servicii cloud.</div>
+        </div>
+        <div class="card">
+          <div class="card-title">Date sub controlul exclusiv al instituției</div>
+          <div class="card-body">Arhiva de transcrieri și înregistrările audio sunt stocate local, conform politicilor proprii de retenție și clasificare.</div>
+        </div>
+      </div>
+    </div>
+    <span class="slide-logo">Verbatek</span>
+    <span class="slide-number">04 / 12</span>
+  </div>
+
+  <!-- ============================================================
+       SLIDE 5 — ARHITECTURA AIR-GAP
+  ============================================================ -->
+  <div class="slide slide-light" id="s5" data-slide="4">
+    <div class="slide-header">
+      <div class="eyebrow">Specificații tehnice</div>
+      <h2 class="slide-title">Arhitectura Tehnică — Funcționare Completă în Rețele Izolate</h2>
+      <div class="title-underline"></div>
+    </div>
+    <div class="slide-content">
+      <div class="arch-diagram">
+        <div class="arch-label">PERIMETRUL DE SECURITATE MApN</div>
+        <div class="arch-external">
+          <span class="icon-red" style="font-size:0.9rem">X</span>
+          <span>FĂRĂ CONEXIUNI EXTERNE</span>
+        </div>
+        <div class="arch-box">
+          <div class="arch-box-title">Sala de Sedinte</div>
+          <div class="arch-box-item">Client Desktop Verbatek</div>
+          <div class="arch-box-item">Microfon</div>
+        </div>
+        <div class="arch-arrow">&#8644;</div>
+        <div class="arch-network">
+          <div class="arch-network-label">Retea Interna MApN</div>
+        </div>
+        <div class="arch-arrow">&#8644;</div>
+        <div class="arch-box">
+          <div class="arch-box-title">Server Verbatek</div>
+          <div class="arch-box-item">Motor transcriere</div>
+          <div class="arch-box-item">Baza de date locala</div>
+        </div>
+      </div>
+      <div class="arch-tech-notes">
+        <div class="arch-note">Actualizari prin medii fizice autorizate (USB / disc optic)</div>
+        <div class="arch-note">Compatibil cu retele TEMPEST-compliant</div>
+        <div class="arch-note">Zero trafic internet in orice faza operationala</div>
+      </div>
+    </div>
+    <span class="slide-logo">Verbatek</span>
+    <span class="slide-number">05 / 12</span>
+  </div>
+
+  <!-- ============================================================
+       SLIDE 6 — CUM FUNCTIONEAZA
+  ============================================================ -->
+  <div class="slide slide-light" id="s6" data-slide="5">
+    <div class="slide-header">
+      <div class="eyebrow">Fluxul operațional</div>
+      <h2 class="slide-title">Trei Etape — De la Inițializarea Ședinței la Arhivarea Documentului</h2>
+      <div class="title-underline"></div>
+    </div>
+    <div class="slide-content">
+      <div class="flow-cols">
+        <div class="flow-col">
+          <div class="flow-step-num">1</div>
+          <div class="flow-step-title">Initializarea sedintei</div>
+          <div class="flow-step-body">Operatorul desemnat creaza sesiunea, atribuind metadatele: denumirea sedintei, data, participantii, nivelul de clasificare. Inregistrarea incepe la comanda.</div>
+        </div>
+        <div class="flow-col">
+          <div class="flow-step-num">2</div>
+          <div class="flow-step-title">Transcrierea automata</div>
+          <div class="flow-step-body">Sistemul proceseaza fluxul audio si produce transcrierea in timp real. Identificarea vorbitorului permite atribuirea replicilor fiecarui participant. Toate procesele ruleaza local.</div>
+        </div>
+        <div class="flow-col">
+          <div class="flow-step-num">3</div>
+          <div class="flow-step-title">Exportul documentului</div>
+          <div class="flow-step-body">Operatorul valideaza transcrierea, aplica corectiile necesare si exporta procesul-verbal in format PDF sau DOCX. Documentul este arhivat conform procedurilor interne.</div>
+        </div>
+      </div>
+      <div class="flow-note">Cadrele militare participante nu interacționează cu sistemul. Nu este necesară nicio modificare a procedurii de desfășurare a ședinței.</div>
+    </div>
+    <span class="slide-logo">Verbatek</span>
+    <span class="slide-number">06 / 12</span>
+  </div>
+
+  <!-- ============================================================
+       SLIDE 7 — SECURITATE SI CONFORMITATE
+  ============================================================ -->
+  <div class="slide slide-light" id="s7" data-slide="6">
+    <div class="slide-header">
+      <div class="eyebrow">Cadrul legal și de securitate</div>
+      <h2 class="slide-title">Conformitate cu Legislația Națională și Europeană Aplicabilă</h2>
+      <div class="title-underline"></div>
+    </div>
+    <div class="slide-content">
+      <div class="cards-grid">
+        <div class="card">
+          <div class="card-title">Legea 182/2002</div>
+          <div class="card-body">Sistemul nu transmite informații în afara perimetrului de securitate. Accesul este controlat prin autentificare și autorizare. Arhiva poate fi gestionată conform nivelului de clasificare stabilit de beneficiar.</div>
+        </div>
+        <div class="card">
+          <div class="card-title">HG 585/2002</div>
+          <div class="card-body">Arhitectura este compatibilă cu cerințele de implementare a sistemelor informatice în medii cu informații clasificate, inclusiv posibilitatea funcționării în rețele TEMPEST-compliant.</div>
+        </div>
+        <div class="card">
+          <div class="card-title">GDPR — Regulamentul (UE) 2016/679</div>
+          <div class="card-body">Datele cu caracter personal (voce, identitate participanți) sunt gestionate exclusiv în interiorul instituției. Beneficiarul este singurul operator de date, fără implicarea unui terț procesator extern.</div>
+        </div>
+        <div class="card">
+          <div class="card-title">Directiva NIS2</div>
+          <div class="card-body">Sistemul sprijină cerințele de reziliență prin eliminarea dependenței față de servicii externe care pot reprezenta puncte de eșec sau vectori de atac.</div>
+        </div>
+      </div>
+      <div class="audit-section">
+        <div class="audit-section-title">Control acces si audit</div>
+        <div class="audit-items">
+          <div class="audit-item">Autentificare pe baza de credentiale institutionale</div>
+          <div class="audit-item">Jurnal de audit al acceselor si operatiunilor (log imutabil)</div>
+          <div class="audit-item">Roluri si permisiuni configurabile de administrator</div>
+        </div>
+      </div>
+    </div>
+    <span class="slide-logo">Verbatek</span>
+    <span class="slide-number">07 / 12</span>
+  </div>
+
+  <!-- ============================================================
+       SLIDE 8 — CLIENTUL DESKTOP
+  ============================================================ -->
+  <div class="slide slide-light" id="s8" data-slide="7">
+    <div class="slide-header">
+      <div class="eyebrow">Verbatek Desktop</div>
+      <h2 class="slide-title">Aplicația Client — Proiectată pentru Sala de Ședințe</h2>
+      <div class="title-underline"></div>
+    </div>
+    <div class="slide-content">
+      <div class="cols-2">
+        <div class="col-left">
+          <div class="app-mockup">
+            <div class="app-titlebar">
+              <div class="titlebar-dots">
+                <div class="titlebar-dot"></div>
+                <div class="titlebar-dot"></div>
+                <div class="titlebar-dot"></div>
+              </div>
+              <div class="titlebar-title">Verbatek Desktop — Sesiune activa</div>
+            </div>
+            <div class="app-body">
+              <div class="app-timer">01:23:45</div>
+              <div class="app-status"><div class="app-status-dot"></div> Inregistrare activa</div>
+              <button class="app-btn-stop">STOP INREGISTRARE</button>
+              <div class="app-transcript">
+                <div class="app-transcript-line"><span>General P.:</span> Va rog sa prezentati situatia operationala din sectorul...</div>
+                <div class="app-transcript-line"><span>Col. M.:</span> Conform raportului primit la ora 0800, unitatile...</div>
+                <div class="app-transcript-line"><span>General P.:</span> Confirmati coordonatele de desfasurare pentru...</div>
+                <div class="app-transcript-line"><span>Maj. D.:</span> Documentatia a fost transmisa conform procedurii...</div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="col-right">
+          <div class="feature-block">
+            <div class="feature-block-title">Compatibilitate</div>
+            <div class="feature-block-body">Windows 10/11 (x64). Compatibil cu politicile Active Directory. Nu necesita drepturi de administrator pentru utilizare curenta.</div>
+          </div>
+          <div class="feature-block">
+            <div class="feature-block-title">Interfata operatorului</div>
+            <div class="feature-block-body">Control sesiune complet. Transcriere in timp real cu atribuire vorbitor. Editare manuala inainte de export.</div>
+          </div>
+          <div class="feature-block">
+            <div class="feature-block-title">Gestionarea participantilor</div>
+            <div class="feature-block-body">Profiluri vocale inrolate anterior sedintei. Atribuire automata replici. Stocate exclusiv local.</div>
+          </div>
+          <div class="feature-block">
+            <div class="feature-block-title">Export documente</div>
+            <div class="feature-block-body">PDF cu antet configurabil (structura, clasificare, data). Format DOCX compatibil cu fluxurile existente.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <span class="slide-logo">Verbatek</span>
+    <span class="slide-number">08 / 12</span>
+  </div>
+
+  <!-- ============================================================
+       SLIDE 9 — COMPARATIE
+  ============================================================ -->
+  <div class="slide slide-light" id="s9" data-slide="8">
+    <div class="slide-header">
+      <div class="eyebrow">Evaluare comparativă</div>
+      <h2 class="slide-title">Comparație cu Alternativele Disponibile</h2>
+      <div class="title-underline"></div>
+    </div>
+    <div class="slide-content">
+      <table class="compare-table">
+        <thead>
+          <tr>
+            <th style="width:40%">Criteriu</th>
+            <th>Solutie cloud</th>
+            <th>Transcriere manuala</th>
+            <th class="col-verbatek">Verbatek on-premises</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Functionare retea izolata (air-gap)</td>
+            <td><span class="icon-red">X</span></td>
+            <td><span class="icon-green">V</span></td>
+            <td class="col-verbatek"><span class="icon-green">V</span></td>
+          </tr>
+          <tr>
+            <td>Date exclusiv pe infrastructura institutiei</td>
+            <td><span class="icon-red">X</span></td>
+            <td><span class="icon-green">V</span></td>
+            <td class="col-verbatek"><span class="icon-green">V</span></td>
+          </tr>
+          <tr>
+            <td>Transcriere automata in timp real</td>
+            <td><span class="icon-green">V</span></td>
+            <td><span class="icon-red">X</span></td>
+            <td class="col-verbatek"><span class="icon-green">V</span></td>
+          </tr>
+          <tr>
+            <td>Fara dependenta servicii externe</td>
+            <td><span class="icon-red">X</span></td>
+            <td><span class="icon-green">V</span></td>
+            <td class="col-verbatek"><span class="icon-green">V</span></td>
+          </tr>
+          <tr>
+            <td>Compatibil Legea 182/2002</td>
+            <td><span class="icon-red">X</span></td>
+            <td><span class="icon-green">V</span></td>
+            <td class="col-verbatek"><span class="icon-green">V</span></td>
+          </tr>
+          <tr>
+            <td>Format standardizat si consistent</td>
+            <td><span class="icon-green">V</span></td>
+            <td><span class="icon-red">X</span></td>
+            <td class="col-verbatek"><span class="icon-green">V</span></td>
+          </tr>
+          <tr>
+            <td>Resurse umane necesare</td>
+            <td style="color:var(--text-muted)">Reduse</td>
+            <td style="color:var(--red)">Semnificative</td>
+            <td class="col-verbatek">Reduse</td>
+          </tr>
+          <tr>
+            <td>Control complet acces date</td>
+            <td style="color:var(--yellow)">Partial</td>
+            <td><span class="icon-green">V</span></td>
+            <td class="col-verbatek"><span class="icon-green">V</span></td>
+          </tr>
+        </tbody>
+      </table>
+      <div class="compare-conclusion">Verbatek reuneste avantajele operationale ale automatizarii cu cerintele de securitate ale mediilor izolate.</div>
+    </div>
+    <span class="slide-logo">Verbatek</span>
+    <span class="slide-number">09 / 12</span>
+  </div>
+
+  <!-- ============================================================
+       SLIDE 10 — IMPLEMENTARE
+  ============================================================ -->
+  <div class="slide slide-light" id="s10" data-slide="9">
+    <div class="slide-header">
+      <div class="eyebrow">Proces de implementare</div>
+      <h2 class="slide-title">Cerințe Tehnice și Etapele Procesului de Implementare</h2>
+      <div class="title-underline"></div>
+    </div>
+    <div class="slide-content">
+      <div class="req-cols">
+        <div class="req-box">
+          <div class="req-box-title">Server</div>
+          <div class="req-item"><span class="req-item-label">Procesor:</span> x86-64, min. 8 nuclee fizice</div>
+          <div class="req-item"><span class="req-item-label">Memorie RAM:</span> min. 32 GB</div>
+          <div class="req-item"><span class="req-item-label">Stocare:</span> min. 500 GB SSD</div>
+          <div class="req-item"><span class="req-item-label">OS:</span> Ubuntu Server 22.04 LTS / Windows Server 2019/2022</div>
+          <div class="req-item"><span class="req-item-label">Retea:</span> LAN intern (fara acces internet)</div>
+        </div>
+        <div class="req-box">
+          <div class="req-box-title">Statie client</div>
+          <div class="req-item"><span class="req-item-label">OS:</span> Windows 10/11 (x64)</div>
+          <div class="req-item"><span class="req-item-label">RAM:</span> min. 8 GB</div>
+          <div class="req-item"><span class="req-item-label">Microfon:</span> USB sau XLR cu interfata audio</div>
+        </div>
+      </div>
+      <div class="timeline">
+        <div class="timeline-step">
+          <div class="timeline-tag">Etapa 1 &mdash; Zile 1-5</div>
+          <div class="timeline-title">Evaluare tehnica</div>
+          <div class="timeline-body">Analiza infrastructurii, identificarea serverului de destinatie, verificare cerinte retea.</div>
+        </div>
+        <div class="timeline-step">
+          <div class="timeline-tag">Etapa 2 &mdash; Zile 6-10</div>
+          <div class="timeline-title">Transfer si instalare</div>
+          <div class="timeline-body">Transfer pachete pe medii fizice autorizate. Instalare sub supervizarea IT MApN.</div>
+        </div>
+        <div class="timeline-step">
+          <div class="timeline-tag">Etapa 3 &mdash; Zile 11-15</div>
+          <div class="timeline-title">Configurare si integrare</div>
+          <div class="timeline-body">Configurare politici acces, roluri, clasificare. Integrare AD optionala.</div>
+        </div>
+        <div class="timeline-step">
+          <div class="timeline-tag">Etapa 4 &mdash; Zile 16-20</div>
+          <div class="timeline-title">Instruire si acceptanta</div>
+          <div class="timeline-body">Instruire personal, testare acceptanta, predare documentatie.</div>
+        </div>
+      </div>
+    </div>
+    <span class="slide-logo">Verbatek</span>
+    <span class="slide-number">10 / 12</span>
+  </div>
+
+  <!-- ============================================================
+       SLIDE 11 — SUPORT SI GARANTII
+  ============================================================ -->
+  <div class="slide slide-light" id="s11" data-slide="10">
+    <div class="slide-header">
+      <div class="eyebrow">Suport tehnic și garanții</div>
+      <h2 class="slide-title">Continuitate Operațională — Suport Adaptat Mediilor Izolate</h2>
+      <div class="title-underline"></div>
+    </div>
+    <div class="slide-content">
+      <div class="support-cards">
+        <div class="support-card">
+          <div class="support-card-title">Suport Standard</div>
+          <div class="support-item"><span class="support-item-label">Timp raspuns:</span> 8 ore lucratoare (incidente critice)</div>
+          <div class="support-item"><span class="support-item-label">Acoperire:</span> 5 zile / 8 ore</div>
+          <div class="support-item"><span class="support-item-label">Canal:</span> email securizat sau ticketing intern</div>
+        </div>
+        <div class="support-card">
+          <div class="support-card-title">Suport Extins</div>
+          <div class="support-item"><span class="support-item-label">Timp raspuns:</span> 2 ore (incidente critice)</div>
+          <div class="support-item"><span class="support-item-label">Acoperire:</span> 7 zile / 12 ore</div>
+          <div class="support-item"><span class="support-item-label">Canal:</span> linie dedicata + echipa nivel 2</div>
+        </div>
+        <div class="support-card">
+          <div class="support-card-title">Interventie on-site</div>
+          <div class="support-item"><span class="support-item-label">Deplasare:</span> fizica la sediul beneficiarului</div>
+          <div class="support-item"><span class="support-item-label">Transfer:</span> pachete remediere prin medii autorizate</div>
+          <div class="support-item"><span class="support-item-label">Documentatie:</span> proceduri pentru echipa IT interna</div>
+        </div>
+      </div>
+      <div class="guarantee-cols">
+        <div class="guarantee-box">
+          <div class="guarantee-title">Garantii contractuale</div>
+          <div class="guarantee-item">Garantie de functionalitate: 24 luni de la acceptanta</div>
+          <div class="guarantee-item">SLA cu penalitati definite contractual</div>
+          <div class="guarantee-item">Actualizari de securitate incluse in perioada de garantie</div>
+          <div class="guarantee-item">Cod sursa escrow disponibil la solicitare</div>
+        </div>
+        <div class="guarantee-box">
+          <div class="guarantee-title">Documentatie livrata</div>
+          <div class="guarantee-item">Manual de administrare sistem</div>
+          <div class="guarantee-item">Manual de operare utilizatori finali</div>
+          <div class="guarantee-item">Documentatie arhitectura (echipa IT MApN)</div>
+          <div class="guarantee-item">Proceduri backup si recuperare dupa dezastru</div>
+        </div>
+      </div>
+    </div>
+    <span class="slide-logo">Verbatek</span>
+    <span class="slide-number">11 / 12</span>
+  </div>
+
+  <!-- ============================================================
+       SLIDE 12 — CALL TO ACTION
+  ============================================================ -->
+  <div class="slide slide-dark" id="s12" data-slide="11">
+    <div class="cta-wrap">
+      <div class="cta-left">
+        <div class="cta-eyebrow">Pasul urmator</div>
+        <h2 class="cta-title">Solicitare de Demonstratie Tehnica</h2>
+        <p class="cta-subtext">Verbatek poate fi evaluat in cadrul unei demonstratii tehnice desfasurate la sediul Ministerului Apararii Nationale, pe echipament furnizat de ofertant sau pe infrastructura de test a beneficiarului.</p>
+        <ul class="cta-bullets">
+          <li>Prezentarea arhitecturii si verificarea absentei conexiunilor externe</li>
+          <li>Rularea unui scenariu de transcriere simulata</li>
+          <li>Analiza jurnalului de retea in timp real</li>
+          <li>Raspuns la intrebari tehnice din partea echipei IT si de securitate</li>
+        </ul>
+        <div class="cta-docdesc">Documentatie disponibila la solicitare: specificatii tehnice, analiza conformitate Legea 182/2002, model contract.</div>
+      </div>
+      <div class="cta-right">
+        <div class="contact-label">Date de contact</div>
+        <div class="contact-field">
+          <div class="contact-field-name">Ofertant</div>
+          <div class="contact-field-value">Verbatek</div>
+        </div>
+        <div class="contact-field">
+          <div class="contact-field-name">Email</div>
+          <div class="contact-field-value accent">contact@verbatek.ro</div>
+        </div>
+        <div class="contact-field">
+          <div class="contact-field-name">Web</div>
+          <div class="contact-field-value accent">verbatek.ro</div>
+        </div>
+        <div class="contact-field">
+          <div class="contact-field-name">Telefon</div>
+          <div class="contact-field-value">+40 --- --- ---</div>
+        </div>
+        <div class="cta-contact-sep"></div>
+        <div class="cta-proc-note">Ofertantul este disponibil sa participe la orice procedura de evaluare sau achizitie organizata de MApN in conformitate cu legislatia privind achizitiile publice in domeniul apararii.</div>
+      </div>
+    </div>
+    <span class="slide-logo">Verbatek</span>
+    <span class="slide-number">12 / 12</span>
+  </div>
+
+</div>
+
+<!-- Navigation Dots -->
+<div id="dots">
+  <button class="dot active" onclick="goTo(0)" title="Slide 1"></button>
+  <button class="dot" onclick="goTo(1)" title="Slide 2"></button>
+  <button class="dot" onclick="goTo(2)" title="Slide 3"></button>
+  <button class="dot" onclick="goTo(3)" title="Slide 4"></button>
+  <button class="dot" onclick="goTo(4)" title="Slide 5"></button>
+  <button class="dot" onclick="goTo(5)" title="Slide 6"></button>
+  <button class="dot" onclick="goTo(6)" title="Slide 7"></button>
+  <button class="dot" onclick="goTo(7)" title="Slide 8"></button>
+  <button class="dot" onclick="goTo(8)" title="Slide 9"></button>
+  <button class="dot" onclick="goTo(9)" title="Slide 10"></button>
+  <button class="dot" onclick="goTo(10)" title="Slide 11"></button>
+  <button class="dot" onclick="goTo(11)" title="Slide 12"></button>
+</div>
+
+<!-- Navigation Arrows -->
+<div id="nav-arrows">
+  <button class="nav-btn" id="btn-prev" onclick="prevSlide()" title="Inapoi">&#8592;</button>
+  <button class="nav-btn" id="btn-next" onclick="nextSlide()" title="Inainte">&#8594;</button>
+</div>
+
+<script>
+  const TOTAL = 12;
+  let current = 0;
+  let isAnimating = false;
+
+  const slides = document.querySelectorAll('.slide');
+  const dots = document.querySelectorAll('.dot');
+
+  function goTo(index) {
+    if (isAnimating || index === current || index < 0 || index >= TOTAL) return;
+    isAnimating = true;
+
+    const prevIndex = current;
+    const direction = index > prevIndex ? 1 : -1;
+
+    // Position incoming slide off-screen
+    slides[index].style.transform = direction === 1 ? 'translateX(100%)' : 'translateX(-100%)';
+    slides[index].classList.remove('active', 'prev');
+
+    // Force reflow
+    slides[index].offsetHeight;
+
+    // Animate out current
+    slides[prevIndex].classList.remove('active');
+    if (direction === -1) {
+      slides[prevIndex].style.transform = 'translateX(100%)';
+    } else {
+      slides[prevIndex].style.transform = 'translateX(-100%)';
+    }
+
+    // Animate in new
+    slides[index].style.transform = 'translateX(0)';
+    slides[index].classList.add('active');
+
+    // Update dots
+    dots[prevIndex].classList.remove('active');
+    dots[index].classList.add('active');
+
+    current = index;
+
+    setTimeout(() => {
+      // Clean up non-active slides
+      slides.forEach((slide, i) => {
+        if (i !== current) {
+          slide.classList.remove('active', 'prev');
+          slide.style.transform = i < current ? 'translateX(-100%)' : 'translateX(100%)';
+        }
+      });
+      isAnimating = false;
+      updateNavButtons();
+    }, 650);
+  }
+
+  function nextSlide() {
+    goTo(current + 1);
+  }
+
+  function prevSlide() {
+    goTo(current - 1);
+  }
+
+  // Keyboard navigation
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'ArrowRight' || e.key === 'ArrowDown' || e.key === 'PageDown' || e.key === ' ') {
+      e.preventDefault();
+      nextSlide();
+    } else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp' || e.key === 'PageUp') {
+      e.preventDefault();
+      prevSlide();
+    } else if (e.key === 'Home') {
+      goTo(0);
+    } else if (e.key === 'End') {
+      goTo(TOTAL - 1);
+    }
+  });
+
+  // Touch navigation
+  let touchStartX = 0;
+  let touchStartY = 0;
+
+  document.addEventListener('touchstart', (e) => {
+    touchStartX = e.changedTouches[0].screenX;
+    touchStartY = e.changedTouches[0].screenY;
+  }, { passive: true });
+
+  document.addEventListener('touchend', (e) => {
+    const deltaX = e.changedTouches[0].screenX - touchStartX;
+    const deltaY = e.changedTouches[0].screenY - touchStartY;
+    if (Math.abs(deltaX) > Math.abs(deltaY) && Math.abs(deltaX) > 50) {
+      if (deltaX < 0) nextSlide();
+      else prevSlide();
+    }
+  }, { passive: true });
+
+  // Initialize slide positions
+  slides.forEach((slide, i) => {
+    if (i === 0) {
+      slide.classList.add('active');
+      slide.style.transform = 'translateX(0)';
+    } else {
+      slide.style.transform = 'translateX(100%)';
+    }
+  });
+
+  // Update nav button states
+  function updateNavButtons() {
+    const btnPrev = document.getElementById('btn-prev');
+    const btnNext = document.getElementById('btn-next');
+    if (btnPrev) btnPrev.style.opacity = current === 0 ? '0.3' : '1';
+    if (btnNext) btnNext.style.opacity = current === TOTAL - 1 ? '0.3' : '1';
+  }
+
+  updateNavButtons();
+</script>
+</body>
+</html>

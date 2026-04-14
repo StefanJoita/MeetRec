@@ -199,6 +199,15 @@ class DatabaseClient:
                 file_hash,
             )
 
+    async def get_recording_status(self, recording_id: str) -> Optional[str]:
+        """Returnează status-ul unui Recording după id, sau None dacă nu există."""
+        async with self._pool.acquire() as conn:
+            row = await conn.fetchrow(
+                "SELECT status FROM recordings WHERE id = $1",
+                recording_id,
+            )
+            return row["status"] if row else None
+
     async def find_recording_by_session_id(self, session_id: str) -> Optional[str]:
         """
         Returnează recording_id-ul înregistrării principale a unei sesiuni, sau None.
@@ -248,6 +257,53 @@ class DatabaseClient:
             segment_id=segment_id,
         )
         return segment_id
+
+    async def update_primary_file(
+        self,
+        recording_id: str,
+        metadata: "AudioMetadata",
+        stored_path: "Path",
+    ) -> None:
+        """
+        Actualizează câmpurile audio ale unui Recording pre-înregistrat (status='session_registered')
+        cu datele reale ale primului segment audio. Setează status='queued' după update.
+
+        Apelat de Processor când segmentul 0 sosește pentru o sesiune pre-înregistrată via API.
+        """
+        async with self._pool.acquire() as conn:
+            await conn.execute(
+                """
+                UPDATE recordings
+                SET
+                    original_filename  = $1,
+                    file_path          = $2,
+                    file_size_bytes    = $3,
+                    file_hash_sha256   = $4,
+                    audio_format       = $5,
+                    duration_seconds   = $6,
+                    sample_rate_hz     = $7,
+                    channels           = $8,
+                    status             = 'queued',
+                    last_segment_at    = NOW(),
+                    updated_at         = NOW()
+                WHERE id = $9
+                """,
+                metadata.filename,
+                str(stored_path),
+                metadata.file_size_bytes,
+                metadata.file_hash_sha256,
+                metadata.audio_format,
+                metadata.duration_seconds,
+                metadata.sample_rate_hz,
+                metadata.channels,
+                recording_id,
+            )
+        logger.info(
+            "primary_file_updated",
+            recording_id=recording_id,
+            filename=metadata.filename,
+            duration_sec=metadata.duration_seconds,
+        )
 
     async def mark_failed_by_id(self, recording_id: str, error_message: str) -> None:
         """

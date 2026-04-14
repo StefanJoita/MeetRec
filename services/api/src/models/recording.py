@@ -26,6 +26,7 @@ from src.models.base import Base
 import enum
 
 class RecordingStatus(str, enum.Enum):
+    SESSION_REGISTERED = "session_registered"  # sesiune pre-înregistrată, niciun fișier audio încă
     UPLOADED = "uploaded"
     VALIDATING= "validating"
     QUEUED = "queued"
@@ -69,9 +70,10 @@ class Recording(Base):
     #participants e un array de stringuri in postgreSQL
     #Ex: ['Alice Ionescu', 'Bob Popescu', 'Charlie Ionescu']
     participants: Mapped[List[str]] = mapped_column(
-        ARRAY(String), 
-        nullable=True, 
+        ARRAY(String),
+        nullable=True,
     )
+    speaker_mapping: Mapped[dict] = mapped_column(JSON, default=dict, server_default='{}')
 
     #--Informatii tehnice despre fisierul audio------
     original_filename: Mapped[str] = mapped_column(String(255), nullable=False) #numele fisierului incarcat

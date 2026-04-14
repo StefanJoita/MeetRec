@@ -396,7 +396,7 @@ Monitor progress with:
 docker compose logs -f stt-worker
 ```
 
-The model is downloaded once and stored in the `whisper_models` Docker volume.
+The model is downloaded at build time and baked into the Docker image — no internet access required at runtime.
 
 ---
 

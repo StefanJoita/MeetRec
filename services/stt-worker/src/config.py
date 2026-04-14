@@ -1,3 +1,4 @@
+from typing import Optional
 # services/stt-worker/src/config.py
 # ============================================================
 # Configurarea STT Worker — citit din variabile de mediu
@@ -58,9 +59,26 @@ class Settings(BaseSettings):
     whisper_primary_language: str = "ro"
 
     # Câte joburi simultan (1 = procesare serială)
-    # În viitor: asyncio.Semaphore(concurrency) pentru paralel
     stt_worker_concurrency: int = 1
 
+
+    # Tipul de calcul pentru faster-whisper (CTranslate2)
+    # "int8" cel mai rapid pe CPU, "float32" mai compatibil
+    whisper_compute_type: str = "int8"
+
+    # --- Diarizare vorbitori ---
+    diarization_enabled: bool = False
+    hf_token: str = ""
+    min_speakers: Optional[int] = None
+    max_speakers: Optional[int] = None
+
+    @field_validator("min_speakers", "max_speakers", mode="before")
+    @classmethod
+    def _empty_str_to_none(cls, v: object) -> object:
+        """String gol din env var ("") → None, înainte ca Pydantic să parseze ca int."""
+        if isinstance(v, str) and not v.strip():
+            return None
+        return v
     # --- Logging ---
     log_level: str = "INFO"
 
