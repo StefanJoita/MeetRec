@@ -134,6 +134,19 @@ class FileProcessor:
                 )
 
         if existing_recording_id:
+            # Dacă Recording-ul a fost pre-înregistrat de API (status='session_registered')
+            # și acesta este segmentul 0, actualizăm câmpurile audio în loc să atașăm
+            # un segment suplimentar (segmentul 0 = fișierul principal din recordings).
+            if segment_index == 0:
+                status_row = await self.database.get_recording_status(existing_recording_id)
+                if status_row == "session_registered":
+                    return await self._update_primary_file(
+                        existing_recording_id=existing_recording_id,
+                        stored_path=stored_path,
+                        metadata=metadata,
+                        file_path=file_path,
+                    )
+
             return await self._attach_segment(
                 existing_recording_id=existing_recording_id,
                 segment_index=segment_index,
@@ -195,6 +208,40 @@ class FileProcessor:
             duration_sec=metadata.duration_seconds,
             size_mb=round(metadata.file_size_bytes / 1024 / 1024, 2),
             stored_at=str(stored_path),
+        )
+        return True
+
+    async def _update_primary_file(
+        self,
+        existing_recording_id: str,
+        stored_path: "Path",
+        metadata: "AudioMetadata",
+        file_path: "Path",
+    ) -> bool:
+        """
+        Completează câmpurile audio ale unui Recording pre-înregistrat cu datele segmentului 0.
+        Înlocuiește valorile placeholder (hash, file_path, size, format) cu datele reale.
+        """
+        try:
+            await self.database.update_primary_file(
+                recording_id=existing_recording_id,
+                metadata=metadata,
+                stored_path=stored_path,
+            )
+        except Exception as e:
+            logger.error(
+                "primary_file_update_failed",
+                file=file_path.name,
+                recording_id=existing_recording_id,
+                error=str(e),
+            )
+            self.storage.delete_file(stored_path)
+            return False
+
+        logger.info(
+            "primary_file_set",
+            file=file_path.name,
+            recording_id=existing_recording_id,
         )
         return True
 

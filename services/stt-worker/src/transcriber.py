@@ -1,22 +1,20 @@
 # services/stt-worker/src/transcriber.py
 # ============================================================
-# Whisper Transcriber — convertește audio în text cu timestamps
+# WhisperX Transcriber — transcriere + aliniere + diarizare
 # ============================================================
-# Whisper este o bibliotecă SINCRONĂ care blochează thread-ul
-# curent pe toată durata transcrierii (10+ minute pentru fișiere mari).
+# Pipeline față de Whisper vanilla:
 #
-# Problemă: dacă o apelăm direct din async def, blocăm
-# întregul event loop asyncio — nicio altă operație async
-# nu mai poate rula!
+#   1. faster-whisper (CTranslate2) — transcriere 4× mai rapidă pe CPU
+#   2. wav2vec2 forced alignment   — timestamps la nivel de cuvânt
+#   3. pyannote diarizare          — identificare vorbitori (opțional)
 #
-# Soluție: asyncio.run_in_executor(None, func)
-#   → rulează func() într-un thread din pool-ul OS
-#   → event loop-ul asyncio rămâne liber
-#   → returnează un Future pe care îl putem await
+# Interfața publică este identică cu versiunea anterioară:
+#   await transcriber.load_model()
+#   segments = await transcriber.transcribe(path, language_hint)
 #
-# Analogie:
-#   "Dă sarcina asta unui muncitor separat și spune-mi când termină.
-#   Eu (event loop) continui cu alte lucruri între timp."
+# Adăugare față de versiunea anterioară:
+#   TranscriptSegment.speaker_id — "SPEAKER_00", "SPEAKER_01" etc.
+#   (None dacă diarization_enabled=False)
 # ============================================================
 
 import asyncio
@@ -36,80 +34,92 @@ logger = structlog.get_logger(__name__)
 @dataclass
 class TranscriptSegment:
     """
-    Un segment = o unitate de vorbire cu timestamp de start și end.
+    Un segment = o unitate de vorbire cu timestamp și vorbitor.
 
-    Whisper împarte audio-ul în segmente de ~5-15 secunde.
-    Fiecare are:
-    - start_time / end_time: când începe/se termină în audio (secunde)
-    - text: ce s-a spus în acel interval
-    - confidence: cât de sigur e modelul (0.0 = nesigur, 1.0 = sigur)
-    - language: limba detectată ("ro", "en")
+    speaker_id: "SPEAKER_00", "SPEAKER_01" etc. dacă diarizarea e activă,
+                None altfel.
     """
-    segment_index: int       # 0, 1, 2, ... (ordinea în transcript)
-    start_time: float        # e.g. 12.500 secunde de la începutul audio
-    end_time: float          # e.g. 17.320
-    text: str                # e.g. "Bună ziua, doamnă primar."
-    confidence: float        # 0.0 - 1.0 (calculat din avg_logprob)
-    language: str            # "ro", "en", etc.
+    segment_index: int
+    start_time: float
+    end_time: float
+    text: str
+    confidence: float
+    language: str
+    speaker_id: Optional[str] = None
 
 
 # ── WhisperTranscriber ────────────────────────────────────────
 
 class WhisperTranscriber:
     """
-    Încarcă modelul Whisper și transcrie fișiere audio.
+    Încarcă modelele WhisperX și transcrie fișiere audio.
 
-    Fluxul tipic:
-        transcriber = WhisperTranscriber()
-        await transcriber.load_model()   # lent: 5-30s, o dată la startup
-        segments = await transcriber.transcribe(path, "ro")  # per job
+    Modele încărcate la startup (load_model):
+      - faster-whisper model (transcriere)
+      - wav2vec2 alignment model (timestamps cuvânt)
+      - pyannote DiarizationPipeline (dacă diarization_enabled=True)
     """
 
     def __init__(self):
         self._model = None
-        self._model_name = settings.whisper_model
-        self._model_path = settings.whisper_model_path
-        self._primary_language = settings.whisper_primary_language
+        self._align_model = None
+        self._align_metadata = None
+        self._diarize_model = None
 
     async def load_model(self) -> None:
-        """
-        Descarcă (dacă e prima dată) și încarcă modelul Whisper în RAM.
-
-        DE CE ASYNC cu run_in_executor?
-        whisper.load_model() blochează thread-ul ~5-30 secunde
-        citind 1-5 GB de fișiere de pe disc în RAM + inițializând
-        rețeaua neuronală PyTorch.
-
-        Prin run_in_executor, blocarea se întâmplă în alt thread,
-        nu în event loop-ul principal.
-
-        MODEL PATH:
-        download_root=str(self._model_path) → Whisper salvează modelul
-        în /app/models/. Acest director e montat ca volum Docker persistent.
-        La primul start: descarcă ~1.5GB (medium model) → poate dura 10+ min.
-        La restart-uri ulterioare: încarcă din disc local → ~5s.
-        """
-        logger.info("model_loading", model=self._model_name, path=str(self._model_path))
+        """Încarcă toate modelele necesare. Rulat o singură dată la startup."""
+        logger.info("models_loading",
+                    whisper_model=settings.whisper_model,
+                    compute_type=settings.whisper_compute_type,
+                    diarization=settings.diarization_enabled)
 
         loop = asyncio.get_running_loop()
-        self._model = await loop.run_in_executor(
-            None,  # None = folosește thread pool-ul default (ThreadPoolExecutor)
-            self._load_model_sync,
-        )
-        logger.info("model_loaded", model=self._model_name)
+        await loop.run_in_executor(None, self._load_sync)
+        logger.info("models_loaded")
 
-    def _load_model_sync(self):
-        """
-        Varianta sincronă a load_model() — rulată în thread pool.
-        Import-ul whisper este aici (nu la nivel de modul) din 2 motive:
-          1. Dacă Whisper nu e instalat, eroarea apare la load_model(), nu la import
-          2. Importul lui torch durează 2-3s — nu îl facem la startup al modulului
-        """
-        import whisper
-        return whisper.load_model(
-            self._model_name,
-            download_root=str(self._model_path),
+    def _load_sync(self) -> None:
+        """Varianta sincronă — rulează în thread pool."""
+        import whisperx
+
+        # ── 1. Modelul de transcriere (faster-whisper) ────────
+        # compute_type "int8": cuantizare 8-bit — cel mai rapid pe CPU
+        self._model = whisperx.load_model(
+            settings.whisper_model,
+            device="cpu",
+            compute_type=settings.whisper_compute_type,
+            download_root=str(settings.whisper_model_path / "whisper"),
+            language=settings.whisper_primary_language,
         )
+        logger.info("whisper_model_ready", model=settings.whisper_model)
+
+        # ── 2. Modelul de aliniere (wav2vec2) ─────────────────
+        # Timestamps la nivel de cuvânt (~0.1-0.3s precizie).
+        # Dacă nu e disponibil pentru limbă → continuăm fără.
+        try:
+            self._align_model, self._align_metadata = whisperx.load_align_model(
+                language_code=settings.whisper_primary_language,
+                device="cpu",
+            )
+            logger.info("align_model_ready", language=settings.whisper_primary_language)
+        except Exception as e:
+            logger.warning("align_model_unavailable", error=str(e))
+            self._align_model = None
+            self._align_metadata = None
+
+        # ── 3. Modelul de diarizare (pyannote) ────────────────
+        # Activat prin DIARIZATION_ENABLED=true în .env.
+        # Modelele trebuie descărcate la build time cu HF_TOKEN.
+        if settings.diarization_enabled:
+            try:
+                from whisperx.diarize import DiarizationPipeline
+                self._diarize_model = DiarizationPipeline(
+                    token=settings.hf_token or None,
+                    device="cpu",
+                )
+                logger.info("diarization_model_ready")
+            except Exception as e:
+                logger.error("diarization_model_failed", error=str(e))
+                self._diarize_model = None
 
     async def transcribe(
         self,
@@ -119,107 +129,98 @@ class WhisperTranscriber:
         """
         Transcrie un fișier audio și returnează lista de segmente.
 
-        file_path: calea completă pe disc (/data/processed/2024/03/15/uuid.mp3)
-        language_hint: "ro", "en", etc. — dacă știm dinainte limba
-
-        Tot codul CPU-intensiv rulează în _run_whisper_sync (thread pool).
-        Această metodă async e doar "wrapper" care coordonează thread-ul.
+        Dacă diarizarea e activă, fiecare segment conține speaker_id.
         """
         if self._model is None:
             raise RuntimeError("Model neîncărcat. Apelați load_model() înainte.")
 
-        logger.info("transcription_started", file=file_path, language=language_hint)
+        logger.info("transcription_started", file=file_path, language=language_hint,
+                    diarization=settings.diarization_enabled)
         loop = asyncio.get_running_loop()
-        start_time = loop.time()
+        start = loop.time()
 
         segments = await loop.run_in_executor(
             None,
-            self._run_whisper_sync,
+            self._run_sync,
             file_path,
             language_hint,
         )
 
-        elapsed = loop.time() - start_time
-        logger.info(
-            "transcription_done",
-            file=file_path,
-            segments=len(segments),
-            elapsed_sec=round(elapsed, 1),
-        )
+        elapsed = loop.time() - start
+        speakers = {s.speaker_id for s in segments if s.speaker_id}
+        logger.info("transcription_done", file=file_path, segments=len(segments),
+                    speakers=len(speakers), elapsed_sec=round(elapsed, 1))
         return segments
 
-    def _run_whisper_sync(
+    def _run_sync(
         self,
         file_path: str,
         language_hint: Optional[str],
     ) -> List[TranscriptSegment]:
-        """
-        Rulează transcrierea Whisper sincronă.
-        Această metodă blochează thread-ul pe toată durata procesării.
+        """Pipeline complet: transcriere → aliniere → diarizare."""
+        import whisperx
 
-        OPȚIUNI IMPORTANTE:
-        - fp16=False: OBLIGATORIU pe CPU!
-          fp16 (half-precision float16) e o optimizare pentru GPU.
-          Pe CPU, torch nu suportă operații fp16 → RuntimeError.
-          Dacă omitem fp16=False, Whisper încearcă fp16 automat și crăpă.
+        lang = language_hint or settings.whisper_primary_language
+        audio = whisperx.load_audio(file_path)
 
-        - task="transcribe": transcrie în aceeași limbă (nu traduce)
-          Alternativa: task="translate" → traduce totul în engleză
+        # ── 1. Transcriere ────────────────────────────────────
+        result = self._model.transcribe(audio, batch_size=8, language=lang)
+        detected_language = result.get("language", lang)
 
-        - verbose=False: suprimă output-ul Whisper în terminal
-          (altfel printează fiecare segment pe stderr)
-        """
-        options = {
-            "task": "transcribe",
-            "fp16": False,           # ← CRITICĂ pe CPU, altfel RuntimeError!
-            "verbose": False,        # nu vrem spam în logs
-            # no_speech_threshold: default 0.6 → creștem la 0.8 pentru a evita
-            # cazurile în care Whisper clasifică greșit audioul ca non-speech.
-            # Valoarea mai mare = modelul acceptă mai ușor segmente borderline.
-            "no_speech_threshold": 0.8,
-            # condition_on_previous_text=False: previne blocajele de tip "hallucination"
-            # în care Whisper repetă același text la infinit și nu avansează în audio.
-            "condition_on_previous_text": False,
-        }
-        if language_hint:
-            options["language"] = language_hint
+        # ── 2. Aliniere forțată ───────────────────────────────
+        if self._align_model is not None and result.get("segments"):
+            try:
+                result = whisperx.align(
+                    result["segments"],
+                    self._align_model,
+                    self._align_metadata,
+                    audio,
+                    device="cpu",
+                    return_char_alignments=False,
+                )
+            except Exception as e:
+                logger.warning("alignment_failed", error=str(e))
 
-        result = self._model.transcribe(str(file_path), **options)
+        # ── 3. Diarizare ──────────────────────────────────────
+        if self._diarize_model is not None and result.get("segments"):
+            try:
+                diarize_kwargs = {}
+                if settings.min_speakers is not None:
+                    diarize_kwargs["min_speakers"] = settings.min_speakers
+                if settings.max_speakers is not None:
+                    diarize_kwargs["max_speakers"] = settings.max_speakers
 
-        # Convertim segmentele Whisper în dataclass-uri proprii
+                diarize_segments = self._diarize_model(audio, **diarize_kwargs)
+                result = whisperx.assign_word_speakers(diarize_segments, result)
+            except Exception as e:
+                logger.error("diarization_failed", error=str(e))
+
         return [
-            self._convert_segment(raw_seg, idx, result.get("language", "ro"))
-            for idx, raw_seg in enumerate(result.get("segments", []))
+            self._convert_segment(seg, idx, detected_language)
+            for idx, seg in enumerate(result.get("segments", []))
         ]
 
-    def _convert_segment(self, raw: dict, idx: int, detected_language: str) -> TranscriptSegment:
-        """
-        Convertește un segment raw din Whisper în TranscriptSegment.
-
-        raw["avg_logprob"]:
-        Whisper returnează log-probabilitate medie per segment.
-        E un număr negativ (e.g. -0.15 = bun, -1.5 = slab).
-        Convertim la scară liniară [0, 1]:
-            exp(-0.15) ≈ 0.86  (86% confidence)
-            exp(-1.5)  ≈ 0.22  (22% confidence)
-
-        De ce clamp la [0, 1]?
-        DB coloana confidence este DECIMAL(4,3) — max valoare e 1.000.
-        math.exp() poate returna 1.0001 din cauza floating point.
-        Un INSERT cu 1.001 → eroare PostgreSQL "value out of range".
-        """
-        avg_logprob = raw.get("avg_logprob", -0.5)
-        confidence = max(0.0, min(1.0, math.exp(avg_logprob)))
-
-        # Whisper pune spațiu la începutul textului: " Bună ziua."
-        # PostProcessor va face strip(), dar îl facem și aici ca siguranță
-        text = raw.get("text", "").strip()
+    def _convert_segment(
+        self,
+        raw: dict,
+        idx: int,
+        detected_language: str,
+    ) -> TranscriptSegment:
+        """Convertește un segment WhisperX în TranscriptSegment."""
+        avg_logprob = raw.get("avg_logprob")
+        if avg_logprob is not None:
+            confidence = round(max(0.0, min(1.0, math.exp(avg_logprob))), 3)
+        else:
+            words = raw.get("words", [])
+            scores = [w["score"] for w in words if "score" in w]
+            confidence = round(sum(scores) / len(scores), 3) if scores else 0.5
 
         return TranscriptSegment(
             segment_index=idx,
             start_time=float(raw.get("start", 0.0)),
             end_time=float(raw.get("end", 0.0)),
-            text=text,
-            confidence=round(confidence, 3),  # max 3 zecimale → DECIMAL(4,3)
+            text=raw.get("text", "").strip(),
+            confidence=confidence,
             language=raw.get("language", detected_language),
+            speaker_id=raw.get("speaker"),  # "SPEAKER_00" sau None
         )
