@@ -53,6 +53,12 @@ MeetRec runs **entirely on your own server**. Transcription is powered by [OpenA
 - **Full merged-audio playback** — after transcription, the assembled WAV is stored permanently so the audio player can play the complete recording, not just the first segment
 - **Modern UI** — complete frontend redesign with Inter font, indigo primary color system, dark slate sidebar, animated toasts, and polished card/badge/button components
 
+### Speaker Diarization (optional)
+
+- **WhisperX + pyannote.audio** — when `DIARIZATION_ENABLED=true`, the STT Worker replaces standard Whisper with WhisperX for word-level alignment and uses pyannote speaker diarization to tag each segment with a speaker label (`SPEAKER_00`, `SPEAKER_01`, …)
+- **Speaker-to-participant mapping** — after transcription, an admin or operator can assign speaker labels to known participants directly from the recording detail page; mappings are persisted and reflected across the full transcript
+- Requires a HuggingFace token (`HF_TOKEN`) and acceptance of the pyannote model license; disabled by default so standard deployments have no extra dependencies
+
 ### Search
 
 - **Full-text search** — PostgreSQL `TSVECTOR` + GIN index with highlighted snippets and ranked results; Romanian language support built-in
@@ -482,6 +488,8 @@ MeetRec/
 | Full session audio playback (merged WAV stored post-transcription) | ✅ Complete |
 | Modern UI redesign (Inter font, indigo palette, dark sidebar, animated toasts) | ✅ Complete |
 | `POST /inbox/session/{id}/complete` explicit dispatch endpoint | ✅ Complete |
+| Speaker diarization (WhisperX + pyannote, optional, `DIARIZATION_ENABLED`) | ✅ Complete |
+| Speaker-to-participant label mapping UI | ✅ Complete |
 
 ---
 
