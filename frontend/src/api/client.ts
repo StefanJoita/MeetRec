@@ -16,10 +16,12 @@ client.interceptors.request.use((config) => {
 })
 
 // If API returns 401 → emit logout event (handled by AuthProvider)
+// Excepție: 401 de la /auth/login = credențiale greșite, nu sesiune expirată.
+// Logout-ul ar reîncărca pagina de login și ar șterge mesajul de eroare.
 client.interceptors.response.use(
   (res) => res,
   (err) => {
-    if (err.response?.status === 401) {
+    if (err.response?.status === 401 && err.config?.url !== '/auth/login') {
       localStorage.removeItem('access_token')
       logoutEventEmitter.emit()
     }
