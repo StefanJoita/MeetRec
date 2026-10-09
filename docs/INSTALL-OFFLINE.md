@@ -44,7 +44,7 @@ După instalare, **nicio componentă nu mai face cereri în afara serverului**: 
 | Rețea | — | IP fix / nume DNS intern | Utilizatorii accesează `https://<server>` |
 | Acces | root / sudo | — | — |
 
-**Pachete de sistem necesare pe server** (instalate implicit pe Ubuntu Server și Debian standard):
+**Pachete de sistem necesare pe server.** Pe Ubuntu 22.04 / 24.04 și Debian 12, cele care lipsesc sunt instalate automat din pachet (`packages/system/`, §2.4). Pe alte distribuții trebuie să existe deja:
 
 | Pachet | Folosit de |
 |--------|------------|
@@ -54,7 +54,7 @@ După instalare, **nicio componentă nu mai face cereri în afara serverului**: 
 | `openssl` | generarea certificatelor HTTPS |
 | `coreutils` (`sha256sum`, `od`), `gzip`, `tar` | installer |
 
-Installerul le verifică pe cele critice și se oprește cu un mesaj clar dacă lipsesc (vezi §11.1).
+`systemd`, `libsystemd0`, `libc6`, `coreutils`, `gzip` și `tar` fac parte din orice instalare Ubuntu/Debian și nu sunt incluse. Pe un sistem fără `.deb`-uri în pachet, installerul se oprește cu un mesaj clar dacă lipsește ceva (vezi §11.1).
 
 **Durata transcrierii pe CPU**: cu `large-v3`, 1 oră de audio durează aproximativ 1–2 ore pe un server cu 8 nuclee. Joburile sunt procesate pe rând, în ordinea sosirii.
 
@@ -66,7 +66,7 @@ Installerul le verifică pe cele critice și se oprește cu un mesaj clar dacă 
 | Shell | `bash` (pe Windows: Git Bash) |
 | Unelte | `curl`, `gzip`, `tar`, `sha256sum` (incluse în Git Bash) |
 | Disc | ~60 GB liberi (modele + cache build + pachet) |
-| Internet | acces la `huggingface.co`, `pypi.org`, `download.pytorch.org`, `registry.npmjs.org`, `registry-1.docker.io`, `download.docker.com`, `github.com`, `deb.debian.org` |
+| Internet | acces la `huggingface.co`, `pypi.org`, `download.pytorch.org`, `registry.npmjs.org`, `registry-1.docker.io`, `download.docker.com`, `github.com`, `archive.ubuntu.com`, `security.ubuntu.com`, `deb.debian.org` |
 | Arhitectură | x86_64 (imaginile se construiesc pentru `linux/amd64`) |
 
 ---
@@ -111,7 +111,17 @@ Tot ce e listat aici este inclus în pachet. Versiunile exacte ale pachetului ge
 
 Fiecare set `.deb` conține: `containerd.io`, `docker-ce-cli`, `docker-ce`, `docker-buildx-plugin`, `docker-compose-plugin` (ultimele versiuni stabile de la data generării pachetului, de pe `download.docker.com`).
 
-### 2.4 Alte dependențe incluse
+### 2.4 Pachete de sistem pentru server (în `packages/system/`)
+
+| Director | Pentru | Conține |
+|----------|--------|---------|
+| `jammy/*.deb` | Ubuntu 22.04 | `iptables`, `nftables`, `openssl`, `libseccomp2` și toate dependențele lor care lipsesc dintr-un sistem minimal |
+| `noble/*.deb` | Ubuntu 24.04 | idem |
+| `bookworm/*.deb` | Debian 12 | idem |
+
+Dependențele sunt rezolvate automat de `apt`, la generarea pachetului, într-un container cu aceeași versiune de sistem (`install/offline/download-system-packages.sh`). Pe server se instalează **doar** pachetele care lipsesc; cele existente nu sunt modificate.
+
+### 2.5 Alte dependențe incluse
 
 | Componentă | Unde |
 |------------|------|
@@ -120,9 +130,10 @@ Fiecare set `.deb` conține: `containerd.io`, `docker-ce-cli`, `docker-ce`, `doc
 | ffmpeg | imaginile `ingest` și `stt-worker` |
 | Scripturi certificate (`gen-local-ca.sh`, `gen-self-signed.sh`) | `install/certs/` |
 
-### 2.5 Ce NU este inclus
+### 2.6 Ce NU este inclus
 
-- **Sistemul de operare** și pachetele lui de bază (§1.1).
+- **Sistemul de operare** și pachetele lui de bază (`systemd`, `libc6`, `coreutils` — §1.1).
+- **Pachete de sistem pentru alte distribuții** decât Ubuntu 22.04 / 24.04 și Debian 12 (de ex. RHEL, Rocky): Docker se instalează din binare statice, dar `iptables` și `openssl` trebuie să existe deja.
 - **Driver/CUDA NVIDIA**: pachetul e exclusiv CPU.
 - **Certificatul organizației**: dacă folosiți CA-ul intern al organizației, certificatul se obține separat (§6.3).
 
@@ -173,7 +184,7 @@ Scriptul face, în ordine:
 2. descarcă modelele ML în `services/*/models/`, dacă lipsesc (`install/models/download-models.py`, rulat într-un container `python:3.11-slim`);
 3. construiește cele 6 imagini `meetrec/*` pentru `linux/amd64` și descarcă imaginile de bază;
 4. exportă toate imaginile cu `docker save` în `images/*.tar.gz`;
-5. descarcă Docker Engine (`.deb` + binare statice) — sari peste pas cu `SKIP_DOCKER_PACKAGES=1` dacă serverul are deja Docker;
+5. descarcă Docker Engine (`.deb` + binare statice) și pachetele de sistem (`iptables`, `nftables`, `openssl` + dependențe) pentru fiecare versiune de sistem suportată. Sari peste ele cu `SKIP_DOCKER_PACKAGES=1`, respectiv `SKIP_SYSTEM_PACKAGES=1`;
 6. copiază fișierele de deployment și generează un `docker-compose.yml` fără `build:` și cu `pull_policy: never`;
 7. calculează `SHA256SUMS`, scrie `MANIFEST.txt` și creează arhiva.
 
@@ -210,6 +221,7 @@ meetrec-offline-<versiune>/
 ├── install/certs/              ← gen-local-ca.sh, gen-self-signed.sh
 ├── images/                     ← 9 imagini Docker (.tar.gz)
 ├── packages/docker/            ← Docker Engine + Compose pentru server
+├── packages/system/            ← iptables, nftables, openssl + dependențe (.deb)
 ├── data/                       ← inbox / processed / exports
 └── docs/INSTALL-OFFLINE.md     ← acest manual
 ```
@@ -254,11 +266,12 @@ Installerul verifică:
 - RAM-ul (avertisment sub 16 GB) și spațiul pe disc (avertisment sub 40 GB);
 - integritatea tuturor fișierelor, față de `SHA256SUMS`.
 
-### 5.2 Pasul 2 — Docker Engine
+### 5.2 Pasul 2 — Pachete de sistem și Docker Engine
 
-- Dacă Docker și Compose v2 există deja, pasul e sărit.
-- Altfel, citește `VERSION_CODENAME` din `/etc/os-release`:
-  - `jammy` / `noble` / `bookworm`: instalează `.deb`-urile din `packages/docker/deb/<codename>/`, după ce verifică `iptables`, `nftables`, `libseccomp2` și `libsystemd0`;
+- Citește `VERSION_CODENAME` din `/etc/os-release` și instalează din `packages/system/<codename>/` **doar** pachetele care lipsesc (`iptables`, `nftables`, `openssl` și dependențele lor).
+- Dacă Docker și Compose v2 există deja, instalarea Docker e sărită.
+- Altfel:
+  - `jammy` / `noble` / `bookworm`: instalează `.deb`-urile din `packages/docker/deb/<codename>/`;
   - altă distribuție: instalează binarele statice în `/usr/bin` și unitățile systemd `containerd.service` și `docker.service`.
 - Pornește și activează serviciile la boot (`systemctl enable --now containerd docker`).
 
@@ -535,17 +548,22 @@ sudo ln -sfn /opt/meetrec-offline-<nouă> /opt/meetrec
 
 ## 11. Depanare
 
-### 11.1 „Lipsesc pachetele de sistem: …”
+### 11.1 „Lipsesc pachetele de sistem” / instalarea pachetelor de sistem a eșuat
 
-Pe o mașină **cu internet**, cu aceeași versiune de sistem ca serverul:
+Pe Ubuntu 22.04 / 24.04 și Debian 12, pachetele lipsă sunt instalate automat din `packages/system/`. Erorile posibile:
+
+- **Sistem nesuportat** (alt `VERSION_CODENAME`, de ex. Ubuntu 20.04): pachetul nu conține `.deb`-uri pentru el.
+- **Dependență mai nouă decât cea instalată**: `dpkg` raportează de ex. `depends on libc6 (>= …)`. Apare când serverul nu a primit actualizări de mult timp față de data generării pachetului.
+
+Soluție: pe mașina de pregătire (cu internet și Docker), descarcă pachetele pentru codename-ul serverului (`grep VERSION_CODENAME /etc/os-release` pe server):
 
 ```bash
-mkdir deps && cd deps
-apt-get download iptables nftables libnftables1 libnftnl11 libjansson4 libxtables12 \
-    libip4tc2 libip6tc2 libnetfilter-conntrack3 libnfnetlink0 libmnl0 libseccomp2
+bash install/offline/download-system-packages.sh deps <codename>     # ex: focal, jammy, bullseye
 ```
 
-Copiază `.deb`-urile pe server și rulează `sudo dpkg -i *.deb`, apoi `sudo ./install-offline.sh`.
+Copiază `deps/<codename>/` pe server în `packages/system/<codename>/` (în directorul pachetului) și rulează din nou `sudo ./install-offline.sh`.
+
+Pentru o eroare de versiune, serverul are pachete de bază mai vechi decât cele din pachet. Actualizează-l din sursa de actualizări a organizației (mirror intern / mediu de patch-uri), apoi rulează din nou installerul.
 
 ### 11.2 Distribuție fără `.deb`-uri în pachet
 

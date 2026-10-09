@@ -14,6 +14,7 @@
 #   ├── install/certs/               ← certificate (CA locală / self-signed)
 #   ├── images/*.tar.gz              ← toate imaginile Docker (docker save)
 #   ├── packages/docker/             ← Docker Engine + Compose (.deb + static)
+#   ├── packages/system/             ← iptables, nftables, openssl + dependențe (.deb)
 #   ├── docs/INSTALL-OFFLINE.md
 #   ├── MANIFEST.txt                 ← versiuni, imagini, modele
 #   └── SHA256SUMS                   ← verificare integritate după transfer
@@ -23,6 +24,7 @@
 #   bash install/offline/build-bundle.sh                    # versiunea din .env sau 1.0.0
 #   MEETREC_VERSION=1.2.0 bash install/offline/build-bundle.sh
 #   SKIP_DOCKER_PACKAGES=1 bash install/offline/build-bundle.sh   # serverul are deja Docker
+#   SKIP_SYSTEM_PACKAGES=1 bash install/offline/build-bundle.sh   # fără pachete de sistem
 #
 # Prerechizite: docker (cu compose v2), curl, gzip, sha256sum, tar.
 # Modelele ML: dacă lipsesc, sunt descărcate automat (HF_TOKEN din .env pentru diarizare).
@@ -107,13 +109,21 @@ done
 ok "Imagini exportate ($(du -sh "$OUT/images" | cut -f1))"
 
 # ── 5. Pachete Docker Engine ──────────────────────────────────
-step "5/7 Docker Engine pentru server"
+step "5/7 Docker Engine + pachete de sistem pentru server"
 if [[ "${SKIP_DOCKER_PACKAGES:-0}" == "1" ]]; then
     warn "SKIP_DOCKER_PACKAGES=1 — pachetele Docker nu sunt incluse."
 else
     bash install/offline/download-docker-packages.sh "$DIST/packages/docker"
     mkdir -p "$OUT/packages"
     cp -r "$DIST/packages/docker" "$OUT/packages/"
+fi
+# iptables, nftables, openssl + dependențe: instalate pe server doar dacă lipsesc
+if [[ "${SKIP_SYSTEM_PACKAGES:-0}" == "1" ]]; then
+    warn "SKIP_SYSTEM_PACKAGES=1 — pachetele de sistem nu sunt incluse."
+else
+    bash install/offline/download-system-packages.sh "$DIST/packages/system"
+    mkdir -p "$OUT/packages"
+    cp -r "$DIST/packages/system" "$OUT/packages/"
 fi
 
 # ── 6. Fișiere de deployment ──────────────────────────────────
@@ -168,6 +178,11 @@ REDIS_PASSWORD=x docker compose -f "$OUT/docker-compose.yml" --env-file "$OUT/.e
         echo ""
         echo "Docker Engine:"
         (cd "$OUT/packages/docker" && find . -type f | sort | sed 's|^\./|  |')
+    fi
+    if [[ -d "$OUT/packages/system" ]]; then
+        echo ""
+        echo "Pachete de sistem (instalate doar dacă lipsesc):"
+        (cd "$OUT/packages/system" && find . -type f | sort | sed 's|^\./|  |')
     fi
 } > "$OUT/MANIFEST.txt"
 
