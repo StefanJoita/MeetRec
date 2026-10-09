@@ -72,6 +72,14 @@ class DatabaseUploader:
             return None
         return str(row["id"])
 
+    async def recording_exists(self, recording_id: str) -> bool:
+        """False dacă înregistrarea a fost ștearsă (ex. din interfață, în timpul transcrierii)."""
+        async with self._pool.acquire() as conn:
+            return await conn.fetchval(
+                "SELECT EXISTS(SELECT 1 FROM recordings WHERE id = $1)",
+                recording_id,
+            )
+
     async def get_transcript_status(self, transcript_id: str) -> Optional[str]:
         """Statusul transcriptului ('pending', 'processing', 'completed', 'failed')."""
         async with self._pool.acquire() as conn:

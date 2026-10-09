@@ -43,6 +43,9 @@ class Settings(BaseSettings):
     # De câte ori poate muri procesul pe același job (OOM, kill) înainte ca
     # jobul să fie marcat 'failed' în loc să fie reluat.
     max_job_attempts: int = 2
+    # Cât timp rulează un job, verificăm la acest interval dacă înregistrarea
+    # mai există (poate fi ștearsă din interfață în timpul transcrierii).
+    deletion_check_interval_seconds: int = 30
 
     # --- Database (fără default — obligatoriu în .env) ---
     # Format: postgresql://user:pass@host:port/dbname

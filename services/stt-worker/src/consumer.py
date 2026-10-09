@@ -30,8 +30,10 @@
 
 import asyncio
 import json
+import os
 import shutil
 import socket
+import sys
 import time
 from typing import Optional
 
@@ -233,7 +235,7 @@ class JobConsumer:
                 # Mesaj corupt: nu îl putem reprocesa → doar îl confirmăm
                 logger.error("invalid_job_json", error=str(e), raw=job_json[:200])
             else:
-                await self._process_job(job)
+                await self._process_with_deletion_watch(job, job_json)
         except asyncio.CancelledError:
             # Oprire (SIGTERM): jobul rămâne în processing și e reluat la pornire
             await self._mark_interrupted(job_json)
@@ -247,6 +249,46 @@ class JobConsumer:
             logger.error("job_unhandled_error", error=str(e), exc_info=True)
 
         await self._ack(job_json)
+
+    async def _process_with_deletion_watch(self, job: dict, job_json: str) -> None:
+        """
+        Rulează jobul și verifică periodic dacă înregistrarea a fost ștearsă.
+
+        Transcrierea rulează într-un thread (run_in_executor) care nu poate fi
+        oprit. Dacă înregistrarea dispare, confirmăm jobul (să nu fie reluat) și
+        oprim procesul: Docker îl repornește (restart: unless-stopped), CPU-ul și
+        memoria se eliberează, iar coada merge mai departe.
+        """
+        work = asyncio.ensure_future(self._process_job(job))
+        recording_id = job.get("recording_id")
+        try:
+            while True:
+                done, _ = await asyncio.wait({work}, timeout=settings.deletion_check_interval_seconds)
+                if done:
+                    return work.result()
+                if recording_id and not await self._recording_exists(recording_id):
+                    logger.warning("recording_deleted_during_transcription", recording_id=recording_id)
+                    await self._ack(job_json)
+                    self._exit_process()
+                    return
+        finally:
+            if not work.done():
+                work.cancel()
+
+    async def _recording_exists(self, recording_id: str) -> bool:
+        try:
+            return await self._uploader.recording_exists(recording_id)
+        except Exception as e:
+            # DB indisponibil: nu oprim o transcriere validă
+            logger.warning("recording_exists_check_failed", recording_id=recording_id, error=str(e))
+            return True
+
+    @staticmethod
+    def _exit_process() -> None:
+        logger.warning("worker_restarting_to_free_resources")
+        sys.stdout.flush()
+        sys.stderr.flush()
+        os._exit(0)
 
     async def _ack(self, job_json: str) -> None:
         try:
