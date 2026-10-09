@@ -1,6 +1,8 @@
-# MeetRec Installation Guide
+# MeetRec — Online Installation Guide (server with internet access)
 
 A self-hosted automatic meeting transcription platform. All audio processing runs locally — data never leaves your organization's infrastructure.
+
+> **Server without internet access?** Use [INSTALL-OFFLINE.md](INSTALL-OFFLINE.md) (Romanian): a single bundle with images, ML models and Docker Engine.
 
 ---
 
@@ -62,7 +64,7 @@ Conference microphones connect via **USB** and appear automatically in the deskt
 | **curl** | any | Pre-installed on most distributions |
 | **openssl** | any | Required for certificate generation |
 
-> **Windows:** Install [Docker Desktop](https://www.docker.com/products/docker-desktop/) and [Git for Windows](https://git-scm.com), then run `.\install\install.ps1` — see [Section 2](#2-automatic-installation-recommended).
+> **Windows:** Install [Docker Desktop](https://www.docker.com/products/docker-desktop/) and [Git for Windows](https://git-scm.com), then run `.\install\online\install.ps1` — see [Section 2](#2-automatic-installation-recommended).
 > **macOS:** Install [Docker Desktop](https://www.docker.com/products/docker-desktop/) and follow the [Manual Installation](#3-manual-step-by-step-installation) steps.
 
 ### Required Ports
@@ -71,7 +73,9 @@ Conference microphones connect via **USB** and appear automatically in the deskt
 |------|----------|---------|
 | 80 | TCP | HTTP → redirect to HTTPS |
 | 443 | TCP | HTTPS (web interface) |
-| 8080 | TCP | Direct API access (optional, debug only) |
+
+PostgreSQL (5432), Redis (6379), the API (8080) and search-indexer (8001) are **not** published on the host in production.
+For local debugging: `make dev` (uses `docker-compose.dev.yml`).
 
 Make sure these ports are open in your server's firewall.
 
@@ -86,14 +90,14 @@ Requirements: Windows 10/11, [Docker Desktop](https://www.docker.com/products/do
 ```powershell
 git clone https://github.com/StefanJoita/MeetRec.git
 cd MeetRec
-.\install\install.ps1
+.\install\online\install.ps1
 ```
 
 The installer accepts optional parameters to skip prompts:
 
 ```powershell
-.\install\install.ps1 -NonInteractive
-.\install\install.ps1 -Domain meetrec.local -WhisperModel small -AdminUser admin -AdminEmail admin@company.com -AdminPassword "S3cur3Pass!"
+.\install\online\install.ps1 -NonInteractive
+.\install\online\install.ps1 -Domain meetrec.local -WhisperModel small -AdminUser admin -AdminEmail admin@company.com -AdminPassword "S3cur3Pass!"
 ```
 
 The script will:
@@ -124,7 +128,7 @@ cd MeetRec
 ### Step 2 — Run the installer
 
 ```bash
-bash install/install.sh
+bash install/online/install.sh
 ```
 
 The installer will:
@@ -141,7 +145,7 @@ The installer will:
 For CI/CD or to use all defaults:
 
 ```bash
-bash install/install.sh --non-interactive
+bash install/online/install.sh --non-interactive
 ```
 
 ---
@@ -202,7 +206,8 @@ SERVER_NAME=192.168.1.100     # or meetrec.company.com
 | `JWT_SECRET_KEY` | *(generate)* | JWT secret key — minimum 32 characters |
 | `POSTGRES_PASSWORD` | `change_me_in_production` | Database password |
 | `SERVER_NAME` | `meeting-transcriber.local` | Server domain or IP |
-| `WHISPER_MODEL` | `medium` | Transcription model: `tiny`/`base`/`small`/`medium`/`large` |
+| `WHISPER_MODEL` | `large-v3` | Transcription model baked into the image: `tiny`/`base`/`small`/`medium`/`large-v3` (changing it requires a rebuild) |
+| `REDIS_PASSWORD` | *(generate)* | Redis password (URL-safe characters, e.g. `openssl rand -hex 24`) |
 | `APP_ENV` | `development` | `production` disables the `/docs` OpenAPI UI |
 | `WHISPER_PRIMARY_LANGUAGE` | `ro` | Primary language for transcriptions |
 | `RETENTION_DAYS` | `1095` | Days before recordings are auto-deleted (3 years) |
@@ -221,11 +226,11 @@ mkdir -p data/inbox data/processed data/exports
 
 ```bash
 # localhost or IP
-bash install/scripts/gen-self-signed.sh localhost
-bash install/scripts/gen-self-signed.sh 192.168.1.100
+bash install/certs/gen-self-signed.sh localhost
+bash install/certs/gen-self-signed.sh 192.168.1.100
 
 # or with a domain
-bash install/scripts/gen-self-signed.sh meetrec.company.com
+bash install/certs/gen-self-signed.sh meetrec.company.com
 ```
 
 > Your browser will show a security warning. Click **Advanced → Proceed**. The warning can be removed by adding the certificate to your system's trusted store.
@@ -235,12 +240,12 @@ bash install/scripts/gen-self-signed.sh meetrec.company.com
 Requirement: the server must be publicly reachable on port 80.
 
 ```bash
-bash install/scripts/gen-letsencrypt.sh meetrec.company.com admin@company.com
+bash install/certs/gen-letsencrypt.sh meetrec.company.com admin@company.com
 ```
 
 Let's Encrypt certificates are valid for 90 days. For automatic renewal, add to crontab:
 ```bash
-0 3 1 * * bash /path/to/MeetRec/install/scripts/gen-letsencrypt.sh meetrec.company.com admin@company.com && docker compose restart nginx
+0 3 1 * * bash /path/to/MeetRec/install/certs/gen-letsencrypt.sh meetrec.company.com admin@company.com && docker compose restart nginx
 ```
 
 ### Step 6 — Build Docker images
@@ -320,10 +325,10 @@ asyncio.run(run())
 
 ```bash
 # Specific IP
-bash install/scripts/gen-self-signed.sh 192.168.1.100
+bash install/certs/gen-self-signed.sh 192.168.1.100
 
 # Internal domain
-bash install/scripts/gen-self-signed.sh meetrec.local
+bash install/certs/gen-self-signed.sh meetrec.local
 
 # Apply the new certificates
 docker compose restart nginx
@@ -379,24 +384,24 @@ From the **Admin → Users** panel:
 3. The system automatically detects the file and begins transcription
 4. Status updates in real time: `queued` → `transcribing` → `completed`
 
-### Waiting on first STT Worker start
+### ML models (Whisper, alignment, diarization, embeddings)
 
-On first start, Whisper downloads the transcription model:
+Models are downloaded **before the build** (`install/models/download-models.py`, run automatically by the installer)
+and **baked into** the `stt-worker` and `search-indexer` Docker images. No internet access is needed at runtime
+(`HF_HUB_OFFLINE=1` is set in the images).
 
-| Model | Size | Download time (100 Mbps) |
-|-------|------|--------------------------|
-| `tiny` | ~75 MB | ~6 sec |
-| `base` | ~140 MB | ~11 sec |
-| `small` | ~460 MB | ~37 sec |
-| `medium` | ~1.5 GB | ~2 min |
-| `large` | ~3 GB | ~4 min |
+| Whisper model | Size | RAM needed |
+|-------|------|------------|
+| `small` | ~460 MB | ~2 GB |
+| `medium` | ~1.5 GB | ~5 GB |
+| `large-v3` (default) | ~3 GB | ~8–10 GB |
 
-Monitor progress with:
+On start, the STT Worker loads the model from disk (1–3 minutes):
 ```bash
 docker compose logs -f stt-worker
 ```
 
-The model is downloaded at build time and baked into the Docker image — no internet access required at runtime.
+For air-gapped servers see [INSTALL-OFFLINE.md](INSTALL-OFFLINE.md) (Romanian).
 
 ---
 
@@ -450,13 +455,8 @@ The application will be accessible at `https://server:8443`.
 
 ### Semantic search (AI)
 
-On first start, `search-indexer` downloads the embeddings model (~120 MB). Once it has started successfully, set in `.env`:
-
-```bash
-HF_HUB_OFFLINE=1
-```
-
-This prevents online checks on every restart.
+The embeddings model (`paraphrase-multilingual-MiniLM-L12-v2`, ~470 MB) is baked into the `search-indexer`
+image. No configuration or internet access is required.
 
 ### Data backup
 
@@ -533,7 +533,7 @@ If you're using self-signed certificates and a non-browser client returns this e
 ls -la nginx/ssl/
 
 # Regenerate if missing
-bash install/scripts/gen-self-signed.sh localhost
+bash install/certs/gen-self-signed.sh localhost
 docker compose restart nginx
 ```
 

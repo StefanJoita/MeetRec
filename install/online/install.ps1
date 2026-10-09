@@ -1,12 +1,12 @@
-# =============================================================
+﻿# =============================================================
 # install.ps1 — MeetRec Windows Installer
 # =============================================================
 # Requirements: Windows 10/11, Docker Desktop, PowerShell 5.1+
 #
 # Usage:
-#   .\install.ps1
-#   .\install.ps1 -NonInteractive
-#   .\install.ps1 -Domain meetrec.local
+#   .\install\online\install.ps1
+#   .\install\online\install.ps1 -NonInteractive
+#   .\install\online\install.ps1 -Domain meetrec.local
 # =============================================================
 
 param(
@@ -62,7 +62,8 @@ Write-Host @"
   Self-hosted meeting transcription platform — Windows Installer
 "@ -ForegroundColor Cyan
 
-$ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
+$ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path   # install\online\
+$RepoRoot  = Split-Path -Parent (Split-Path -Parent $ScriptDir)  # repo root (.env, nginx\ssl, data\)
 
 # ── Step 1: Prerequisites ─────────────────────────────────────
 Write-Step "1/7  Prerequisites"
@@ -117,12 +118,12 @@ Write-Info "Domain: $Domain"
 
 # Whisper model
 if (-not $WhisperModel) {
-    $WhisperModel = Prompt-Input "Whisper model [tiny/base/small/medium/large]" "medium"
+    $WhisperModel = Prompt-Input "Whisper model [tiny/base/small/medium/large-v3]" "large-v3"
 }
-$validModels = @("tiny","base","small","medium","large")
+$validModels = @("tiny","base","small","medium","large-v2","large-v3")
 if ($WhisperModel -notin $validModels) {
-    Write-Warn "Unknown model '$WhisperModel', defaulting to 'medium'."
-    $WhisperModel = "medium"
+    Write-Warn "Unknown model '$WhisperModel', defaulting to 'large-v3'."
+    $WhisperModel = "large-v3"
 }
 Write-Info "Whisper model: $WhisperModel"
 
@@ -137,8 +138,8 @@ if (-not $AdminPassword) {
 # ── Step 3: .env file ─────────────────────────────────────────
 Write-Step "3/7  Environment file"
 
-$envFile = Join-Path $ScriptDir ".env"
-$envExample = Join-Path $ScriptDir ".env.example"
+$envFile = Join-Path $RepoRoot ".env"
+$envExample = Join-Path $RepoRoot ".env.example"
 
 if (-not (Test-Path $envExample)) {
     Write-Fail ".env.example not found. Make sure you're running this script from the MeetRec root directory."
@@ -158,6 +159,7 @@ if (-not $skipEnv) {
     # Generate secrets
     $jwtSecret = -join ((0..63) | ForEach-Object { '{0:x}' -f (Get-Random -Maximum 16) })
     $dbPassword = -join ((65..90 + 97..122 + 48..57) | Get-Random -Count 20 | ForEach-Object {[char]$_})
+    $redisPassword = -join ((0..47) | ForEach-Object { '{0:x}' -f (Get-Random -Maximum 16) })
 
     # Patch .env
     $env = Get-Content $envFile -Raw
@@ -165,6 +167,7 @@ if (-not $skipEnv) {
     $env = $env -replace 'JWT_SECRET_KEY=.*',          "JWT_SECRET_KEY=$jwtSecret"
     $env = $env -replace 'POSTGRES_PASSWORD=.*',        "POSTGRES_PASSWORD=$dbPassword"
     $env = $env -replace 'DATABASE_URL=.*',             "DATABASE_URL=postgresql+asyncpg://mt_user:${dbPassword}@postgres:5432/meeting_transcriber"
+    $env = $env -replace 'REDIS_PASSWORD=.*',           "REDIS_PASSWORD=$redisPassword"
     $env = $env -replace 'SERVER_NAME=.*',              "SERVER_NAME=$Domain"
     $env = $env -replace 'WHISPER_MODEL=.*',            "WHISPER_MODEL=$WhisperModel"
     $env = $env -replace 'APP_ENV=.*',                  "APP_ENV=production"
@@ -179,7 +182,7 @@ Write-Step "4/7  Data directories"
 
 $dirs = @("data\inbox", "data\processed", "data\exports", "nginx\ssl")
 foreach ($d in $dirs) {
-    $path = Join-Path $ScriptDir $d
+    $path = Join-Path $RepoRoot $d
     if (-not (Test-Path $path)) {
         New-Item -ItemType Directory -Path $path -Force | Out-Null
         Write-Ok "Created: $d"
@@ -191,7 +194,7 @@ foreach ($d in $dirs) {
 # ── Step 5: SSL certificates ──────────────────────────────────
 Write-Step "5/7  SSL certificates"
 
-$sslDir  = Join-Path $ScriptDir "nginx\ssl"
+$sslDir  = Join-Path $RepoRoot "nginx\ssl"
 $certPem = Join-Path $sslDir "fullchain.pem"
 $keyPem  = Join-Path $sslDir "privkey.pem"
 
@@ -247,12 +250,32 @@ subjectAltName = $san
 # ── Step 6: Build Docker images ───────────────────────────────
 Write-Step "6/7  Docker build"
 
-$modelSizes = @{ tiny="75 MB"; base="140 MB"; small="460 MB"; medium="1.5 GB"; large="3 GB" }
-Write-Info "Building Docker images. First build downloads PyTorch + Whisper '$WhisperModel' ($($modelSizes[$WhisperModel]))."
+Set-Location $RepoRoot
+
+# ML models are baked into the images -> download them BEFORE the build
+$haveWhisper  = Test-Path "services\stt-worker\models\whisper\models--Systran--faster-whisper-*"
+$haveEmbedder = Test-Path "services\search-indexer\models\models--sentence-transformers--*"
+if ($haveWhisper -and $haveEmbedder) {
+    Write-Ok "ML models already present (services\*\models\)"
+} else {
+    $hfToken = ((Get-Content $envFile | Where-Object { $_ -match '^HF_TOKEN=' }) -replace '^HF_TOKEN=', '').Trim('"', ' ')
+    $extra = @()
+    if (-not $hfToken) {
+        Write-Warn "HF_TOKEN is empty in .env -> the diarization model (pyannote) will NOT be included."
+        $extra = @("--skip-diarization")
+    }
+    Write-Info "Downloading ML models (Whisper '$WhisperModel', alignment, embeddings; ~4-5 GB)..."
+    docker run --rm -v "${RepoRoot}:/repo" -w /repo -e HF_TOKEN=$hfToken -e PYTHONIOENCODING=utf-8 `
+        -e HF_HUB_DISABLE_PROGRESS_BARS=1 python:3.11-slim `
+        sh -c "pip install -q --disable-pip-version-check 'huggingface_hub>=0.26,<1.0' nltk==3.9.1 && python install/models/download-models.py --whisper-model $WhisperModel $($extra -join ' ')"
+    if ($LASTEXITCODE -ne 0) { Write-Fail "Model download failed. Check the output above." }
+    Write-Ok "ML models downloaded"
+}
+
+Write-Info "Building Docker images (first build downloads PyTorch)."
 Write-Info "This can take 20-40 minutes. Grab a coffee."
 Write-Host ""
 
-Set-Location $ScriptDir
 docker compose build
 if ($LASTEXITCODE -ne 0) { Write-Fail "Docker build failed. Check the output above." }
 Write-Ok "Docker images built"
@@ -283,44 +306,19 @@ if ($apiState -ne "healthy") {
 # ── Create admin user ─────────────────────────────────────────
 Write-Info "Creating administrator account '$AdminUser'..."
 
-$createAdminScript = @"
-import asyncio, uuid, sys
-sys.path.insert(0, '/app')
-from src.database import AsyncSessionLocal
-from src.models.audit_log import User
-from passlib.context import CryptContext
-from sqlalchemy import select
-
-async def run():
-    async with AsyncSessionLocal() as db:
-        existing = (await db.execute(select(User).where(User.username == '$AdminUser'))).scalar_one_or_none()
-        if existing:
-            print('EXISTS')
-            return
-        pwd = CryptContext(schemes=['bcrypt']).hash('$AdminPassword')
-        db.add(User(
-            id=uuid.uuid4(),
-            username='$AdminUser',
-            email='$AdminEmail',
-            hashed_password=pwd,
-            role='admin',
-            is_active=True,
-            force_password_change=True,
-        ))
-        await db.commit()
-        print('CREATED')
-
-asyncio.run(run())
-"@
-
-$result = docker compose exec -T api python3 -c $createAdminScript 2>&1
-if ($result -match "CREATED") {
-    Write-Ok "Administrator '$AdminUser' created (password change required on first login)"
-} elseif ($result -match "EXISTS") {
-    Write-Warn "User '$AdminUser' already exists — skipped"
+# Password goes through an environment variable (never on the command line).
+# --update-existing: overwrites the default password of the seeded "admin" account (init.sql).
+# --disable-default-operator: disables the seeded "operator"/"operator123" account.
+$env:MEETREC_ADMIN_PASSWORD = $AdminPassword
+docker compose exec -T -e MEETREC_ADMIN_PASSWORD api `
+    python -m src.cli.create_admin --username $AdminUser --email $AdminEmail `
+    --update-existing --must-change-password --disable-default-operator
+$adminExit = $LASTEXITCODE
+Remove-Item Env:\MEETREC_ADMIN_PASSWORD -ErrorAction SilentlyContinue
+if ($adminExit -eq 0) {
+    Write-Ok "Administrator '$AdminUser' configured (password change required on first login)"
 } else {
-    Write-Warn "Could not create admin automatically. Run: make create-admin"
-    Write-Info "Output: $result"
+    Write-Warn "Could not create admin automatically. Run: docker compose exec api python -m src.cli.create_admin --username $AdminUser --email $AdminEmail --update-existing"
 }
 
 # ── Done ──────────────────────────────────────────────────────

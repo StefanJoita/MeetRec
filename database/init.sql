@@ -340,7 +340,10 @@ CREATE TRIGGER transcript_completed_notify
 -- ============================================================
 -- DATE INIȚIALE (Seed Data)
 -- ============================================================
--- Parola hash: bcrypt('admin123') — SCHIMBĂ în producție!
+-- Conturi implicite: admin/admin123 și operator/operator123.
+-- must_change_password = TRUE → parola trebuie schimbată la primul login.
+-- Installerul (install-offline.sh / install.sh) setează parola adminului și
+-- dezactivează 'operator' dacă are încă parola implicită (src/cli/create_admin.py).
 INSERT INTO users (username, email, full_name, password_hash, is_active, role, must_change_password) VALUES
 (
     'admin',
@@ -349,7 +352,7 @@ INSERT INTO users (username, email, full_name, password_hash, is_active, role, m
     '$2b$12$gx/JCPvsqzV45DZK4/0YOeJLI0AlTHlHpyt2kLsGMgA3.dLoOMe5.',
     TRUE,
     'admin',
-    FALSE
+    TRUE
 ),
 (
     'operator',
@@ -358,7 +361,7 @@ INSERT INTO users (username, email, full_name, password_hash, is_active, role, m
     '$2b$12$bLhDb8uFQTKUqrCj6KP0LOplCIEvt6hTe9ChX7asGbVZbhl6L1kZe',
     TRUE,
     'operator',
-    FALSE
+    TRUE
 );
 
 -- ============================================================

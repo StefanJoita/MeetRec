@@ -5,7 +5,7 @@ __pycache__/
 *.pyd
 .Python
 *.egg-info/
-dist/
+/dist/
 build/
 *.egg
 .eggs/
@@ -87,3 +87,17 @@ generate_ppt.py
 # ── Misc leftovers ─────────────────────────────────────────────
 curent _problems
 eventual-squishing-starlight.md
+
+# ── Modele ML descărcate de install/models/download-models.py ───────
+services/search-indexer/models/
+
+# ── Pachet offline generat (install/offline/build-bundle.sh) ──
+/dist/
+
+# ── Frontend ──────────────────────────────────────────────────
+frontend/node_modules/
+frontend/dist/
+
+# ── Certificate generate (CA locală, chei) ──────────────────
+nginx/ssl/*
+!nginx/ssl/.gitkeep

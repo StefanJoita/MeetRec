@@ -8,14 +8,13 @@
 #     adaugă complexitate nejustificată pentru un MVP
 #   - Multi-stage devine relevant la producție pentru securitate
 #
-# DIMENSIUNEA IMAGINII FINALE: ~4-5 GB
-#   - python:3.11-slim:  ~130 MB
-#   - ffmpeg:            ~100 MB
-#   - torch CPU-only:    ~800 MB
-#   - openai-whisper:    ~50 MB
-#   - restul dep:        ~200 MB
-#   - TOTAL:             ~1.3 GB imagine
+# DIMENSIUNEA IMAGINII FINALE: ~6-7 GB (cu large-v3)
+#   - python:3.11-slim:          ~130 MB
+#   - ffmpeg:                    ~400 MB
+#   - torch CPU + whisperx dep:  ~1.5 GB
+#   - modele (large-v3, wav2vec2 ro, pyannote, nltk): ~4.5 GB
 #
+# PREREQUISIT: python install/models/download-models.py (populează models/)
 # PRIMA BUILD durează 15-30 minute (download PyTorch).
 # Rebuild-urile ulterioare durează <1 minut (Docker cache).
 #
@@ -33,8 +32,7 @@ LABEL service="stt-worker" \
 # Variabile de mediu Python:
 # PYTHONDONTWRITEBYTECODE: nu crea fișiere .pyc (economisim spațiu în container)
 # PYTHONUNBUFFERED: output fără buffering (logurile apar imediat în docker logs)
-# HF_HOME: directorul unde HuggingFace stochează modelele descărcate
-# HF_HUB_OFFLINE: setat la runtime pentru a preveni verificări online
+# HF_HOME: directorul cache HuggingFace (modelele sunt copiate aici la build)
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     HF_HOME=/app/models/huggingface
@@ -65,21 +63,44 @@ RUN pip install --no-cache-dir \
     --extra-index-url https://pypi.org/simple \
     -r requirements.txt
 
-# ── Directoare pentru volume ──────────────────────────────────
-# Modelele sunt descărcate la primul start și stocate în volume Docker persistente.
-# Rebuild-ul imaginii durează <5 minute (nu mai bake-uim 3+ GB de modele).
-# /data/processed:          audio files (montat :rw)
-# /app/models/whisper:      model Whisper (~1.5-3 GB, descarcat la primul start)
-# /app/models/huggingface:  modele pyannote/wav2vec2 (~500 MB, descarcat la primul start)
-RUN mkdir -p /data/processed /app/models/whisper /app/models/huggingface
+# ── User non-root ─────────────────────────────────────────────
+# Creat ÎNAINTE de COPY: folosim COPY --chown în loc de `chown -R` ulterior,
+# care ar duplica gigaocteții de modele într-un layer nou.
+RUN useradd -m -u 1000 appuser \
+    && mkdir -p /data/processed \
+    && chown appuser:appuser /app /data/processed
+
+# ── Modele ML incluse în imagine (rulare offline) ─────────────
+# Descărcate pe o mașină cu internet cu: python install/models/download-models.py
+#   models/whisper/       → faster-whisper (CTranslate2), cache HF (download_root)
+#   models/huggingface/   → $HF_HOME: wav2vec2 aliniere + pyannote diarizare
+#   models/nltk_data/     → punkt_tab (whisperx/alignment.py)
+# La runtime nu se face NICIO cerere de rețea (HF_HUB_OFFLINE=1).
+COPY --chown=appuser:appuser models/ /app/models/
+RUN set -e; \
+    for required in \
+        "/app/models/whisper/models--Systran--faster-whisper-*" \
+        "/app/models/huggingface/hub/models--gigant--romanian-wav2vec2" \
+        "/app/models/nltk_data/tokenizers/punkt_tab"; do \
+        if ! ls -d $required >/dev/null 2>&1; then \
+            echo "EROARE: lipsește $required — rulează: python install/models/download-models.py" >&2; \
+            exit 1; \
+        fi; \
+    done; \
+    ls -d /app/models/huggingface/hub/models--pyannote--* >/dev/null 2>&1 \
+        || echo "ATENȚIE: modelul pyannote lipsește — diarizarea nu va funcționa offline."
+
+ENV HF_HUB_OFFLINE=1 \
+    TRANSFORMERS_OFFLINE=1 \
+    HF_HUB_DISABLE_TELEMETRY=1 \
+    NLTK_DATA=/app/models/nltk_data
 
 # ── Copiem codul sursă ────────────────────────────────────────
-COPY src/ ./src/
+COPY --chown=appuser:appuser src/ ./src/
 
 # ── Rulăm ca non-root ─────────────────────────────────────────
 # Securitate: procesele din container nu ar trebui să fie root
 # (dacă aplicația e compromisă, atacatorul nu e root pe host)
-RUN useradd -m -u 1000 appuser && chown -R appuser:appuser /app
 USER appuser
 
 # ── Comandă de start ──────────────────────────────────────────

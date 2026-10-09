@@ -57,7 +57,7 @@ MeetRec runs **entirely on your own server**. Transcription is powered by [OpenA
 
 - **WhisperX + pyannote.audio** — when `DIARIZATION_ENABLED=true`, the STT Worker replaces standard Whisper with WhisperX for word-level alignment and uses pyannote speaker diarization to tag each segment with a speaker label (`SPEAKER_00`, `SPEAKER_01`, …)
 - **Speaker-to-participant mapping** — after transcription, an admin or operator can assign speaker labels to known participants directly from the recording detail page; mappings are persisted and reflected across the full transcript
-- Requires a HuggingFace token (`HF_TOKEN`) and acceptance of the pyannote model license; disabled by default so standard deployments have no extra dependencies
+- Requires a HuggingFace token (`HF_TOKEN`) and acceptance of the pyannote model terms **only on the build machine**, to download the model before it is baked into the image; disabled by default
 
 ### Search
 
@@ -175,6 +175,16 @@ Browser / Desktop Client    Drop folder
 
 ## Quick Start
 
+Pick the installation method that matches your server:
+
+| Target | Command | Guide |
+|---|---|---|
+| Linux server **with internet** | `bash install/online/install.sh` | [INSTALL-ONLINE.md](docs/INSTALL-ONLINE.md) · [EN](docs/INSTALL-ONLINE.en.md) |
+| Windows + Docker Desktop | `.\install\online\install.ps1` | [INSTALL-ONLINE.md](docs/INSTALL-ONLINE.md) · [EN](docs/INSTALL-ONLINE.en.md) |
+| Server **without internet** (air-gapped) | build: `bash install/offline/build-bundle.sh` → on server: `sudo ./install-offline.sh` | [INSTALL-OFFLINE.md](docs/INSTALL-OFFLINE.md) |
+
+All scripts live in [`install/`](install/README.md) and are run from the repository root.
+
 ### Windows (recommended)
 
 Requirements: [Docker Desktop](https://www.docker.com/products/docker-desktop/), [Git for Windows](https://git-scm.com).
@@ -182,7 +192,7 @@ Requirements: [Docker Desktop](https://www.docker.com/products/docker-desktop/),
 ```powershell
 git clone https://github.com/StefanJoita/MeetRec.git
 cd MeetRec
-.\install\install.ps1
+.\install\online\install.ps1
 ```
 
 > If PowerShell blocks the script, run once: `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned`
@@ -192,7 +202,7 @@ cd MeetRec
 ```bash
 git clone https://github.com/StefanJoita/MeetRec.git
 cd MeetRec
-bash install/install.sh
+bash install/online/install.sh
 ```
 
 Both installers handle everything: Docker check, `.env` generation, SSL certificates, Docker build, service startup, and admin account creation.
@@ -206,13 +216,17 @@ cd MeetRec
 
 # 2. Configure
 cp .env.example .env
-# Edit .env: set JWT_SECRET_KEY (min 32 chars), POSTGRES_PASSWORD, SERVER_NAME
+# Edit .env: set JWT_SECRET_KEY (min 32 chars), POSTGRES_PASSWORD, REDIS_PASSWORD, SERVER_NAME
+# (optional) HF_TOKEN for speaker diarization models
 
-# 3. Generate JWT secret
+# 3. Generate secrets
 python -c "import secrets; print(secrets.token_hex(32))"
 
+# 3b. Download ML models (baked into the images at build time; needs Docker + internet)
+bash install/models/download-models-docker.sh            # add --skip-diarization without HF_TOKEN
+
 # 4. SSL certificates
-bash install/scripts/gen-self-signed.sh localhost
+bash install/certs/gen-self-signed.sh localhost
 
 # 5. Create data directories
 mkdir -p data/inbox data/processed data/exports
@@ -224,19 +238,20 @@ docker compose up --build -d
 make create-admin
 
 # 8. Verify
-curl http://localhost:8080/health
+docker compose exec api curl -s http://localhost:8080/health
 # → {"status": "healthy", ...}
 ```
 
-> **First startup:** Whisper `medium` model (~1.5 GB) downloads automatically on the first run. Subsequent starts are instant.
+> **Models are baked into the images** (Whisper `large-v3`, Romanian alignment, optional pyannote diarization, embeddings): no download at first start and no internet access at runtime.
 
 | Endpoint | URL |
 |---|---|
 | Web UI | `https://localhost` |
-| API docs (dev only) | `http://localhost:8080/docs` |
-| Health check | `http://localhost:8080/health` |
+| API (production) | `https://localhost/api/v1/...` (via nginx; port 8080 is not published) |
+| API docs + port 8080 (dev only) | `make dev` → `http://localhost:8080/docs` |
 
-See [`docs/INSTALL.md`](docs/INSTALL.md) (Romanian) or [`docs/INSTALL.en.md`](docs/INSTALL.en.md) (English) for the full installation guide.
+See [`docs/INSTALL-ONLINE.md`](docs/INSTALL-ONLINE.md) (Romanian) or [`docs/INSTALL-ONLINE.en.md`](docs/INSTALL-ONLINE.en.md) (English) for the full installation guide,
+and [`docs/INSTALL-OFFLINE.md`](docs/INSTALL-OFFLINE.md) (Romanian) for **air-gapped / offline** deployment.
 
 ---
 
@@ -265,6 +280,8 @@ Ingest validates the file (format, size, duration, SHA-256 dedup), adds it to th
 6. **Export** — download as PDF, DOCX, or TXT from the recording detail page
 
 ### REST API
+
+The examples use port 8080, published only in development (`make dev`). In production use `https://<server>/api/v1/...`.
 
 ```bash
 # Authenticate
@@ -322,24 +339,26 @@ All settings are read from `.env`. Copy `.env.example` to get started.
 | `tiny` | 75 MB | Fastest | Basic |
 | `base` | 145 MB | Fast | Good |
 | `small` | 465 MB | Moderate | Better |
-| `medium` | 1.5 GB | Moderate | **Recommended** |
-| `large` | 2.9 GB | Slow | Best |
+| `medium` | 1.5 GB | Moderate | Good balance |
+| `large-v3` | 2.9 GB | Slow | **Default** — best for Romanian |
 
-Set with `WHISPER_MODEL=medium` in `.env`.
+Set with `WHISPER_MODEL=large-v3` in `.env`. The model is baked into the `stt-worker` image, so changing it
+requires re-running `install/models/download-models.py --whisper-model <name>` and rebuilding `stt-worker`.
 
 ### Key optional settings
 
 | Variable | Default | Description |
 |---|---|---|
-| `WHISPER_MODEL` | `medium` | Whisper model size |
+| `WHISPER_MODEL` | `large-v3` | Whisper model (must match the model baked into the image) |
 | `RETENTION_DAYS` | `1095` | Auto-delete after N days (3 years) |
-| `APP_ENV` | `development` | Set `production` to disable `/docs` and restrict CORS |
+| `APP_ENV` | `production` | `development` enables `/docs` |
 | `MAX_FILE_SIZE_BYTES` | `524288000` | Max upload size (500 MB) |
 | `SEARCH_INDEXER_ENABLED` | `true` | Enable semantic search embeddings |
 | `SESSION_TIMEOUT_SECONDS` | `1800` | Inactivity timeout before an open multi-segment session is auto-dispatched |
 | `DIARIZATION_ENABLED` | `false` | Enable speaker identification (requires `HF_TOKEN` and pyannote models) |
-| `HF_TOKEN` | _(empty)_ | HuggingFace token for downloading pyannote speaker diarization models |
-| `HF_HUB_OFFLINE` | `0` | Set to `1` after first `search-indexer` startup — prevents re-downloading cached models |
+| `HF_TOKEN` | _(empty)_ | HuggingFace token — build machine only, for downloading the pyannote diarization model |
+| `REDIS_PASSWORD` | _(required)_ | Redis password (URL-safe) |
+| `MEETREC_VERSION` | `1.0.0` | Tag of the `meetrec/*` images |
 | `STT_WORKER_CONCURRENCY` | `1` | Number of parallel Whisper jobs |
 | `AUDIT_LOG_RETENTION_DAYS` | `2190` | Audit log retention period in days (default 6 years) |
 
@@ -448,13 +467,15 @@ MeetRec/
 │       ├── components/         # AudioPlayer · TranscriptViewer · ParticipantLinker
 │       ├── api/                # Typed axios client with JWT interceptors
 │       └── contexts/           # AuthContext · ToastContext
-├── install/
-│   ├── install.ps1             # Windows automated installer
-│   ├── install.sh              # Linux automated installer
-│   └── scripts/                # gen-self-signed.sh · gen-letsencrypt.sh
+├── install/                    # see install/README.md
+│   ├── online/                 # install.sh (Linux) · install.ps1 (Windows)
+│   ├── offline/                # build-bundle.sh · install-offline.sh · download-docker-packages.sh
+│   ├── models/                 # download-models.py · download-models-docker.sh
+│   └── certs/                  # gen-local-ca.sh · gen-self-signed.sh · gen-letsencrypt.sh
 ├── docs/
-│   ├── INSTALL.md              # Installation guide (Romanian)
-│   └── INSTALL.en.md           # Installation guide (English)
+│   ├── INSTALL-ONLINE.md       # Online installation guide (Romanian)
+│   ├── INSTALL-ONLINE.en.md    # Online installation guide (English)
+│   └── INSTALL-OFFLINE.md      # Air-gapped installation guide (Romanian)
 ├── database/
 │   └── init.sql                # Base schema with indexes and pgvector
 ├── nginx/                      # Reverse proxy config + SSL
