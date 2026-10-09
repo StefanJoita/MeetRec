@@ -45,9 +45,13 @@ env_value() { [[ -f .env ]] && grep "^$1=" .env | tail -1 | cut -d= -f2- | sed '
 
 VERSION="${MEETREC_VERSION:-$(env_value MEETREC_VERSION)}"
 VERSION="${VERSION:-1.0.0}"
-WHISPER_MODEL="${WHISPER_MODEL:-$(env_value WHISPER_MODEL)}"
+# Modelul Whisper al pachetului: implicit large-v3, NU cel din .env (pe mașina de
+# pregătire .env poate avea un model mic pentru dezvoltare). Alt model: explicit,
+# ex. WHISPER_MODEL=medium bash install/offline/build-bundle.sh
 WHISPER_MODEL="${WHISPER_MODEL:-large-v3}"
+[[ "$WHISPER_MODEL" == "large" ]] && WHISPER_MODEL=large-v3
 export MEETREC_VERSION="$VERSION"
+export WHISPER_MODEL   # suprascrie .env la docker compose build (build arg + tag imagine)
 
 NAME="meetrec-offline-$VERSION"
 DIST="$REPO_ROOT/dist"
@@ -67,7 +71,7 @@ ok "Docker $(docker version --format '{{.Server.Version}}'), versiune pachet: $V
 
 # ── 2. Modele ML ──────────────────────────────────────────────
 step "2/7 Modele ML"
-if ls -d services/stt-worker/models/whisper/models--Systran--faster-whisper-* >/dev/null 2>&1 \
+if [[ -d "services/stt-worker/models/whisper/models--Systran--faster-whisper-$WHISPER_MODEL" ]] \
    && ls -d services/search-indexer/models/models--sentence-transformers--* >/dev/null 2>&1; then
     ok "Modele găsite în services/*/models/"
 else
@@ -99,7 +103,13 @@ step "4/7 Export imagini (docker save)"
 rm -rf "$OUT"
 mkdir -p "$OUT/images"
 ALL_IMAGES=()
-for svc in "${BUILT_SERVICES[@]}"; do ALL_IMAGES+=("meetrec/$svc:$VERSION"); done
+for svc in "${BUILT_SERVICES[@]}"; do
+    if [[ "$svc" == stt-worker ]]; then
+        ALL_IMAGES+=("meetrec/$svc:$VERSION-$WHISPER_MODEL")   # tag cu modelul (docker-compose.yml)
+    else
+        ALL_IMAGES+=("meetrec/$svc:$VERSION")
+    fi
+done
 ALL_IMAGES+=("${BASE_IMAGES[@]}")
 for img in "${ALL_IMAGES[@]}"; do
     file="$OUT/images/$(echo "$img" | tr '/:' '__').tar.gz"
@@ -142,9 +152,9 @@ chmod +x "$OUT/install-offline.sh" "$OUT/install/certs/"*.sh
 # docker-compose.yml pentru server: fără build: (nu există cod sursă acolo)
 # și pull_policy: never (nu există registry) pentru fiecare serviciu.
 awk '
-    /^    build:$/ { skip=2; next }
-    skip > 0      { skip--; next }
-    { print }
+    /^    build:$/          { skip=1; next }
+    skip && /^      /       { next }          # tot blocul build: (context, dockerfile, args)
+    { skip=0; print }
     /^    image: / { print "    pull_policy: never" }
 ' docker-compose.yml > "$OUT/docker-compose.yml"
 grep -qE "^[[:space:]]+build:" "$OUT/docker-compose.yml" && err "docker-compose.yml offline conține încă build:"

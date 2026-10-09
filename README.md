@@ -342,8 +342,11 @@ All settings are read from `.env`. Copy `.env.example` to get started.
 | `medium` | 1.5 GB | Moderate | Good balance |
 | `large-v3` | 2.9 GB | Slow | **Default** — best for Romanian |
 
-Set with `WHISPER_MODEL=large-v3` in `.env`. The model is baked into the `stt-worker` image, so changing it
-requires re-running `install/models/download-models.py --whisper-model <name>` and rebuilding `stt-worker`.
+Set with `WHISPER_MODEL=large-v3` in `.env`. Only that model is baked into the `stt-worker` image (tagged
+`meetrec/stt-worker:<version>-<model>`), so changing it requires `install/models/download-models.py --whisper-model <name>`
+and rebuilding `stt-worker`. Several models can sit side by side in `services/stt-worker/models/whisper/` — e.g. `small`
+for development on a laptop and `large-v3` for production. The offline bundle always uses `large-v3` unless
+`WHISPER_MODEL` is set explicitly when running `build-bundle.sh`.
 
 ### Key optional settings
 

@@ -154,10 +154,11 @@ cp .env.example .env
 | Variabilă | Valoare | Rol |
 |-----------|---------|-----|
 | `MEETREC_VERSION` | ex. `1.0.0` | tag-ul imaginilor și numele pachetului |
-| `WHISPER_MODEL` | `large-v3` (implicit) | modelul inclus în imagine. Alternative: `medium`, `small` |
 | `HF_TOKEN` | token HuggingFace | **doar** pentru diarizare (§3.2). Gol = fără diarizare |
 
 Celelalte valori (parole etc.) se generează pe serverul offline. Nu copia acest `.env` pe server.
+
+**Modelul Whisper al pachetului** e `large-v3`, indiferent de `WHISPER_MODEL` din `.env`. Pe mașina de pregătire, `.env` poate folosi un model mic pentru dezvoltare (ex. `small`), fără să afecteze pachetul. Alt model pentru pachet se cere explicit: `WHISPER_MODEL=medium bash install/offline/build-bundle.sh`. În imaginea `stt-worker` intră doar modelul ales, iar tag-ul imaginii îl conține (`meetrec/stt-worker:<versiune>-<model>`), deci imaginea de dezvoltare și cea a pachetului nu se suprascriu.
 
 ### 3.2 (Opțional) Diarizare — token HuggingFace
 
@@ -205,7 +206,7 @@ python install/models/download-models.py                     # necesită: pip in
 bash install/models/download-models-docker.sh
 ```
 
-Opțiuni: `--whisper-model medium`, `--skip-diarization`.
+Opțiuni: `--whisper-model medium`, `--skip-diarization`. Modelele Whisper descărcate se adună în `services/stt-worker/models/whisper/` (ex. `small` și `large-v3`); fiecare build folosește doar unul.
 
 ### 3.4 Structura pachetului
 

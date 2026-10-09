@@ -76,10 +76,28 @@ RUN useradd -m -u 1000 appuser \
 #   models/huggingface/   → $HF_HOME: wav2vec2 aliniere + pyannote diarizare
 #   models/nltk_data/     → punkt_tab (whisperx/alignment.py)
 # La runtime nu se face NICIO cerere de rețea (HF_HUB_OFFLINE=1).
-COPY --chown=appuser:appuser models/ /app/models/
+#
+# models/whisper/ poate conține mai multe modele (ex. small pentru dev și
+# large-v3 pentru pachetul offline); în imagine intră DOAR WHISPER_MODEL
+# (build arg din docker-compose.yml), ca imaginea să nu crească inutil.
+ARG WHISPER_MODEL=large-v3
+LABEL meetrec.whisper_model="${WHISPER_MODEL}"
+RUN --mount=type=bind,source=models,target=/tmp/models \
+    set -e; \
+    case "$WHISPER_MODEL" in large) repo=large-v3 ;; *) repo="$WHISPER_MODEL" ;; esac; \
+    src="/tmp/models/whisper/models--Systran--faster-whisper-$repo"; \
+    if [ ! -d "$src" ]; then \
+        echo "EROARE: lipsește modelul Whisper '$WHISPER_MODEL' ($src) — rulează: python install/models/download-models.py --whisper-model $WHISPER_MODEL" >&2; \
+        exit 1; \
+    fi; \
+    mkdir -p /app/models/whisper; \
+    cp -a "$src" /app/models/whisper/; \
+    for d in huggingface nltk_data; do \
+        if [ -d "/tmp/models/$d" ]; then cp -a "/tmp/models/$d" /app/models/; fi; \
+    done; \
+    chown -R appuser:appuser /app/models
 RUN set -e; \
     for required in \
-        "/app/models/whisper/models--Systran--faster-whisper-*" \
         "/app/models/huggingface/hub/models--gigant--romanian-wav2vec2" \
         "/app/models/nltk_data/tokenizers/punkt_tab"; do \
         if ! ls -d $required >/dev/null 2>&1; then \
