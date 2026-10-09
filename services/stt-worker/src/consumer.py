@@ -2,29 +2,36 @@
 # ============================================================
 # Job Consumer — consumă joburi de transcriere din Redis
 # ============================================================
-# Patternul BRPOP (Blocking Right POP):
+# Coadă fiabilă (BLMOVE):
 #
-#   INGEST: LPUSH queue job_json  ← adaugă la stânga (head)
-#   WORKER: BRPOP queue timeout   ← extrage din dreapta (tail)
+#   PRODUCĂTORI: LPUSH queue job_json            ← adaugă la stânga (head)
+#   WORKER:      BLMOVE queue processing RIGHT LEFT
+#                → mută atomic jobul din dreapta cozii (cel mai vechi)
+#                  în lista proprie "<queue>:processing:<worker_id>"
+#   după job:    LREM processing 1 job_json      ← confirmare (completed SAU failed)
 #
-#   Vizualizare coadă FIFO:
-#   [job_nou, job_recent, job_vechi_1, job_vechi_2]
-#   ↑ LPUSH adaugă aici          ↑ BRPOP extrage de aici
+#   Dacă procesul moare în timpul jobului (OOM pe Whisper, kill, reboot),
+#   jobul NU se pierde: rămâne în lista processing. La pornire, worker-ul
+#   îl repune în coadă pe partea din care se consumă (RPUSH) → e reluat primul.
 #
-#   BRPOP cu timeout=30:
+#   Protecție la crash-loop: la fiecare recuperare "attempts" crește; la
+#   MAX_JOB_ATTEMPTS jobul nu mai e repus, ci marcat 'failed' (retry manual
+#   din interfață). Oprirea planificată (SIGTERM) marchează jobul curent
+#   "interrupted" și nu se numără ca încercare.
+#
+#   BLMOVE cu timeout=30:
 #   - Dacă coada e goală: BLOCHEAZĂ 30 secunde, returnează None
-#   - Dacă apare un job: returnează (queue_name, job_json) IMEDIAT
+#   - Dacă apare un job: îl returnează IMEDIAT
 #   - Nu consumă CPU cât așteaptă (Redis notifică clientul)
 #
-# IMPORTANT: Folosim redis.asyncio (nu redis.Redis sync)!
-# redis.Redis.brpop() blochează THREAD-UL PYTHON pe 30 de secunde.
-# Într-un program asyncio, asta blochează ÎNTREGUL EVENT LOOP.
-# redis.asyncio.Redis.brpop() face await — event loop-ul rămâne liber.
+# IMPORTANT: Folosim redis.asyncio (nu redis.Redis sync) — un apel blocant
+# sync ar bloca ÎNTREGUL EVENT LOOP timp de 30 de secunde.
 # ============================================================
 
 import asyncio
 import json
 import shutil
+import socket
 import time
 from typing import Optional
 
@@ -71,6 +78,8 @@ class JobConsumer:
         self._redis: Optional[aioredis.Redis] = None
         self._running = False
         self._queue = settings.redis_transcription_queue
+        self._worker_id = settings.worker_id or socket.gethostname()
+        self._processing_list = f"{self._queue}:processing:{self._worker_id}"
 
     # ── Lifecycle ─────────────────────────────────────────────
 
@@ -85,28 +94,106 @@ class JobConsumer:
         self._redis = aioredis.from_url(
             settings.redis_url,
             decode_responses=True,
-            socket_timeout=35,  # ușor mai mult decât BRPOP timeout (30s)
+            socket_timeout=35,  # ușor mai mult decât BLMOVE timeout (30s)
         )
         self._running = True
-        logger.info("consumer_started", queue=self._queue)
+        logger.info(
+            "consumer_started",
+            queue=self._queue,
+            processing_list=self._processing_list,
+        )
 
-        while self._running:
-            await self._poll_once()
-
-        # Cleanup
-        await self._redis.aclose()
-        logger.info("consumer_stopped")
+        try:
+            await self._recover_processing()
+            while self._running:
+                await self._poll_once()
+        finally:
+            await self._redis.aclose()
+            logger.info("consumer_stopped")
 
     def stop(self) -> None:
         """
-        Semnalează oprirea loop-ului.
-        Loop-ul se oprește după cel mult 30 de secunde (timeout-ul BRPOP).
-        Nu întrerupe o transcriere în curs — aceasta se termină.
+        Semnalează oprirea loop-ului: nu se mai iau joburi noi.
 
-        Apelat din signal handler (SIGTERM) în main.py.
+        Apelat din signal handler (SIGTERM) în main.py, care apoi anulează
+        task-ul consumer-ului. Un job în curs NU e așteptat (o transcriere poate
+        dura o oră): rămâne în lista processing, marcat "interrupted", și e
+        reluat la următoarea pornire.
         """
         logger.info("consumer_stop_requested")
         self._running = False
+
+    # ── Recuperare la pornire ─────────────────────────────────
+
+    async def _recover_processing(self) -> None:
+        """
+        Repune în coadă joburile rămase în lista processing proprie
+        (procesul anterior a murit sau a fost oprit în timpul lor).
+        """
+        while self._running:
+            try:
+                leftovers = await self._redis.lrange(self._processing_list, 0, -1)
+                break
+            except Exception as e:
+                logger.warning("redis_recovery_error", error=str(e))
+                await asyncio.sleep(5)
+        else:
+            return
+
+        # LRANGE întoarce cel mai nou primul; RPUSH în această ordine lasă
+        # jobul cel mai vechi la capătul din dreapta → e consumat primul.
+        for raw in leftovers:
+            await self._recover_one(raw)
+
+    async def _recover_one(self, raw: str) -> None:
+        try:
+            job = json.loads(raw)
+        except json.JSONDecodeError:
+            logger.error("invalid_job_json_in_processing", raw=raw[:200])
+            await self._redis.lrem(self._processing_list, 1, raw)
+            return
+
+        # Oprire planificată (SIGTERM) → nu e un crash, nu se numără
+        interrupted = bool(job.pop("interrupted", False))
+        attempts = int(job.get("attempts", 0)) + (0 if interrupted else 1)
+        job["attempts"] = attempts
+
+        if attempts >= settings.max_job_attempts:
+            try:
+                await self._fail_abandoned_job(job, attempts)
+            except Exception as e:
+                # DB indisponibil: lăsăm jobul în processing, reîncercăm la următoarea pornire
+                logger.error("abandon_job_failed", recording_id=job.get("recording_id"), error=str(e))
+                return
+            await self._redis.lrem(self._processing_list, 1, raw)
+            return
+
+        async with self._redis.pipeline(transaction=True) as pipe:
+            pipe.lrem(self._processing_list, 1, raw)
+            pipe.rpush(self._queue, json.dumps(job, ensure_ascii=False))
+            await pipe.execute()
+        logger.warning(
+            "job_recovered",
+            recording_id=job.get("recording_id"),
+            attempts=attempts,
+            interrupted=interrupted,
+        )
+
+    async def _fail_abandoned_job(self, job: dict, attempts: int) -> None:
+        recording_id = job.get("recording_id")
+        message = (
+            f"Procesul de transcriere s-a oprit de {attempts} ori pe acest fișier "
+            f"(posibil memorie insuficientă)"
+        )
+        logger.error(
+            "job_abandoned_after_crashes",
+            recording_id=recording_id,
+            attempts=attempts,
+            max_attempts=settings.max_job_attempts,
+        )
+        transcript_id = await self._uploader.get_transcript_id(recording_id)
+        if transcript_id:
+            await self._uploader.mark_failed(transcript_id, recording_id, message)
 
     # ── Poll ──────────────────────────────────────────────────
 
@@ -114,35 +201,82 @@ class JobConsumer:
         """
         O iterație a loop-ului: încearcă să ia un job din Redis.
 
-        BRPOP returnează:
+        BLMOVE returnează:
         - None dacă timeout-ul expiră fără niciun job → iterăm
-        - (queue_name, job_json) dacă vine un job → procesăm
+        - job_json dacă vine un job (acum aflat în lista processing) → procesăm
 
         timeout=30: verificăm _running la fiecare 30 secunde.
-        Compromis: oprire în max 30s vs. verificare mai frecventă (CPU waste).
         """
         try:
-            result = await self._redis.brpop(self._queue, timeout=30)
+            job_json = await self._redis.blmove(
+                self._queue, self._processing_list, timeout=30, src="RIGHT", dest="LEFT"
+            )
         except Exception as e:
             # Redis temporar indisponibil (restart, network blip)
             # Așteptăm 5s și reîncercăm — nu vrem să spamăm logurile
-            logger.warning("redis_brpop_error", error=str(e))
+            logger.warning("redis_blmove_error", error=str(e))
             await asyncio.sleep(5)
             return
 
-        if result is None:
+        if job_json is None:
             # Timeout normal — coada e goală
             return
 
-        _queue_name, job_json = result
+        await self._handle(job_json)
 
+    async def _handle(self, job_json: str) -> None:
+        """Procesează jobul, apoi îl scoate din lista processing (confirmare)."""
+        try:
+            try:
+                job = json.loads(job_json)
+            except json.JSONDecodeError as e:
+                # Mesaj corupt: nu îl putem reprocesa → doar îl confirmăm
+                logger.error("invalid_job_json", error=str(e), raw=job_json[:200])
+            else:
+                await self._process_job(job)
+        except asyncio.CancelledError:
+            # Oprire (SIGTERM): jobul rămâne în processing și e reluat la pornire
+            await self._mark_interrupted(job_json)
+            raise
+        except Exception as e:
+            # Erorile de transcriere sunt tratate în _process_job (mark_failed).
+            # Aici ajung doar erorile neprevăzute (ex. DB indisponibil la
+            # mark_failed). Confirmăm jobul ca să nu blocăm coada; dacă
+            # înregistrarea rămâne în 'transcribing', reaper-ul din
+            # audit-retention o marchează 'failed'.
+            logger.error("job_unhandled_error", error=str(e), exc_info=True)
+
+        await self._ack(job_json)
+
+    async def _ack(self, job_json: str) -> None:
+        try:
+            await self._redis.lrem(self._processing_list, 1, job_json)
+        except Exception as e:
+            # Jobul rămâne în processing → reluat la pornire (save_* sunt idempotente)
+            logger.warning("redis_ack_error", error=str(e))
+
+    async def _mark_interrupted(self, job_json: str) -> None:
+        """Înlocuiește jobul din processing cu varianta marcată "interrupted"."""
         try:
             job = json.loads(job_json)
-        except json.JSONDecodeError as e:
-            logger.error("invalid_job_json", error=str(e), raw=job_json[:200])
-            return  # mesajul corupt e pierdut (nu îl putem reprocesa)
+        except json.JSONDecodeError:
+            return
+        job["interrupted"] = True
+        try:
+            async with self._redis.pipeline(transaction=True) as pipe:
+                pipe.lrem(self._processing_list, 1, job_json)
+                pipe.lpush(self._processing_list, json.dumps(job, ensure_ascii=False))
+                await pipe.execute()
+            logger.info("job_interrupted_by_shutdown", recording_id=job.get("recording_id"))
+        except Exception as e:
+            # Jobul rămâne oricum în processing (nemarcat) → reluat, cu attempts+1
+            logger.warning("redis_mark_interrupted_error", error=str(e))
 
-        await self._process_job(job)
+    async def _already_completed(self, transcript_id: str, segment_id: Optional[str]) -> bool:
+        """Job reluat după ce rezultatul a fost deja salvat (crash înainte de confirmare)."""
+        if segment_id is not None:
+            return await self._uploader.get_audio_segment_status(segment_id) == "completed"
+        return await self._uploader.get_transcript_status(transcript_id) == "completed"
 
     # ── Process job ───────────────────────────────────────────
 
@@ -190,6 +324,10 @@ class JobConsumer:
         if not transcript_id:
             logger.error("transcript_missing", recording_id=recording_id)
             return  # nu putem continua fără transcript_id
+
+        if await self._already_completed(transcript_id, segment_id):
+            logger.info("job_already_completed", recording_id=recording_id, segment_id=segment_id)
+            return
 
         try:
             # ── Pasul 2: Marcăm ca 'processing' ───────────────
@@ -295,6 +433,10 @@ class JobConsumer:
         transcript_id = await self._uploader.get_transcript_id(recording_id)
         if transcript_id is None:
             logger.error("session_transcript_not_found", recording_id=recording_id)
+            return
+
+        if await self._already_completed(transcript_id, None):
+            logger.info("session_job_already_completed", recording_id=recording_id)
             return
 
         model_name = f"whisper-{settings.whisper_model}"

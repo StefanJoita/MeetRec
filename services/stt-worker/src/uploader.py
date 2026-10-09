@@ -72,6 +72,22 @@ class DatabaseUploader:
             return None
         return str(row["id"])
 
+    async def get_transcript_status(self, transcript_id: str) -> Optional[str]:
+        """Statusul transcriptului ('pending', 'processing', 'completed', 'failed')."""
+        async with self._pool.acquire() as conn:
+            return await conn.fetchval(
+                "SELECT status FROM transcripts WHERE id = $1",
+                transcript_id,
+            )
+
+    async def get_audio_segment_status(self, segment_id: str) -> Optional[str]:
+        """Statusul unui rând din recording_audio_segments (sesiuni multi-part)."""
+        async with self._pool.acquire() as conn:
+            return await conn.fetchval(
+                "SELECT status FROM recording_audio_segments WHERE id = $1",
+                segment_id,
+            )
+
     async def get_transcript_index_offset(self, transcript_id: str) -> int:
         """
         Returnează primul segment_index disponibil pentru acest transcript.
@@ -217,6 +233,28 @@ class DatabaseUploader:
 
         async with self._pool.acquire() as conn:
             async with conn.transaction():
+                # ── 0. Idempotență: jobul poate fi reluat după un crash ──
+                # Un job pe tot fișierul (upload simplu, fără segmente audio
+                # suplimentare) își rescrie segmentele: ștergem ce ar fi rămas
+                # de la o rulare anterioară, ca să nu amestecăm două transcrieri.
+                # Jobul pe un segment multi-part (segment_id) nu șterge nimic:
+                # consumer-ul îl sare dacă segmentul audio e deja 'completed', iar
+                # scrierea e atomică (tranzacție) → nu există segmente parțiale.
+                if segment_id is None:
+                    await conn.execute(
+                        """
+                        DELETE FROM transcript_segments
+                        WHERE transcript_id = $1
+                          AND segment_index >= $2
+                          AND NOT EXISTS (
+                              SELECT 1 FROM recording_audio_segments WHERE recording_id = $3
+                          )
+                        """,
+                        transcript_id,
+                        index_offset,
+                        recording_id,
+                    )
+
                 # ── 1. Bulk insert segmente ───────────────────────────
                 await conn.executemany(
                     """
@@ -438,6 +476,13 @@ class DatabaseUploader:
 
         async with self._pool.acquire() as conn:
             async with conn.transaction():
+                # ── 0. Idempotență: transcriem tot audio-ul sesiunii → înlocuim
+                # toate segmentele (un job reluat după crash nu le dublează).
+                await conn.execute(
+                    "DELETE FROM transcript_segments WHERE transcript_id = $1",
+                    transcript_id,
+                )
+
                 # ── 1. Inserăm segmentele ─────────────────────────────
                 await conn.executemany(
                     """
