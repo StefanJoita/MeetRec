@@ -91,4 +91,24 @@ describe('API client — interceptor JWT', () => {
 
     expect(localStorage.getItem('access_token')).toBeNull()
   })
+
+  it('401 de la /auth/login (parolă greșită) nu declanșează logout-ul', async () => {
+    localStorage.setItem('access_token', 'token-valid')
+    const { default: client } = await import('@/api/client')
+    const { logoutEventEmitter } = await import('@/contexts/AuthContext')
+    const onLogout = vi.fn()
+    logoutEventEmitter.on(onLogout)
+
+    const handlers = (client.interceptors.response as unknown as {
+      handlers: Array<{ rejected: (error: unknown) => unknown } | null>
+    }).handlers
+    const responseHandler = handlers.filter(Boolean)[0]!
+    const loginError = { response: { status: 401 }, config: { url: '/auth/login' } }
+
+    await expect(responseHandler.rejected(loginError)).rejects.toBe(loginError)
+
+    expect(onLogout).not.toHaveBeenCalled()
+    expect(localStorage.getItem('access_token')).toBe('token-valid')
+    logoutEventEmitter.off(onLogout)
+  })
 })
