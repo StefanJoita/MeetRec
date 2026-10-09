@@ -23,6 +23,7 @@
 # Folosire:
 #   bash install/offline/build-bundle.sh                    # versiunea din .env sau 1.0.0
 #   MEETREC_VERSION=1.2.0 bash install/offline/build-bundle.sh
+#   BUNDLE_DIR=/d/meetrec-dist bash install/offline/build-bundle.sh  # pachetul pe alt disc
 #   SKIP_DOCKER_PACKAGES=1 bash install/offline/build-bundle.sh   # serverul are deja Docker
 #   SKIP_SYSTEM_PACKAGES=1 bash install/offline/build-bundle.sh   # fără pachete de sistem
 #
@@ -54,7 +55,7 @@ export MEETREC_VERSION="$VERSION"
 export WHISPER_MODEL   # suprascrie .env la docker compose build (build arg + tag imagine)
 
 NAME="meetrec-offline-$VERSION"
-DIST="$REPO_ROOT/dist"
+DIST="${BUNDLE_DIR:-$REPO_ROOT/dist}"   # alt disc: BUNDLE_DIR=/d/meetrec-dist (pachetul are ~2x dimensiunea imaginilor)
 OUT="$DIST/$NAME"
 PLATFORM=linux/amd64
 
