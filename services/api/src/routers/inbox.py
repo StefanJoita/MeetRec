@@ -17,6 +17,7 @@
 import asyncio
 import hashlib
 import json
+import re
 import shutil
 import uuid as uuid_lib
 from datetime import date, datetime, timezone
@@ -31,15 +32,41 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.config import settings
 from src.database import get_db
-from src.middleware.auth import get_current_user
+from src.middleware.auth import get_current_operator_or_above
 from src.models.recording import Recording, RecordingAudioSegment, RecordingStatus
 from src.models.transcript import Transcript
 
 router = APIRouter(
     prefix="/inbox",
     tags=["inbox"],
-    dependencies=[Depends(get_current_user)],
+    # Doar admin/operator pot crea sesiuni și încărca audio; participanții au acces read-only.
+    dependencies=[Depends(get_current_operator_or_above)],
 )
+
+
+_UNSAFE_FILENAME_CHARS = re.compile(r"[^\w.\- ]", re.UNICODE)
+
+
+def _safe_inbox_filename(raw: str) -> str:
+    """
+    Reduce numele trimis de client la un basename sigur (fără directoare).
+
+    Clientul controlează complet `UploadFile.filename`, inclusiv valori ca
+    "../processed/x.wav", "/app/src/x.py" sau "..\\..\\x.wav". Păstrăm doar
+    ultima componentă (separatori / și \\), înlocuim caracterele neobișnuite
+    și respingem numele goale sau formate doar din puncte.
+    """
+    name = raw.replace("\\", "/").rsplit("/", 1)[-1]
+    name = _UNSAFE_FILENAME_CHARS.sub("_", name).strip(" .")
+    if not name or set(name) <= {"."}:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Numele fișierului este invalid.",
+        )
+    if len(name) > 200:
+        stem, dot, ext = name.rpartition(".")
+        name = (stem[: 200 - len(ext) - 1] + "." + ext) if dot and len(ext) <= 10 else name[:200]
+    return name
 
 
 class SessionCreateRequest(BaseModel):
@@ -216,7 +243,15 @@ async def upload_to_inbox(
     inbox_path = settings.inbox_path
     inbox_path.mkdir(parents=True, exist_ok=True)
 
-    dest = inbox_path / file.filename
+    safe_name = _safe_inbox_filename(file.filename)
+    dest = inbox_path / safe_name
+
+    # Apărare în adâncime: destinația trebuie să rămână direct în inbox.
+    if dest.resolve().parent != inbox_path.resolve():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Numele fișierului este invalid.",
+        )
 
     counter = 1
     original_stem = dest.stem
