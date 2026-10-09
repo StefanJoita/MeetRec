@@ -9,14 +9,21 @@
 #
 # Versiunea CPU-only se specifică în Dockerfile cu --extra-index-url.
 # Dacă rulezi pip local (fără Docker) și nu ai GPU, adaugă manual:
-#   pip install torch==2.1.0+cpu --index-url https://download.pytorch.org/whl/cpu
+#   pip install torch==2.8.0+cpu --index-url https://download.pytorch.org/whl/cpu
 # ============================================================
 
 # --- STT ---
-whisperx
+# Versiune FIXATĂ: modelele incluse în imagine (install/models/download-models.py) depind de ea —
+#   whisperx 3.8.6 → aliniere "gigant/romanian-wav2vec2",
+#                    diarizare "pyannote/speaker-diarization-community-1" (pyannote-audio 4.x),
+#                    NLTK punkt_tab, VAD pyannote inclus în pachet.
+# La upgrade: verifică whisperx/alignment.py și whisperx/diarize.py, apoi actualizează download-models.py.
+whisperx==3.8.6
+torch==2.8.0            # rezolvat ca 2.8.0+cpu din indexul CPU (vezi Dockerfile)
+torchaudio==2.8.0
+torchvision==0.23.0
 pydub==0.25.1           # Concatenare fișiere audio pentru session assembly (folosește ffmpeg din sistem)
 # whisperx include faster-whisper, wav2vec2 alignment si pyannote.audio
-# torch+torchaudio sunt instalate în Dockerfile (CPU-only) ÎNAINTEA acestor dependențe
 
 # --- DATABASE ---
 asyncpg==0.29.0         # Driver PostgreSQL async (cel mai rapid disponibil)

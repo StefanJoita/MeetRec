@@ -1,11 +1,13 @@
 # ── Stage 1: Build ───────────────────────────────────────────
-FROM node:20-alpine AS builder
+# node 22: jsdom/vitest cer node ^20.19 || ^22.13
+FROM node:22-alpine AS builder
 
 WORKDIR /app
 
 # Copy package files first — cached layer if deps unchanged
-COPY package.json package-lock.json* ./
-RUN npm install
+# npm ci = instalare EXACTĂ din package-lock.json (build reproductibil)
+COPY package.json package-lock.json ./
+RUN npm ci --no-audit --no-fund
 
 # Copy all source files
 COPY . .
