@@ -9,7 +9,7 @@ fastapi==0.111.0
 #   - documentație OpenAPI generată automat (/docs)
 #   - performanță: printre cele mai rapide framework-uri Python
 
-uvicorn[standard]==0.29.0
+uvicorn[standard]==0.31.0   # >= 0.31: CIDR în --forwarded-allow-ips
 # ASGI server — rulează FastAPI
 # "standard" include watchgfiles (hot-reload în dev)
 

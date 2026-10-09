@@ -247,6 +247,15 @@ mkdir -p data/inbox data/processed data/exports
 # API rulează ca UID 1000 și scrie în data/inbox (bind mount)
 chown 1000:1000 data/inbox
 
+# frontend-network are subnet fix (FRONTEND_SUBNET): API-ul acceptă X-Forwarded-For doar din el.
+# O rețea mt-frontend creată de o versiune anterioară (alt subnet) trebuie recreată.
+WANT_SUBNET="$(env_get FRONTEND_SUBNET)"; WANT_SUBNET="${WANT_SUBNET:-172.30.10.0/24}"
+CUR_SUBNET=$(docker network inspect mt-frontend --format '{{range .IPAM.Config}}{{.Subnet}}{{end}}' 2>/dev/null || true)
+if [[ -n "$CUR_SUBNET" && "$CUR_SUBNET" != "$WANT_SUBNET" ]]; then
+    info "Rețeaua mt-frontend are subnetul $CUR_SUBNET (configurat: $WANT_SUBNET) — o recreez; volumele de date rămân."
+    docker compose down
+fi
+
 docker compose up -d --no-build --pull never
 
 info "Aștept ca API-ul să fie gata..."
