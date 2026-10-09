@@ -577,6 +577,68 @@ class TestStop:
 
 
 # ============================================================
+# TEST: înregistrare ștearsă în timpul transcrierii
+# ============================================================
+
+class TestDeletionDuringTranscription:
+
+    @pytest.mark.asyncio
+    async def test_deleted_recording_acks_job_and_restarts_process(self):
+        consumer, mocks, redis = make_reliable_consumer()
+        raw = json.dumps(make_job())
+        await redis.lpush(QUEUE, raw)
+        mocks["uploader"].recording_exists = AsyncMock(return_value=False)
+        consumer._exit_process = MagicMock()
+        seen = {}
+
+        async def _long_transcription(job):
+            seen["started"] = True
+            await asyncio.Event().wait()            # transcriere „care nu se termină”
+
+        consumer._process_job = _long_transcription
+        with patch("src.consumer.settings.deletion_check_interval_seconds", 0.01):
+            await consumer._poll_once()
+
+        assert seen == {"started": True}
+        consumer._exit_process.assert_called_once()
+        assert await processing(redis) == []        # confirmat: nu e reluat la repornire
+
+    @pytest.mark.asyncio
+    async def test_existing_recording_keeps_running_until_done(self):
+        consumer, mocks, redis = make_reliable_consumer()
+        await redis.lpush(QUEUE, json.dumps(make_job()))
+        mocks["uploader"].recording_exists = AsyncMock(return_value=True)
+        consumer._exit_process = MagicMock()
+
+        async def _slow_transcription(job):
+            await asyncio.sleep(0.05)               # câteva verificări cât rulează
+
+        consumer._process_job = _slow_transcription
+        with patch("src.consumer.settings.deletion_check_interval_seconds", 0.01):
+            await consumer._poll_once()
+
+        assert mocks["uploader"].recording_exists.await_count >= 1
+        consumer._exit_process.assert_not_called()
+        assert await processing(redis) == []
+
+    @pytest.mark.asyncio
+    async def test_db_error_on_check_does_not_stop_transcription(self):
+        consumer, mocks, redis = make_reliable_consumer()
+        await redis.lpush(QUEUE, json.dumps(make_job()))
+        mocks["uploader"].recording_exists = AsyncMock(side_effect=ConnectionError("DB down"))
+        consumer._exit_process = MagicMock()
+
+        async def _slow_transcription(job):
+            await asyncio.sleep(0.05)
+
+        consumer._process_job = _slow_transcription
+        with patch("src.consumer.settings.deletion_check_interval_seconds", 0.01):
+            await consumer._poll_once()
+
+        consumer._exit_process.assert_not_called()
+
+
+# ============================================================
 # TEST: idempotență la reprocesare
 # ============================================================
 
