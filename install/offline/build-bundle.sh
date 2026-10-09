@@ -178,7 +178,9 @@ REDIS_PASSWORD=x docker compose -f "$OUT/docker-compose.yml" --env-file "$OUT/.e
     done
     echo ""
     echo "Modele ML incluse în imagini:"
-    for d in services/stt-worker/models/whisper/models--* services/stt-worker/models/huggingface/hub/models--* \
+    # Din models/whisper/ intră în imagine doar modelul pachetului (Dockerfile stt-worker)
+    for d in "services/stt-worker/models/whisper/models--Systran--faster-whisper-$WHISPER_MODEL" \
+             services/stt-worker/models/huggingface/hub/models--* \
              services/search-indexer/models/models--*; do
         [[ -d "$d" ]] || continue
         rev=$(cat "$d/refs/main" 2>/dev/null || echo "?")
