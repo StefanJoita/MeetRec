@@ -469,7 +469,7 @@ MeetRec/
 │       └── contexts/           # AuthContext · ToastContext
 ├── install/                    # see install/README.md
 │   ├── online/                 # install.sh (Linux) · install.ps1 (Windows)
-│   ├── offline/                # build-bundle.sh · install-offline.sh · download-docker-packages.sh
+│   ├── offline/                # build-bundle.sh · install-offline.sh · download-*-packages.sh
 │   ├── models/                 # download-models.py · download-models-docker.sh
 │   └── certs/                  # gen-local-ca.sh · gen-self-signed.sh · gen-letsencrypt.sh
 ├── docs/

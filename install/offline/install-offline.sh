@@ -8,7 +8,7 @@
 #
 # Pași:
 #   1. Verifică sistemul + integritatea pachetului (SHA256SUMS)
-#   2. Instalează Docker Engine + Compose din packages/ (dacă lipsesc)
+#   2. Instalează pachetele de sistem lipsă (iptables, nftables, openssl) și Docker Engine + Compose din packages/
 #   3. Încarcă imaginile (docker load)
 #   4. Generează .env cu secrete aleatoare
 #   5. Certificate HTTPS (CA locală / self-signed / ale organizației)
@@ -78,8 +78,31 @@ else
     warn "SHA256SUMS lipsește — nu pot verifica integritatea."
 fi
 
-# ── 2. Docker Engine ──────────────────────────────────────────
-step "2/7 Docker Engine"
+# ── 2. Pachete de sistem + Docker Engine ──────────────────────
+step "2/7 Pachete de sistem și Docker Engine"
+CODENAME="${VERSION_CODENAME:-}"
+
+# Instalează din packages/system/<codename>/ DOAR pachetele care lipsesc de pe server
+# (iptables, nftables, openssl + dependențe). Cele deja instalate nu sunt atinse.
+install_system_packages() {
+    local dir="packages/system/$CODENAME" deb name to_install=()
+    [[ -n "$CODENAME" && -d "$dir" ]] && command -v dpkg >/dev/null || return 0
+    for deb in "$dir"/*.deb; do
+        name=$(dpkg-deb -f "$deb" Package)
+        dpkg-query -W -f='${Status}' "$name" 2>/dev/null | grep -q "install ok installed" \
+            || to_install+=("$deb")
+    done
+    if [[ ${#to_install[@]} -eq 0 ]]; then
+        ok "Pachete de sistem: toate prezente"
+        return 0
+    fi
+    info "Instalez ${#to_install[@]} pachete de sistem lipsă din $dir"
+    dpkg -i "${to_install[@]}" >/dev/null \
+        || err "Instalarea pachetelor de sistem a eșuat (vezi mesajele dpkg). Vezi docs/INSTALL-OFFLINE.md §11.1."
+    ok "Pachete de sistem instalate: $(for d in "${to_install[@]}"; do dpkg-deb -f "$d" Package; done | tr '\n' ' ')"
+}
+install_system_packages
+
 install_docker_static() {
     local tgz
     tgz=$(ls packages/docker/static/docker-*.tgz 2>/dev/null | head -1)
@@ -131,7 +154,6 @@ EOF
 if command -v docker >/dev/null && docker compose version >/dev/null 2>&1; then
     ok "Docker deja instalat: $(docker --version)"
 else
-    CODENAME="${VERSION_CODENAME:-}"
     DEB_DIR="packages/docker/deb/$CODENAME"
     if [[ -n "$CODENAME" && -d "$DEB_DIR" ]] && command -v dpkg >/dev/null; then
         missing=()
@@ -139,7 +161,7 @@ else
             dpkg -s "$dep" >/dev/null 2>&1 || missing+=("$dep")
         done
         if [[ ${#missing[@]} -gt 0 ]]; then
-            err "Lipsesc pachetele de sistem: ${missing[*]}. Vezi docs/INSTALL-OFFLINE.md → „Dependențe de sistem lipsă”."
+            err "Lipsesc pachetele de sistem: ${missing[*]} (nu sunt nici în packages/system/$CODENAME/). Vezi docs/INSTALL-OFFLINE.md §11.1."
         fi
         info "Instalez Docker din $DEB_DIR"
         dpkg -i "$DEB_DIR"/containerd.io_*.deb "$DEB_DIR"/docker-ce-cli_*.deb "$DEB_DIR"/docker-ce_*.deb \
@@ -207,6 +229,9 @@ else
     echo "  2) Self-signed (avertisment în browser pe fiecare client)"
     echo "  3) Am certificatul organizației → îl copiez manual în nginx/ssl/ și re-rulez"
     choice=$(ask "Alege" "1")
+    if [[ "$choice" == 1 || "$choice" == 2 ]]; then
+        command -v openssl >/dev/null || err "openssl lipsește de pe server (pachetul nu are .deb-uri pentru acest sistem). Instalează openssl sau alege opțiunea 3."
+    fi
     case "$choice" in
         1) bash install/certs/gen-local-ca.sh "$SERVER_NAME" ;;
         2) bash install/certs/gen-self-signed.sh "$SERVER_NAME" ;;
