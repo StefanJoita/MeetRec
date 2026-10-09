@@ -188,7 +188,12 @@ services:
     build:
       context: ./services/stt-worker
       dockerfile: Dockerfile
-    image: meetrec/stt-worker:${MEETREC_VERSION:-1.0.0}   # tag folosit de pachetul offline (docker save/load)
+      args:
+        # Doar acest model Whisper intră în imagine (vezi Dockerfile)
+        WHISPER_MODEL: ${WHISPER_MODEL:-large-v3}
+    # Tag-ul conține modelul: imaginea de dev (ex. small) și cea a pachetului
+    # offline (large-v3) nu se suprascriu una pe alta pe aceeași mașină.
+    image: meetrec/stt-worker:${MEETREC_VERSION:-1.0.0}-${WHISPER_MODEL:-large-v3}
     container_name: mt-stt-worker
     restart: unless-stopped
     # La SIGTERM worker-ul nu mai ia joburi noi și NU așteaptă jobul curent:
@@ -206,7 +211,7 @@ services:
       # înainte ca înregistrarea să fie marcată 'failed' în loc să fie reluată.
       MAX_JOB_ATTEMPTS: ${MAX_JOB_ATTEMPTS:-2}
       AUDIO_STORAGE_PATH: ${AUDIO_STORAGE_PATH}
-      WHISPER_MODEL: ${WHISPER_MODEL}
+      WHISPER_MODEL: ${WHISPER_MODEL:-large-v3}
       WHISPER_PRIMARY_LANGUAGE: ${WHISPER_PRIMARY_LANGUAGE}
       WHISPER_MODEL_PATH: ${WHISPER_MODEL_PATH}
       WHISPER_COMPUTE_TYPE: ${WHISPER_COMPUTE_TYPE:-int8}

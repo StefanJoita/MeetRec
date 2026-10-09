@@ -218,6 +218,12 @@ fi
     warn "MEETREC_VERSION din .env ($(env_get MEETREC_VERSION)) diferă de pachet ($VERSION) — actualizez."
     env_set MEETREC_VERSION "$VERSION"
 }
+# Imaginea stt-worker are modelul în tag (meetrec/stt-worker:<versiune>-<model>)
+BUNDLE_WHISPER=$(grep '^Model Whisper:' MANIFEST.txt | awk '{print $3}')
+if [[ -n "$BUNDLE_WHISPER" && "$(env_get WHISPER_MODEL)" != "$BUNDLE_WHISPER" ]]; then
+    warn "WHISPER_MODEL din .env ($(env_get WHISPER_MODEL)) diferă de modelul din pachet ($BUNDLE_WHISPER) — actualizez."
+    env_set WHISPER_MODEL "$BUNDLE_WHISPER"
+fi
 SERVER_NAME=$(env_get SERVER_NAME)
 
 # ── 5. Certificate HTTPS ──────────────────────────────────────
