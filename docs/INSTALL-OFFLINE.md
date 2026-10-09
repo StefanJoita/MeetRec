@@ -448,7 +448,21 @@ Fișierul `/opt/meetrec/.env`. După orice modificare: `docker compose up -d`.
 | `AUDIT_LOG_RETENTION_DAYS` | `2190` | retenția jurnalului de audit |
 | `JWT_EXPIRE_MINUTES` | `480` | durata sesiunii |
 | `NGINX_HTTPS_PORT` | `443` | portul HTTPS |
+| `FRONTEND_SUBNET` | `172.30.10.0/24` | subnetul rețelei Docker `frontend-network` (nginx, frontend, API); schimbă-l doar dacă se suprapune cu o rețea a organizației |
+| `FORWARDED_ALLOW_IPS` | gol (= `FRONTEND_SUBNET`) | IP-uri / subnete (CIDR, separate prin virgulă) de la care API-ul acceptă `X-Forwarded-For`; **niciodată** `*` |
 | `LOG_LEVEL` | `INFO` | `DEBUG` pentru depanare |
+
+**IP-ul real al clientului și limitele de autentificare.** API-ul nu e publicat pe host; singurul lui client e nginx, care trimite IP-ul clientului în `X-Forwarded-For` (`$remote_addr`, deci un header trimis de client nu e propagat). API-ul (uvicorn `--proxy-headers`) folosește acest header **doar** pentru conexiunile din `FORWARDED_ALLOW_IPS`; altfel îl ignoră. Pe baza IP-ului real se aplică limitele:
+
+| Endpoint | Limită |
+|----------|--------|
+| `POST /api/v1/auth/login` | 5 încercări / minut per IP; în plus, după **5 eșecuri consecutive** pentru același username, contul e blocat **15 minute** (contor în Redis; resetat la un login reușit). Răspunsul e identic cu cel pentru parolă greșită. Blocarea apare în jurnalul de audit (`LOGIN`, eșuat, `event: account_locked`). |
+| `GET /api/v1/search/` | 60 / minut per IP |
+| `GET /api/v1/search/semantic` | 30 / minut per IP |
+| `GET /api/v1/export/recording/{id}` | 20 / oră per IP |
+| `/api/v1/inbox/*` | fără limită (clientul desktop urcă multe segmente în paralel) |
+
+Schimbarea `FRONTEND_SUBNET` cere recrearea rețelei: `docker compose down && docker compose up -d` (volumele de date rămân).
 
 **Firewall:** expune doar porturile **80** (redirect) și **443**. PostgreSQL, Redis, API-ul și search-indexer nu sunt publicate pe host.
 
@@ -542,6 +556,7 @@ sudo ln -sfn /opt/meetrec-offline-<nouă> /opt/meetrec
 
 - Volumele de date se păstrează: proiectul Compose are nume fix (`name: meetrec`), indiferent de director.
 - Migrațiile bazei de date (Alembic) rulează automat la pornirea API-ului.
+- Dacă rețeaua Docker `mt-frontend` existentă are alt subnet decât `FRONTEND_SUBNET` (instalări anterioare, fără subnet fix), installerul oprește containerele și o recreează. Volumele de date nu sunt afectate.
 - **Revenire la versiunea anterioară:** `cd /opt/meetrec-offline-<veche>`, setează `MEETREC_VERSION=<veche>` în `.env`, apoi `docker compose up -d`. Imaginile vechi rămân încărcate până la `docker image prune`. Restaurează și backup-ul bazei de date dacă versiunea nouă a aplicat migrații.
 
 ---

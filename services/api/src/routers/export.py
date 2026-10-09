@@ -11,11 +11,10 @@ from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
-from slowapi import Limiter
-from slowapi.util import get_remote_address
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.database import get_db
+from src.limiter import limiter
 from src.middleware.audit import log_audit
 from src.middleware.auth import get_current_user, check_recording_access
 from src.models.audit_log import User
@@ -24,7 +23,6 @@ from src.services.transcript_service import TranscriptService
 from sqlalchemy import select
 
 router = APIRouter(prefix="/export", tags=["export"])
-limiter = Limiter(key_func=get_remote_address)
 
 
 def _safe_filename(title: str) -> str:

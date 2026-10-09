@@ -22,11 +22,10 @@ import time
 from datetime import date
 from typing import Optional
 from fastapi import APIRouter, Depends, Query, Request
-from slowapi import Limiter
-from slowapi.util import get_remote_address
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.database import get_db
+from src.limiter import limiter
 from src.middleware.auth import get_current_user
 from src.models.audit_log import User
 from src.schemas.recording import SearchResponse, SemanticSearchResponse, CombinedSearchResponse
@@ -34,7 +33,6 @@ from src.services.search_service import SearchService
 from src.middleware.audit import log_audit
 
 router = APIRouter(prefix="/search", tags=["search"], dependencies=[Depends(get_current_user)])
-limiter = Limiter(key_func=get_remote_address)
 
 
 @router.get(

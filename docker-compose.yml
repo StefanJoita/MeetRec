@@ -114,6 +114,10 @@ services:
       JWT_EXPIRE_MINUTES: ${JWT_EXPIRE_MINUTES}
       APP_ENV: ${APP_ENV}
       LOG_LEVEL: ${LOG_LEVEL}
+      # De la ce IP-uri acceptă uvicorn X-Forwarded-For (IP-ul real al clientului,
+      # folosit de rate limiting și audit). Implicit: subnetul frontend-network,
+      # unde stă nginx. NU folosiți "*". Vezi services/api/entrypoint.sh.
+      FORWARDED_ALLOW_IPS: ${FORWARDED_ALLOW_IPS:-${FRONTEND_SUBNET:-172.30.10.0/24}}
       TZ: Europe/Bucharest
     volumes:
       # Inbox: API depune fișierele aici, Ingest le preia
@@ -358,6 +362,9 @@ volumes:
 #
 # frontend-network: Nginx, Frontend, API
 #   → Utilizatorul comunică DOAR prin nginx
+#   → Subnet fix: API-ul are încredere în X-Forwarded-For doar de la
+#     conexiunile din acest subnet (FORWARDED_ALLOW_IPS). Schimbați
+#     FRONTEND_SUBNET doar dacă se suprapune cu o rețea a organizației.
 #
 networks:
   backend-network:
@@ -366,3 +373,6 @@ networks:
   frontend-network:
     driver: bridge
     name: mt-frontend
+    ipam:
+      config:
+        - subnet: ${FRONTEND_SUBNET:-172.30.10.0/24}

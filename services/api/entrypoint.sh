@@ -78,5 +78,18 @@ else
   alembic upgrade head
 fi
 
-echo "[entrypoint] Migrations complete. Starting uvicorn..."
-exec uvicorn src.main:app --host 0.0.0.0 --port 8080
+# ── IP-ul real al clientului (rate limiting, audit) ────────────
+# API-ul e accesibil doar prin nginx. Uvicorn acceptă X-Forwarded-For /
+# X-Forwarded-Proto DOAR de la conexiunile din FORWARDED_ALLOW_IPS (subnetul
+# rețelei frontend-network, unde stă nginx — docker-compose.yml). Pentru
+# orice altă sursă headerele sunt ignorate. Necesită uvicorn >= 0.31 (CIDR).
+FORWARDED_ALLOW_IPS="${FORWARDED_ALLOW_IPS:-172.30.10.0/24}"
+case "$FORWARDED_ALLOW_IPS" in
+  *"*"*)
+    echo "[entrypoint] ERROR: FORWARDED_ALLOW_IPS nu poate conține '*' (oricine ar putea falsifica IP-ul)."
+    exit 1
+    ;;
+esac
+
+echo "[entrypoint] Migrations complete. Starting uvicorn (proxy headers trusted from: $FORWARDED_ALLOW_IPS)..."
+exec uvicorn src.main:app --host 0.0.0.0 --port 8080   --proxy-headers --forwarded-allow-ips="$FORWARDED_ALLOW_IPS"

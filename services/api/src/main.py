@@ -7,20 +7,15 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
-from slowapi.util import get_remote_address
 import structlog
 
 from src.config import settings
+from src.limiter import limiter
 from src.routers import recordings, transcript, search, auth, export, audit, inbox, users
 
 logger = structlog.get_logger()
-
-# ── Rate Limiter ─────────────────────────────────────────────
-# Folosit de endpoint-urile cu @limiter.limit() pentru protecție brute-force
-limiter = Limiter(key_func=get_remote_address)
-
 
 # ── Lifecycle ────────────────────────────────────────────────
 # @asynccontextmanager lifespan = cod rulat la startup și shutdown
@@ -36,7 +31,6 @@ async def lifespan(app: FastAPI):
 
 
 # ── Aplicația FastAPI ────────────────────────────────────────
-# Exportăm limiter-ul pentru a fi importat de routers
 app = FastAPI(
     title="Meeting Transcriber API",
     description="""
@@ -59,7 +53,7 @@ app = FastAPI(
     redirect_slashes=False,
 )
 
-# Atașăm limiter-ul la app state și handler-ul de 429
+# Limiter-ul comun (src/limiter.py) la app state și handler-ul de 429
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 

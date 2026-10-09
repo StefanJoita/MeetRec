@@ -6,12 +6,12 @@
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
-from slowapi import Limiter
-from slowapi.util import get_remote_address
 from sqlalchemy import update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.database import get_db
+from src.limiter import limiter
+from src.middleware.audit import log_audit
 from src.middleware.auth import (
     authenticate_user,
     create_access_token,
@@ -21,11 +21,42 @@ from src.middleware.auth import (
 from src.models.audit_log import User
 from src.schemas.recording import LoginRequest, TokenResponse
 from src.schemas.user import FirstLoginPasswordChangeRequest
+from src.services.login_lockout import (
+    LOCKOUT_SECONDS,
+    MAX_FAILED_ATTEMPTS,
+    LoginLockout,
+    get_login_lockout,
+)
 from src.services.user_service import UserService, UserActionForbiddenError
 
-limiter = Limiter(key_func=get_remote_address)
-
 router = APIRouter(prefix="/auth", tags=["autentificare"])
+
+
+def _invalid_credentials() -> HTTPException:
+    # Același răspuns pentru parolă greșită, user inexistent și cont blocat:
+    # nu dezvăluim dacă username-ul există sau dacă a fost blocat.
+    return HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Nume de utilizator sau parolă incorectă.",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+
+
+async def _audit_lockout(request: Request, db: AsyncSession, username: str, event: str) -> None:
+    await log_audit(
+        request, db,
+        action="LOGIN",
+        resource_type="user",
+        details={
+            "event": event,
+            "username": username,
+            "max_failed_attempts": MAX_FAILED_ATTEMPTS,
+            "lockout_minutes": LOCKOUT_SECONDS // 60,
+        },
+        success=False,
+    )
+    # Commit explicit: răspunsul e 401 (excepție) → get_db() ar face rollback
+    await db.commit()
 
 
 @router.post(
@@ -38,18 +69,26 @@ async def login(
     request: Request,
     body: LoginRequest,
     db: AsyncSession = Depends(get_db),
+    lockout: LoginLockout = Depends(get_login_lockout),
 ):
     """
     Autentifică utilizatorul cu username + parolă.
     Returnează un JWT token valid 8 ore.
+
+    Limite: 5/minut per IP și blocarea username-ului 15 minute după
+    5 eșecuri consecutive (src/services/login_lockout.py).
     """
+    if await lockout.is_locked(body.username):
+        await _audit_lockout(request, db, body.username, event="login_rejected_locked")
+        raise _invalid_credentials()
+
     user = await authenticate_user(body.username, body.password, db)
     if not user:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Nume de utilizator sau parolă incorectă.",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
+        if await lockout.register_failure(body.username):
+            await _audit_lockout(request, db, body.username, event="account_locked")
+        raise _invalid_credentials()
+
+    await lockout.reset(body.username)
 
     # Actualizăm last_login
     await db.execute(
