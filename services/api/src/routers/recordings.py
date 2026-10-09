@@ -21,7 +21,7 @@ from src.middleware.auth import (
     check_recording_access,
 )
 from src.models.audit_log import User
-from src.models.recording import Recording, RecordingParticipant
+from src.models.recording import Recording, RecordingParticipant, participant_access_clause
 from src.schemas.recording import (
     RecordingUpdate, RecordingResponse,
     PaginatedRecordings, ParticipantUserInfo, SpeakerMappingUpdate,
@@ -94,26 +94,13 @@ async def get_recordings_stats(
     Returnează statistici agregate vizibile utilizatorului curent.
     Participanții văd doar înregistrările la care au acces explicit.
     """
-    from src.models.recording import RecordingParticipant
-
-    # Baza query — filtrăm după acces dacă rolul este participant
-    base_q = select(Recording)
-    if current_user.role == "participant":
-        base_q = base_q.join(
-            RecordingParticipant,
-            RecordingParticipant.recording_id == Recording.id,
-        ).where(RecordingParticipant.user_id == current_user.id)
-
     # Count per status
     status_q = select(
         Recording.status,
         func.count(Recording.id).label("cnt"),
     )
-    if current_user.role == "participant":
-        status_q = status_q.join(
-            RecordingParticipant,
-            RecordingParticipant.recording_id == Recording.id,
-        ).where(RecordingParticipant.user_id == current_user.id)
+    if current_user.is_participant:
+        status_q = status_q.where(participant_access_clause(current_user.id))
     status_q = status_q.group_by(Recording.status)
 
     result = await db.execute(status_q)
@@ -124,11 +111,8 @@ async def get_recordings_stats(
 
     # Durată totală (doar completed)
     dur_q = select(func.coalesce(func.sum(Recording.duration_seconds), 0))
-    if current_user.role == "participant":
-        dur_q = dur_q.join(
-            RecordingParticipant,
-            RecordingParticipant.recording_id == Recording.id,
-        ).where(RecordingParticipant.user_id == current_user.id)
+    if current_user.is_participant:
+        dur_q = dur_q.where(participant_access_clause(current_user.id))
     dur_q = dur_q.where(Recording.status == "completed")
 
     dur_result = await db.execute(dur_q)
