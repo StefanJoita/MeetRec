@@ -81,6 +81,8 @@ CREATE TABLE recordings (
     meeting_date    DATE NOT NULL,
     location        VARCHAR(255),
     participants    TEXT[],
+    -- Asocierea vorbitorilor din diarizare cu persoane: {"SPEAKER_00": "Ion Popescu", ...}
+    speaker_mapping JSONB DEFAULT '{}',
 
     -- Informații tehnice despre fișierul audio
     original_filename   VARCHAR(500) NOT NULL,
