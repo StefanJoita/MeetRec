@@ -11,11 +11,12 @@
 
 .PHONY: help start start-core stop restart logs ps build clean setup \
         db-shell redis-cli redis-queue api-shell stt-shell audit-shell \
-        test frontend-test clean-all ssl-self-signed create-admin
+        test frontend-test clean-all ssl-self-signed create-admin \
+        dev dev-stop offline-models offline-bundle ssl-local-ca
 
 # Prima instalare completă (Ubuntu/Debian)
 install:
-	@bash install/install.sh
+	@bash install/online/install.sh
 
 # Afișează ajutor (rulat și cu "make" fără argumente)
 help:
@@ -27,6 +28,9 @@ help:
 	@echo "  make setup           → Configurare rapidă (copiază .env, creează foldere)"
 	@echo "  make build           → Reconstruiește imaginile Docker"
 	@echo "  make ssl-self-signed → Generează certificate SSL self-signed"
+	@echo "  make ssl-local-ca    → CA locală + certificat server (recomandat offline/LAN)"
+	@echo "  make dev             → Pornește în mod dezvoltare (porturi + cod live)"
+	@echo "  make offline-bundle  → Construiește pachetul de instalare offline"
 	@echo "  make create-admin    → Creează utilizator administrator"
 	@echo ""
 	@echo "  Pornire & oprire:"
@@ -174,34 +178,37 @@ clean-all:
 # Generează certificate SSL self-signed (pentru LAN/intranet)
 # Folosire: make ssl-self-signed  sau  make ssl-self-signed HOST=192.168.1.100
 ssl-self-signed:
-	@bash install/scripts/gen-self-signed.sh $(HOST)
+	@bash install/certs/gen-self-signed.sh $(HOST)
 	@echo ""
 	@echo "  Repornește nginx pentru a aplica certificatele:"
 	@echo "  docker compose restart nginx"
 
-# Creează utilizator administrator interactiv
+# CA locală + certificat server: clienții importă O SINGURĂ DATĂ nginx/ssl/meetrec-ca.crt
+# Folosire: make ssl-local-ca HOST=meetrec.firma.local  (sau HOST=192.168.1.100)
+ssl-local-ca:
+	@bash install/certs/gen-local-ca.sh $(HOST)
+	@echo "  Repornește nginx: docker compose restart nginx"
+
+# Creează / actualizează un administrator (parola e cerută interactiv, nu apare în istoric)
+# Folosire: make create-admin  sau  make create-admin USER_NAME=ion EMAIL=ion@firma.ro
 create-admin:
-	@echo "Creare utilizator administrator..."
-	@read -p "Username [admin]: " username; \
-	username=$${username:-admin}; \
-	read -p "Email: " email; \
-	read -sp "Parolă: " password; \
-	echo ""; \
-	docker compose exec api python3 -c " \
-import asyncio, sys, uuid; \
-sys.path.insert(0, '/app'); \
-from src.database import AsyncSessionLocal; \
-from src.models.audit_log import User; \
-from passlib.context import CryptContext; \
-from sqlalchemy import select; \
-pwd_ctx = CryptContext(schemes=['bcrypt']); \
-async def run(): \
-    async with AsyncSessionLocal() as db: \
-        r = await db.execute(select(User).where(User.username == '$$username')); \
-        if r.scalar_one_or_none(): print('EROARE: utilizatorul există deja'); return; \
-        db.add(User(id=uuid.uuid4(), username='$$username', email='$$email', \
-            hashed_password=pwd_ctx.hash('$$password'), role='admin', \
-            is_active=True, force_password_change=True)); \
-        await db.commit(); \
-        print('Administrator creat cu succes!'); \
-asyncio.run(run())"
+	docker compose exec api python -m src.cli.create_admin \
+		--username "$(or $(USER_NAME),admin)" $(if $(EMAIL),--email "$(EMAIL)") --update-existing
+
+# ── Dezvoltare (porturi expuse + cod montat live) ─────────────
+DEV_COMPOSE = docker compose -f docker-compose.yml -f docker-compose.dev.yml
+
+dev:
+	$(DEV_COMPOSE) up -d
+	@echo "   🔌 API:        http://localhost:8080/docs  (necesită APP_ENV=development)"
+
+dev-stop:
+	$(DEV_COMPOSE) stop
+
+# ── Pachet offline (rulat pe o mașină CU internet) ────────────
+# Vezi docs/INSTALL-OFFLINE.md
+offline-models:
+	python3 install/models/download-models.py
+
+offline-bundle:
+	bash install/offline/build-bundle.sh

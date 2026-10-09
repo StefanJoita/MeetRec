@@ -6,8 +6,8 @@
 # Cerințe: bash 4+, curl, sudo
 #
 # Folosire:
-#   bash install.sh
-#   bash install.sh --non-interactive   (folosește valorile default)
+#   bash install/online/install.sh
+#   bash install/online/install.sh --non-interactive   (folosește valorile default)
 # =============================================================
 
 set -euo pipefail
@@ -29,7 +29,8 @@ step() { echo -e "\n${BOLD}━━━ $* ━━━${NC}"; }
 INTERACTIVE=true
 [[ "${1:-}" == "--non-interactive" ]] && INTERACTIVE=false
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"   # install/online/
+REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"                    # rădăcina repo-ului
 
 # ── Banner ────────────────────────────────────────────────────
 echo -e "${BOLD}"
@@ -102,7 +103,7 @@ fi
 # ── Configurare .env ──────────────────────────────────────────
 step "3/7 Configurare"
 
-if [[ -f "$SCRIPT_DIR/.env" ]]; then
+if [[ -f "$REPO_ROOT/.env" ]]; then
     warn ".env există deja."
     if [[ "$INTERACTIVE" == true ]]; then
         read -rp "Îl suprascriu? [y/N] " ans
@@ -111,18 +112,19 @@ if [[ -f "$SCRIPT_DIR/.env" ]]; then
 fi
 
 if [[ "${skip_env:-false}" != true ]]; then
-    cp "$SCRIPT_DIR/.env.example" "$SCRIPT_DIR/.env"
+    cp "$REPO_ROOT/.env.example" "$REPO_ROOT/.env"
 
     # Generează JWT secret automat
     JWT_SECRET=$(python3 -c "import secrets; print(secrets.token_hex(32))" 2>/dev/null || \
                  openssl rand -hex 32)
 
-    # Generează parolă DB automată
-    DB_PASSWORD=$(openssl rand -base64 24 | tr -dc 'a-zA-Z0-9' | head -c 24)
+    # Generează parole DB + Redis automat (hex → URL-safe în DATABASE_URL/REDIS_URL)
+    DB_PASSWORD=$(openssl rand -hex 16)
+    REDIS_PASSWORD=$(openssl rand -hex 24)
 
     # Valori default pentru configurare interactivă
     SERVER_NAME="localhost"
-    WHISPER_MODEL="medium"
+    WHISPER_MODEL="large-v3"
     APP_ENV="production"
 
     if [[ "$INTERACTIVE" == true ]]; then
@@ -137,9 +139,9 @@ if [[ "${skip_env:-false}" != true ]]; then
         echo "    tiny   → cel mai rapid,  calitate scăzută  (~75MB)"
         echo "    base   → rapid,          calitate OK       (~140MB)"
         echo "    small  → echilibrat      calitate bună     (~460MB)"
-        echo "    medium → recomandat      calitate foarte bună (~1.5GB)"
-        echo "    large  → cel mai lent,   calitate maximă   (~3GB)"
-        read -rp "  Model Whisper [medium]: " _model
+        echo "    medium → echilibrat      calitate foarte bună (~1.5GB, ~5GB RAM)"
+        echo "    large-v3 → recomandat,   calitate maximă   (~3GB, ~10GB RAM)"
+        read -rp "  Model Whisper [large-v3]: " _model
         [[ -n "$_model" ]] && WHISPER_MODEL="$_model"
 
         echo ""
@@ -148,24 +150,25 @@ if [[ "${skip_env:-false}" != true ]]; then
     fi
 
     # Aplică valorile în .env
-    sed -i "s|your-secret-key-min-32-chars-change-this|${JWT_SECRET}|g" "$SCRIPT_DIR/.env"
-    sed -i "s|change_me_in_production|${DB_PASSWORD}|g" "$SCRIPT_DIR/.env"
-    sed -i "s|SERVER_NAME=.*|SERVER_NAME=${SERVER_NAME}|g" "$SCRIPT_DIR/.env"
-    sed -i "s|WHISPER_MODEL=.*|WHISPER_MODEL=${WHISPER_MODEL}|g" "$SCRIPT_DIR/.env"
-    sed -i "s|APP_ENV=.*|APP_ENV=${APP_ENV}|g" "$SCRIPT_DIR/.env"
+    sed -i "s|your-secret-key-min-32-chars-change-this|${JWT_SECRET}|g" "$REPO_ROOT/.env"
+    sed -i "s|change_me_in_production|${DB_PASSWORD}|g" "$REPO_ROOT/.env"
+    sed -i "s|^REDIS_PASSWORD=.*|REDIS_PASSWORD=${REDIS_PASSWORD}|" "$REPO_ROOT/.env"
+    sed -i "s|SERVER_NAME=.*|SERVER_NAME=${SERVER_NAME}|g" "$REPO_ROOT/.env"
+    sed -i "s|WHISPER_MODEL=.*|WHISPER_MODEL=${WHISPER_MODEL}|g" "$REPO_ROOT/.env"
+    sed -i "s|APP_ENV=.*|APP_ENV=${APP_ENV}|g" "$REPO_ROOT/.env"
     # Actualizează DATABASE_URL cu parola nouă
-    sed -i "s|mt_user:change_me_in_production|mt_user:${DB_PASSWORD}|g" "$SCRIPT_DIR/.env"
+    sed -i "s|mt_user:change_me_in_production|mt_user:${DB_PASSWORD}|g" "$REPO_ROOT/.env"
 
     ok ".env configurat (SERVER_NAME=$SERVER_NAME, MODEL=$WHISPER_MODEL)"
 fi
 
 # Citește SERVER_NAME din .env pentru pașii următori
-SERVER_NAME=$(grep '^SERVER_NAME=' "$SCRIPT_DIR/.env" | cut -d= -f2 | tr -d '"')
+SERVER_NAME=$(grep '^SERVER_NAME=' "$REPO_ROOT/.env" | cut -d= -f2 | tr -d '"')
 
 # ── Certificate SSL ───────────────────────────────────────────
 step "4/7 Certificate SSL"
 
-SSL_DIR="$SCRIPT_DIR/nginx/ssl"
+SSL_DIR="$REPO_ROOT/nginx/ssl"
 mkdir -p "$SSL_DIR"
 
 if [[ -f "$SSL_DIR/fullchain.pem" && -f "$SSL_DIR/privkey.pem" ]]; then
@@ -186,10 +189,10 @@ else
             read -rp "  Email pentru notificări Let's Encrypt: " LE_EMAIL
         fi
         info "Obțin certificate Let's Encrypt pentru: $SERVER_NAME..."
-        bash "$SCRIPT_DIR/scripts/gen-letsencrypt.sh" "$SERVER_NAME" "${LE_EMAIL:-admin@${SERVER_NAME}}"
+        bash "$REPO_ROOT/install/certs/gen-letsencrypt.sh" "$SERVER_NAME" "${LE_EMAIL:-admin@${SERVER_NAME}}"
     else
         info "Generez certificate self-signed pentru: $SERVER_NAME..."
-        bash "$SCRIPT_DIR/scripts/gen-self-signed.sh" "$SERVER_NAME"
+        bash "$REPO_ROOT/install/certs/gen-self-signed.sh" "$SERVER_NAME"
     fi
 fi
 
@@ -198,33 +201,51 @@ ok "Certificate SSL gata"
 # ── Creare directoare date ────────────────────────────────────
 step "5/7 Directoare"
 
-mkdir -p "$SCRIPT_DIR/data/inbox" \
-         "$SCRIPT_DIR/data/processed" \
-         "$SCRIPT_DIR/data/exports"
-touch "$SCRIPT_DIR/data/inbox/.gitkeep" \
-      "$SCRIPT_DIR/data/processed/.gitkeep" \
-      "$SCRIPT_DIR/data/exports/.gitkeep" 2>/dev/null || true
+mkdir -p "$REPO_ROOT/data/inbox" \
+         "$REPO_ROOT/data/processed" \
+         "$REPO_ROOT/data/exports"
+touch "$REPO_ROOT/data/inbox/.gitkeep" \
+      "$REPO_ROOT/data/processed/.gitkeep" \
+      "$REPO_ROOT/data/exports/.gitkeep" 2>/dev/null || true
 
 ok "Directoare create: data/inbox, data/processed, data/exports"
 
 # ── Build + Start ─────────────────────────────────────────────
 step "6/7 Build și pornire servicii"
 
+cd "$REPO_ROOT"
+
+# Modelele ML sunt incluse în imagini → trebuie descărcate ÎNAINTE de build
+if ls -d services/stt-worker/models/whisper/models--Systran--faster-whisper-* &>/dev/null \
+   && ls -d services/search-indexer/models/models--sentence-transformers--* &>/dev/null; then
+    ok "Modele ML găsite deja (services/*/models/)"
+else
+    info "Descarc modelele ML (Whisper, aliniere, embeddings; ~4-5 GB)..."
+    _model=$(grep '^WHISPER_MODEL=' .env | cut -d= -f2 | tr -d '"')
+    _hf_token=$(grep '^HF_TOKEN=' .env | cut -d= -f2- | tr -d '"')
+    _extra=()
+    if [[ -z "$_hf_token" ]]; then
+        warn "HF_TOKEN gol în .env → modelul de diarizare (pyannote) NU va fi inclus."
+        _extra=(--skip-diarization)
+    fi
+    HF_TOKEN="$_hf_token" bash "$REPO_ROOT/install/models/download-models-docker.sh" \
+        --whisper-model "${_model:-large-v3}" "${_extra[@]}"
+fi
+
 info "Construiesc imaginile Docker... (prima construire: 20-40 min)"
 info "Poți urmări progresul cu: docker compose logs -f"
 echo ""
 
-cd "$SCRIPT_DIR"
 docker compose build
 
 info "Pornesc serviciile..."
 docker compose up -d
 
-# Așteaptă ca API-ul să fie healthy
+# Așteaptă ca API-ul să fie healthy (portul 8080 nu e expus pe host → verificăm din container)
 info "Aștept ca API-ul să fie gata..."
-MAX_WAIT=120
+MAX_WAIT=180
 WAITED=0
-until curl -sf http://localhost:8080/health &>/dev/null || [[ $WAITED -ge $MAX_WAIT ]]; do
+until docker compose exec -T api curl -sf http://localhost:8080/health &>/dev/null || [[ $WAITED -ge $MAX_WAIT ]]; do
     sleep 3
     WAITED=$((WAITED + 3))
     echo -n "."
@@ -246,48 +267,25 @@ if [[ "$INTERACTIVE" == true ]]; then
     read -rp "  Username [admin]: " ADMIN_USER
     ADMIN_USER="${ADMIN_USER:-admin}"
     read -rp "  Email: " ADMIN_EMAIL
-    read -rsp "  Parolă: " ADMIN_PASS
+    read -rsp "  Parolă (minim 8 caractere): " ADMIN_PASS
     echo ""
 
     if [[ -n "$ADMIN_EMAIL" && -n "$ADMIN_PASS" ]]; then
-        # Creează admin direct în DB prin containerul API
-        docker compose exec -T api python3 -c "
-import asyncio, sys
-sys.path.insert(0, '/app')
-from src.database import AsyncSessionLocal
-from src.models.audit_log import User
-from passlib.context import CryptContext
-from sqlalchemy import select
-import uuid
-
-pwd_ctx = CryptContext(schemes=['bcrypt'])
-
-async def create_admin():
-    async with AsyncSessionLocal() as db:
-        result = await db.execute(select(User).where(User.username == '$ADMIN_USER'))
-        existing = result.scalar_one_or_none()
-        if existing:
-            print('EXISTS')
-            return
-        user = User(
-            id=uuid.uuid4(),
-            username='$ADMIN_USER',
-            email='$ADMIN_EMAIL',
-            hashed_password=pwd_ctx.hash('$ADMIN_PASS'),
-            role='admin',
-            is_active=True,
-            force_password_change=False,
-        )
-        db.add(user)
-        await db.commit()
-        print('CREATED')
-
-asyncio.run(create_admin())
-" 2>/dev/null && ok "Administrator '$ADMIN_USER' creat" || \
-        warn "Nu am putut crea administratorul automat. Rulează manual: make create-admin"
+        # Parola e transmisă prin variabilă de mediu (nu apare în linia de comandă).
+        # --update-existing: suprascrie parola implicită a contului "admin" din init.sql.
+        # --disable-default-operator: dezactivează "operator"/"operator123" din init.sql.
+        if MEETREC_ADMIN_PASSWORD="$ADMIN_PASS" docker compose exec -T -e MEETREC_ADMIN_PASSWORD api \
+            python -m src.cli.create_admin --username "$ADMIN_USER" --email "$ADMIN_EMAIL" \
+            --update-existing --disable-default-operator; then
+            ok "Administrator '$ADMIN_USER' configurat"
+        else
+            warn "Nu am putut crea administratorul automat. Rulează manual: make create-admin"
+        fi
     fi
+    unset ADMIN_PASS
 else
     info "Mod non-interactiv: creează administratorul cu: make create-admin"
+    warn "Până atunci există conturile implicite admin/admin123 și operator/operator123 (schimbare parolă obligatorie la login)."
 fi
 
 # ── Sumar final ───────────────────────────────────────────────
@@ -297,7 +295,7 @@ echo -e "${GREEN}${BOLD}  MeetRec instalat cu succes!${NC}"
 echo -e "${BOLD}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
 echo ""
 echo -e "  🌐 Aplicație:    ${BOLD}https://${SERVER_NAME}${NC}"
-if [[ "$(grep 'APP_ENV' "$SCRIPT_DIR/.env" | cut -d= -f2)" == "development" ]]; then
+if [[ "$(grep 'APP_ENV' "$REPO_ROOT/.env" | cut -d= -f2)" == "development" ]]; then
 echo -e "  📖 API Docs:     ${BOLD}http://${SERVER_NAME}:8080/docs${NC}"
 fi
 echo ""
@@ -308,7 +306,7 @@ echo "    make stop          → oprire"
 echo "    make restart       → repornire"
 echo "    make create-admin  → creează utilizator admin nou"
 echo ""
-if [[ "$SSL_TYPE" == "self-signed" ]]; then
+if [[ "${SSL_TYPE:-}" == "self-signed" ]]; then
 echo -e "  ${YELLOW}⚠️  Certificate self-signed: browserul va afișa avertisment.${NC}"
 echo -e "  ${YELLOW}   Chrome/Edge: click 'Advanced' → 'Proceed to ${SERVER_NAME}'${NC}"
 echo ""

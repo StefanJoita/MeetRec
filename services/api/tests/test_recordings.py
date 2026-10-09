@@ -27,6 +27,8 @@ from src.database import get_db
 from src.middleware.auth import get_current_user
 from src.models.audit_log import User
 from src.routers.recordings import get_recording_service
+from src.models.recording import Recording, RecordingStatus
+from src.models.transcript import Transcript
 from src.services.recording_service import RecordingDeletionError
 from src.schemas.recording import (
     PaginatedRecordings,
@@ -42,7 +44,9 @@ def make_fake_user(is_admin: bool = False) -> User:
     user.id = uuid.uuid4()
     user.username = "test_user"
     user.is_active = True
+    user.role = "admin" if is_admin else "operator"
     user.is_admin = is_admin
+    user.is_participant = False
     return user
 
 
@@ -89,7 +93,9 @@ def make_paginated(items: list = None, total: int = 0) -> PaginatedRecordings:
         total=total,
         page=1,
         page_size=20,
-        pages=0,
+        pages=1,
+        has_next=False,
+        has_prev=False,
     )
 
 
@@ -104,8 +110,10 @@ def make_mock_service():
     svc = AsyncMock()
     svc.list_recordings = AsyncMock(return_value=make_paginated())
     svc.get_by_id = AsyncMock(return_value=None)
-    svc.create = AsyncMock(return_value=make_recording_response())
     svc.update = AsyncMock(return_value=None)
+    # Router-ul primește modelul ORM de la get_by_id/update și îl
+    # convertește prin to_recording_response → mockăm conversia.
+    svc.to_recording_response = AsyncMock(return_value=make_recording_response())
     svc.delete = AsyncMock(return_value=False)
     svc.process_upload = AsyncMock(return_value=MagicMock(
         recording_id=RECORDING_ID,
@@ -123,14 +131,14 @@ from contextlib import asynccontextmanager
 
 
 @asynccontextmanager
-async def override_service(mock_svc, user: User = None):
+async def override_service(mock_svc, user: User = None, db: AsyncMock = None):
     """
     Context manager care override-uiește dependency-urile pentru teste:
     - get_recording_service → mock service
     - get_db → mock sesiune DB (evită conexiune reală PostgreSQL)
     - get_current_user → user fake (evită validare JWT reală)
     """
-    mock_db = AsyncMock()
+    mock_db = db or AsyncMock()
     mock_db.add = MagicMock()
 
     fake_user = user or make_fake_user()
@@ -220,11 +228,13 @@ class TestListRecordings:
         """
         svc = make_mock_service()
         svc.list_recordings.return_value = make_paginated()
+        user = make_fake_user()
 
-        async with override_service(svc) as client:
+        async with override_service(svc, user=user) as client:
             await client.get("/api/v1/recordings/?page=2&page_size=10&status=completed")
 
         # Verificăm că service-ul a primit parametrii corecți
+        # (inclusiv userul curent — folosit pentru filtrarea participanților)
         svc.list_recordings.assert_called_once_with(
             page=2,
             page_size=10,
@@ -232,6 +242,7 @@ class TestListRecordings:
             search=None,
             sort_by="created_at",
             sort_desc=True,
+            current_user=user,
         )
 
     @pytest.mark.asyncio
@@ -259,7 +270,7 @@ class TestGetRecording:
     async def test_get_existing_recording_returns_200(self):
         """O înregistrare care există trebuie să returneze 200."""
         svc = make_mock_service()
-        svc.get_by_id.return_value = make_recording_response()
+        svc.get_by_id.return_value = MagicMock()  # modelul ORM Recording
 
         async with override_service(svc) as client:
             response = await client.get(f"/api/v1/recordings/{RECORDING_ID}")
@@ -270,7 +281,8 @@ class TestGetRecording:
     async def test_get_returns_correct_data(self):
         """Datele returnate trebuie să corespundă înregistrării."""
         svc = make_mock_service()
-        svc.get_by_id.return_value = make_recording_response(
+        svc.get_by_id.return_value = MagicMock()  # modelul ORM Recording
+        svc.to_recording_response.return_value = make_recording_response(
             title="Ședință specială",
             status="completed",
         )
@@ -313,8 +325,10 @@ class TestGetRecording:
 
 
 # ============================================================
-# TESTE: POST /api/v1/recordings/
+# TESTE: POST /api/v1/inbox/session/create
 # ============================================================
+# POST /recordings/ a fost eliminat: înregistrările se creează acum
+# prin pre-înregistrarea sesiunii în inbox (Recording + Transcript în DB).
 
 class TestCreateRecording:
 
@@ -322,13 +336,13 @@ class TestCreateRecording:
     async def test_create_returns_201(self):
         """
         Crearea cu succes trebuie să returneze 201 Created (nu 200 OK).
-        201 = "resursa a fost creată" — convenție REST.
+        Pentru sesiuni pre-înregistrate, recording_id == session_id.
         """
         svc = make_mock_service()
 
         async with override_service(svc) as client:
             response = await client.post(
-                "/api/v1/recordings/",
+                "/api/v1/inbox/session/create",
                 json={
                     "title": "Ședință Consiliu",
                     "meeting_date": "2024-03-15",
@@ -336,66 +350,80 @@ class TestCreateRecording:
             )
 
         assert response.status_code == 201
+        body = response.json()
+        assert body["recording_id"] == body["session_id"]
+        uuid.UUID(body["session_id"])  # trebuie să fie UUID valid
 
     @pytest.mark.asyncio
-    async def test_create_calls_service_with_correct_data(self):
-        """Service-ul trebuie apelat cu datele din request body."""
+    async def test_create_persists_recording_with_correct_data(self):
+        """Recording-ul salvat în DB trebuie să conțină datele din request body."""
         svc = make_mock_service()
+        db = AsyncMock()
 
-        async with override_service(svc) as client:
+        async with override_service(svc, db=db) as client:
             await client.post(
-                "/api/v1/recordings/",
+                "/api/v1/inbox/session/create",
                 json={
                     "title": "Test titlu",
                     "meeting_date": "2024-01-20",
                     "location": "Sala A",
+                    "participants": "Ion Ionescu, Maria Pop",
                 },
             )
 
-        # Verificăm că service.create a fost apelat
-        svc.create.assert_called_once()
-        # Verificăm că datele au ajuns la service
-        call_args = svc.create.call_args[0][0]  # primul argument pozițional
-        assert call_args.title == "Test titlu"
-        assert call_args.location == "Sala A"
+        # Recording + Transcript adăugate, apoi commit
+        added = [c.args[0] for c in db.add.call_args_list]
+        recordings = [obj for obj in added if isinstance(obj, Recording)]
+        transcripts = [obj for obj in added if isinstance(obj, Transcript)]
+        assert len(recordings) == 1
+        assert len(transcripts) == 1
+        db.commit.assert_awaited_once()
+
+        rec = recordings[0]
+        assert rec.title == "Test titlu"
+        assert rec.location == "Sala A"
+        assert rec.meeting_date == date(2024, 1, 20)
+        assert rec.participants == ["Ion Ionescu", "Maria Pop"]
+        assert rec.status == RecordingStatus.SESSION_REGISTERED
+        assert transcripts[0].recording_id == rec.id
 
     @pytest.mark.asyncio
-    async def test_create_title_too_short_returns_422(self):
+    async def test_create_missing_title_returns_422(self):
         """
-        Titlul sub 3 caractere trebuie să returneze 422.
-        Pydantic validează Field(min_length=3) automat.
+        Fără title → 422.
+        (Noul endpoint nu mai impune lungime minimă pentru titlu.)
         """
         svc = make_mock_service()
 
         async with override_service(svc) as client:
             response = await client.post(
-                "/api/v1/recordings/",
-                json={
-                    "title": "AB",   # prea scurt: min_length=3
-                    "meeting_date": "2024-03-15",
-                },
+                "/api/v1/inbox/session/create",
+                json={"meeting_date": "2024-03-15"},  # lipsește title
             )
 
         assert response.status_code == 422
 
     @pytest.mark.asyncio
-    async def test_create_future_date_returns_422(self):
+    async def test_create_invalid_date_falls_back_to_today(self):
         """
-        Data în viitor trebuie respinsă.
-        Validatorul @field_validator("meeting_date") verifică asta.
+        O dată care nu e ISO valid nu e respinsă: endpoint-ul folosește data
+        curentă (UTC). (Noul endpoint nu mai respinge nici datele din viitor.)
         """
         svc = make_mock_service()
+        db = AsyncMock()
 
-        async with override_service(svc) as client:
+        async with override_service(svc, db=db) as client:
             response = await client.post(
-                "/api/v1/recordings/",
+                "/api/v1/inbox/session/create",
                 json={
-                    "title": "Ședință viitoare",
-                    "meeting_date": "2099-01-01",  # în viitor → invalid
+                    "title": "Ședință",
+                    "meeting_date": "nu-e-o-dată",
                 },
             )
 
-        assert response.status_code == 422
+        assert response.status_code == 201
+        rec = next(c.args[0] for c in db.add.call_args_list if isinstance(c.args[0], Recording))
+        assert rec.meeting_date == datetime.now(timezone.utc).date()
 
     @pytest.mark.asyncio
     async def test_create_missing_required_field_returns_422(self):
@@ -406,7 +434,7 @@ class TestCreateRecording:
 
         async with override_service(svc) as client:
             response = await client.post(
-                "/api/v1/recordings/",
+                "/api/v1/inbox/session/create",
                 json={"title": "Titlu"},  # lipsește meeting_date
             )
 
@@ -500,7 +528,8 @@ class TestUpdateRecording:
     async def test_update_existing_returns_200(self):
         """PATCH pe o înregistrare existentă trebuie să returneze 200."""
         svc = make_mock_service()
-        svc.update.return_value = make_recording_response(title="Titlu nou")
+        svc.update.return_value = MagicMock()  # modelul ORM Recording actualizat
+        svc.to_recording_response.return_value = make_recording_response(title="Titlu nou")
 
         async with override_service(svc) as client:
             response = await client.patch(
@@ -532,7 +561,8 @@ class TestUpdateRecording:
         Body-ul poate conține un singur câmp — e valid.
         """
         svc = make_mock_service()
-        svc.update.return_value = make_recording_response(location="Sala B")
+        svc.update.return_value = MagicMock()  # modelul ORM Recording actualizat
+        svc.to_recording_response.return_value = make_recording_response(location="Sala B")
 
         async with override_service(svc) as client:
             response = await client.patch(
