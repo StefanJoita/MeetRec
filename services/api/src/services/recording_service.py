@@ -16,7 +16,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 logger = structlog.get_logger()
 
 from src.models.audit_log import User
-from src.models.recording import Recording, RecordingParticipant, RecordingStatus
+from src.models.recording import (
+    Recording, RecordingParticipant, RecordingStatus, participant_access_clause,
+)
 from src.schemas.recording import (
     RecordingUpdate, RecordingResponse,
     PaginatedRecordings, RecordingListItem, ParticipantUserInfo,
@@ -50,11 +52,7 @@ class RecordingService:
 
         # Participantul vede DOAR înregistrările la care e linkat explicit
         if current_user and current_user.is_participant:
-            query = (
-                query
-                .join(RecordingParticipant, RecordingParticipant.recording_id == Recording.id)
-                .where(RecordingParticipant.user_id == current_user.id)
-            )
+            query = query.where(participant_access_clause(current_user.id))
 
         if status_filter:
             query = query.where(Recording.status == status_filter)
@@ -113,15 +111,13 @@ class RecordingService:
         Dacă userul e participant, verifică accesul în recording_participants.
         """
         if current_user and current_user.is_participant:
-            # Verificăm linkul în junction table + constrângerea temporală
+            # Doar dacă e linkat în recording_participants (participant_access_clause)
             result = await self.db.execute(
                 select(Recording)
                 .options(selectinload(Recording.transcript))
-                .join(RecordingParticipant, RecordingParticipant.recording_id == Recording.id)
                 .where(
                     Recording.id == recording_id,
-                    RecordingParticipant.user_id == current_user.id,
-                    Recording.created_at > current_user.created_at,
+                    participant_access_clause(current_user.id),
                 )
             )
             return result.scalar_one_or_none()

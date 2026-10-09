@@ -174,20 +174,20 @@ async def check_recording_access(
 
     Logica:
       - admin și operator → acces la toate
-      - participant → doar înregistrările la care a fost linkat explicit de admin,
-        și doar dacă înregistrarea a fost creată DUPĂ crearea contului participantului
+      - participant → doar înregistrările la care a fost linkat explicit de admin
+        (rând în recording_participants), indiferent de data creării contului.
+        Regula e definită o singură dată în participant_access_clause().
     """
     if not user.is_participant:
         return True
 
     # Import local pentru a evita circular imports
-    from src.models.recording import Recording, RecordingParticipant
+    from src.models.recording import Recording, participant_access_clause
 
     result = await db.execute(
-        select(RecordingParticipant)
-        .where(
-            RecordingParticipant.recording_id == recording_id,
-            RecordingParticipant.user_id == user.id,
+        select(Recording.id).where(
+            Recording.id == recording_id,
+            participant_access_clause(user.id),
         )
     )
     return result.scalar_one_or_none() is not None

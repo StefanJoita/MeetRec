@@ -18,7 +18,8 @@ from sqlalchemy import TIMESTAMP, Enum as SAEnum, JSON, SmallInteger
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID, ARRAY
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
-from sqlalchemy import UniqueConstraint
+from sqlalchemy import UniqueConstraint, exists
+from sqlalchemy.sql.elements import ColumnElement
 
 from src.models.base import Base
 
@@ -211,7 +212,7 @@ class RecordingParticipant(Base):
     """
     Tabelă de legătură: care useri (cu rol participant) au acces la care înregistrări.
     Adminul leagă explicit un user de o înregistrare.
-    Accesul este acordat doar pentru înregistrări create DUPĂ crearea contului participantului.
+    Regula de acces: vezi participant_access_clause().
     """
     __tablename__ = "recording_participants"
 
@@ -239,3 +240,21 @@ class RecordingParticipant(Base):
 
     def __repr__(self) -> str:
         return f"<RecordingParticipant rec={str(self.recording_id)[:8]} user={str(self.user_id)[:8]}>"
+
+
+def participant_access_clause(user_id: uuid.UUID) -> ColumnElement[bool]:
+    """
+    Sursa unică a regulii de acces pentru rolul participant.
+
+    Participantul are acces la o înregistrare dacă și numai dacă există un rând
+    (recording_id, user_id) în recording_participants. Nu există nicio condiție
+    de dată (contul poate fi creat după înregistrare).
+
+    Clauza EXISTS e corelată cu Recording, deci se folosește într-un query pe
+    Recording: select(Recording).where(participant_access_clause(user.id)).
+    Echivalentul SQL text este în search_service._participant_filter_sql.
+    """
+    return exists().where(
+        RecordingParticipant.recording_id == Recording.id,
+        RecordingParticipant.user_id == user_id,
+    )

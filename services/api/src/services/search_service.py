@@ -26,7 +26,10 @@ from src.schemas.recording import SearchResult, SemanticSearchResult, CombinedSe
 def _participant_filter_sql(user: Optional[User]) -> tuple[str, dict]:
     """
     Returnează un fragment SQL și parametrii corespunzători pentru filtrul participant.
-    Participantul vede doar înregistrările la care e linkat și create după contul lui.
+
+    Echivalentul în SQL text al participant_access_clause() din src/models/recording.py,
+    sursa unică a regulii: participantul vede doar înregistrările la care e linkat
+    în recording_participants, fără nicio condiție de dată. Păstrați-le sincronizate.
     """
     if user is None or not user.is_participant:
         return "", {}
@@ -37,13 +40,9 @@ def _participant_filter_sql(user: Optional[User]) -> tuple[str, dict]:
             SELECT 1 FROM recording_participants rp
             WHERE rp.recording_id = r.id
               AND rp.user_id = :participant_user_id
-              AND r.created_at > :participant_created_at
         )
         """,
-        {
-            "participant_user_id": user.id,
-            "participant_created_at": user.created_at,
-        },
+        {"participant_user_id": user.id},
     )
 
 
