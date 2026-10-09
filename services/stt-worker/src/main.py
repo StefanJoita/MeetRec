@@ -11,10 +11,14 @@
 #   - asyncio.Event() ca "steag" pentru shutdown
 #   - handle_shutdown() îl setează când vine SIGTERM
 #   - await stop_event.wait() blochează main() până la semnal
-#   - după semnal: consumer.stop() → așteptăm max 30s să termine jobul curent
+#   - după semnal: consumer.stop() + anularea task-ului consumer-ului.
+#     Jobul în curs NU e așteptat (o transcriere poate dura o oră): rămâne în
+#     lista processing din Redis și e reluat la următoarea pornire.
+#     docker-compose.yml: stop_grace_period: 2m pentru această curățenie.
 # ============================================================
 
 import asyncio
+import os
 import signal
 import sys
 
@@ -75,21 +79,29 @@ async def startup() -> tuple[DatabaseUploader, JobConsumer]:
     return uploader, consumer
 
 
-async def shutdown(uploader: DatabaseUploader, consumer: JobConsumer) -> None:
+async def shutdown(
+    uploader: DatabaseUploader,
+    consumer: JobConsumer,
+    consumer_task: asyncio.Task,
+) -> None:
     """
-    Oprire elegantă: semnalăm consumer-ul, așteptăm să termine, închidem DB.
+    Oprire: nu mai luăm joburi noi și nu așteptăm jobul curent.
 
-    consumer.stop() setează _running=False.
-    Consumer-ul termină jobul curent (dacă e în mijloc de transcriere)
-    și iese din loop după max 30s (timeout-ul BRPOP).
-    Abia apoi închidem DB — altfel save_results() ar eșua.
+    consumer.stop() oprește bucla; cancel() întrerupe BLMOVE (dacă așteaptă)
+    sau jobul în curs. Consumer-ul marchează jobul "interrupted" în lista
+    processing și închide Redis. Abia apoi închidem DB.
     """
     logger.info("service_stopping")
     consumer.stop()
-    # Nu avem un "await consumer.wait_done()" — loop-ul se oprește singur
-    # după ce _running=False și BRPOP timeout-ul expiră.
-    # uploader.disconnect() se apelează după ce main() revine din await consumer.start()
-    await uploader.disconnect()
+    consumer_task.cancel()
+    try:
+        await asyncio.wait_for(consumer_task, timeout=30)
+    except (asyncio.CancelledError, asyncio.TimeoutError):
+        pass
+    try:
+        await asyncio.wait_for(uploader.disconnect(), timeout=10)
+    except asyncio.TimeoutError:
+        logger.warning("db_disconnect_timeout")
     logger.info("service_stopped")
 
 
@@ -137,15 +149,14 @@ async def main() -> None:
     # Așteptăm semnalul de shutdown
     await stop_event.wait()
 
-    # Shutdown elegant
-    await shutdown(uploader, consumer)
+    await shutdown(uploader, consumer, consumer_task)
 
-    # Așteptăm terminarea task-ului consumer (max ~30s)
-    try:
-        await asyncio.wait_for(consumer_task, timeout=35)
-    except asyncio.TimeoutError:
-        logger.warning("consumer_task_timeout")
-        consumer_task.cancel()
+    # Transcrierea întreruptă rulează într-un thread (run_in_executor) care nu
+    # poate fi oprit, iar asyncio.run() l-ar aștepta la ieșire. Jobul e deja
+    # păstrat în lista processing, deci ieșim imediat.
+    sys.stdout.flush()
+    sys.stderr.flush()
+    os._exit(0)
 
 
 if __name__ == "__main__":

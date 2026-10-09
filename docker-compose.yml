@@ -191,9 +191,20 @@ services:
     image: meetrec/stt-worker:${MEETREC_VERSION:-1.0.0}   # tag folosit de pachetul offline (docker save/load)
     container_name: mt-stt-worker
     restart: unless-stopped
+    # La SIGTERM worker-ul nu mai ia joburi noi și NU așteaptă jobul curent:
+    # îl lasă în lista Redis "processing" și îl reia la pornire. Timpul e
+    # pentru curățenie (Redis, DB) înainte de SIGKILL.
+    stop_grace_period: 2m
     environment:
       REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
       REDIS_TRANSCRIPTION_QUEUE: ${REDIS_TRANSCRIPTION_QUEUE}
+      # ID fix: jobul în lucru stă în "<coadă>:processing:<WORKER_ID>". Hostname-ul
+      # containerului se schimbă la recreare, iar lista n-ar mai fi regăsită.
+      # Un al doilea worker are nevoie de alt WORKER_ID.
+      WORKER_ID: stt-worker-1
+      # De câte ori poate muri procesul pe același fișier (ex. memorie insuficientă)
+      # înainte ca înregistrarea să fie marcată 'failed' în loc să fie reluată.
+      MAX_JOB_ATTEMPTS: ${MAX_JOB_ATTEMPTS:-2}
       AUDIO_STORAGE_PATH: ${AUDIO_STORAGE_PATH}
       WHISPER_MODEL: ${WHISPER_MODEL}
       WHISPER_PRIMARY_LANGUAGE: ${WHISPER_PRIMARY_LANGUAGE}
@@ -292,6 +303,10 @@ services:
       RETENTION_DAYS: ${RETENTION_DAYS}
       AUDIT_LOG_RETENTION_DAYS: ${AUDIT_LOG_RETENTION_DAYS}
       AUDIO_STORAGE_PATH: ${AUDIO_STORAGE_PATH}
+      # Transcrieri blocate: 'transcribing' de peste N ore și fără job în Redis → 'failed'
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
+      REDIS_TRANSCRIPTION_QUEUE: ${REDIS_TRANSCRIPTION_QUEUE}
+      STUCK_TRANSCRIPTION_HOURS: ${STUCK_TRANSCRIPTION_HOURS:-6}
       LOG_LEVEL: ${LOG_LEVEL}
       TZ: Europe/Bucharest
     volumes:
@@ -300,6 +315,8 @@ services:
       - backend-network
     depends_on:
       postgres:
+        condition: service_healthy
+      redis:
         condition: service_healthy
 
   # ---------------------------------------------------------

@@ -29,7 +29,7 @@ pydub==0.25.1           # Concatenare fișiere audio pentru session assembly (fo
 asyncpg==0.29.0         # Driver PostgreSQL async (cel mai rapid disponibil)
 
 # --- QUEUE ---
-redis==5.0.1            # Include redis.asyncio — clientul async necesar pentru BRPOP
+redis==5.0.1            # Include redis.asyncio — clientul async pentru BLMOVE (server Redis >= 6.2)
 
 # --- CONFIG / LOGGING ---
 pydantic-settings==2.7.1
@@ -44,3 +44,4 @@ tenacity==8.2.3         # Decorator @retry pentru resilience (ex: reconectare Re
 pytest==7.4.3
 pytest-asyncio==0.23.2
 pytest-mock==3.12.0
+fakeredis==2.23.5       # Redis în memorie pentru testele cozii (BLMOVE/LREM/MULTI)

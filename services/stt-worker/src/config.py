@@ -36,6 +36,14 @@ class Settings(BaseSettings):
     redis_url: str = "redis://localhost:6379"
     redis_transcription_queue: str = "transcription_jobs"
 
+    # Coadă fiabilă: jobul în lucru stă în "<queue>:processing:<worker_id>"
+    # până se termină. Gol = hostname-ul containerului. În docker-compose.yml
+    # e fixat (WORKER_ID), ca lista să fie regăsită și după recrearea containerului.
+    worker_id: str = ""
+    # De câte ori poate muri procesul pe același job (OOM, kill) înainte ca
+    # jobul să fie marcat 'failed' în loc să fie reluat.
+    max_job_attempts: int = 2
+
     # --- Database (fără default — obligatoriu în .env) ---
     # Format: postgresql://user:pass@host:port/dbname
     database_url: str

@@ -3,6 +3,7 @@
 # Cerință legală: trebuie să existe o urmă că înregistrarea a fost ștearsă
 # și de ce (politică de retenție), nu doar că a dispărut.
 
+import json
 import uuid
 from datetime import datetime, timezone
 
@@ -50,4 +51,22 @@ async def log_audit_purge(pool: asyncpg.Pool, deleted_count: int) -> None:
             """,
             str(uuid.uuid4()),
             f'{{"deleted_count": {deleted_count}, "reason": "audit_log_retention_policy"}}',
+        )
+
+
+async def log_stuck_transcription_failed(
+    pool: asyncpg.Pool,
+    recording_id: str,
+    hours: int,
+) -> None:
+    """Urmă în audit_logs: înregistrare marcată 'failed' automat (transcriere blocată)."""
+    async with pool.acquire() as conn:
+        await conn.execute(
+            """
+            INSERT INTO audit_logs (id, action, resource_type, resource_id, details, success, user_ip)
+            VALUES ($1, 'TRANSCRIBE', 'recording', $2, $3, false, '127.0.0.1')
+            """,
+            str(uuid.uuid4()),
+            recording_id,
+            json.dumps({"reason": "stuck_transcription", "stuck_hours": hours}),
         )

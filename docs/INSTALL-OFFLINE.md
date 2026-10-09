@@ -443,6 +443,8 @@ Fișierul `/opt/meetrec/.env`. După orice modificare: `docker compose up -d`.
 | `WHISPER_COMPUTE_TYPE` | `int8` | `int8` (rapid, CPU) sau `float32` |
 | `DIARIZATION_ENABLED` | `true`/`false` | funcționează doar dacă `MANIFEST.txt` are `Diarizare: da` |
 | `MIN_SPEAKERS` / `MAX_SPEAKERS` | gol | indicații pentru diarizare |
+| `MAX_JOB_ATTEMPTS` | `2` | de câte ori poate cădea worker-ul pe același fișier (ex. memorie insuficientă) înainte ca înregistrarea să fie marcată „Eșuat” (§11.3) |
+| `STUCK_TRANSCRIPTION_HOURS` | `6` | după câte ore o înregistrare „În transcriere”, fără job în coadă, e marcată „Eșuat” |
 | `MAX_FILE_SIZE_BYTES` | `524288000` | dimensiunea maximă a unui fișier audio (500 MB) |
 | `RETENTION_DAYS` | `1095` | după câte zile se șterg înregistrările |
 | `AUDIT_LOG_RETENTION_DAYS` | `2190` | retenția jurnalului de audit |
@@ -484,6 +486,7 @@ Toate comenzile se rulează din `/opt/meetrec`.
 | Pornire | `docker compose up -d` |
 | Repornire serviciu | `docker compose restart stt-worker` |
 | Coada de transcriere | `docker compose exec redis redis-cli LLEN transcription_jobs` |
+| Jobul în lucru | `docker compose exec redis redis-cli LRANGE transcription_jobs:processing:stt-worker-1 0 -1` |
 
 Serviciile au `restart: unless-stopped` și pornesc automat după un reboot.
 
@@ -584,15 +587,30 @@ Pentru o eroare de versiune, serverul are pachete de bază mai vechi decât cele
 
 Installerul folosește automat binarele statice (`packages/docker/static/`). Condiții: systemd, `iptables` și kernel ≥ 4.x cu `overlay`. Verificare: `systemctl status docker`.
 
-### 11.3 `stt-worker` repornește continuu
+### 11.3 `stt-worker` repornește continuu / un fișier depășește memoria
 
-```bash
-docker compose logs --tail=200 stt-worker
-```
+**Ce se întâmplă când procesul moare în timpul unei transcrieri.** Jobul nu se pierde: cât timp rulează, stă în lista Redis `transcription_jobs:processing:stt-worker-1`. La repornire, worker-ul îl reia primul. Dacă procesul moare de `MAX_JOB_ATTEMPTS` ori (implicit 2) pe **același** fișier, jobul nu mai e reluat, ca un fișier problematic să nu blocheze coada. O oprire planificată (`docker compose stop`, actualizare, reboot curat) nu se numără.
+
+**Ce vede administratorul:**
+
+- în interfață, înregistrarea are statusul **Eșuat**, cu mesajul *„Procesul de transcriere s-a oprit de 2 ori pe acest fișier (posibil memorie insuficientă)”*;
+- în loguri (`docker compose logs --tail=500 stt-worker`): `job_recovered` (`attempts: 1`), apoi `job_abandoned_after_crashes`;
+- confirmarea unui OOM: `docker inspect mt-stt-worker --format '{{.State.OOMKilled}} {{.RestartCount}}'` afișează `true`, sau `sudo dmesg | grep -i "out of memory"` arată un proces `python` oprit.
+
+**Ce poate face**, în ordinea efortului:
+
+1. **Dezactivează diarizarea** (identificarea vorbitorilor), care încarcă un model suplimentar: `DIARIZATION_ENABLED=false` în `.env`, apoi `docker compose up -d`.
+2. **Mai mult RAM** pentru server sau pentru mașina virtuală (recomandat: 16 GB+ pentru `large-v3`). Închide alte servicii care rulează pe același server.
+3. **Model mai mic:** un pachet nou, generat cu `--whisper-model medium` (§3.3), și `WHISPER_MODEL=medium` în `.env`. Modelul e inclus în imagine, deci nu poate fi schimbat doar din `.env`.
+4. **Fișier mai scurt:** împarte înregistrarea în părți mai mici și încarcă-le separat.
+
+Apoi apasă **„Reîncearcă”** pe înregistrare. Contorul de încercări pornește de la zero.
+
+Un mesaj asemănător, *„Transcrierea nu s-a finalizat în 6 ore și jobul nu mai există în coada de procesare”*, vine de la verificarea periodică din `audit-retention`. Înseamnă că jobul s-a pierdut pe altă cale (ex. Redis golit). Soluția e aceeași: „Reîncearcă”.
 
 | Mesaj | Cauză | Soluție |
 |-------|-------|---------|
-| `Killed` / exit code 137 | memorie insuficientă (OOM) | mai mult RAM, `DIARIZATION_ENABLED=false`, sau un pachet nou cu `--whisper-model medium` |
+| `Killed` / exit code 137 / `OOMKilled: true` | memorie insuficientă (OOM) | vezi pașii de mai sus |
 | `LocalEntryNotFoundError` / `couldn't connect to huggingface.co` | `WHISPER_MODEL` diferă de modelul inclus | pune în `.env` valoarea din `MANIFEST.txt` → `Model Whisper` |
 | `diarization_model_failed` | pachet fără pyannote | `DIARIZATION_ENABLED=false` |
 

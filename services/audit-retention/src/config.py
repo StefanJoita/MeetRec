@@ -25,6 +25,13 @@ class Settings(BaseSettings):
     # Util pentru testare și verificare înainte de prima rulare în producție
     retention_dry_run: bool = False
 
+    # Transcrieri blocate (src/stuck_reaper.py): înregistrările în 'transcribing'
+    # de peste STUCK_TRANSCRIPTION_HOURS, fără job în Redis, devin 'failed'.
+    redis_url: str = "redis://redis:6379/0"
+    redis_transcription_queue: str = "transcription_jobs"
+    stuck_transcription_hours: int = 6
+    stuck_check_interval_seconds: int = 900   # 15 minute
+
     log_level: str = "INFO"
 
     @field_validator("database_url")
