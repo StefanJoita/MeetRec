@@ -8,7 +8,7 @@
 #   - Docker trebuie să fie instalat
 #
 # Folosire:
-#   ./scripts/gen-letsencrypt.sh meetrec.exemplu.com email@exemplu.com
+#   bash install/certs/gen-letsencrypt.sh meetrec.exemplu.com email@exemplu.com
 # =============================================================
 
 set -euo pipefail
@@ -22,7 +22,7 @@ if [[ -z "$DOMAIN" || -z "$EMAIL" ]]; then
     exit 1
 fi
 
-SSL_DIR="$(dirname "$0")/../nginx/ssl"
+SSL_DIR="$(cd "$(dirname "$0")/../.." && pwd)/nginx/ssl"
 mkdir -p "$SSL_DIR"
 
 echo "→ Obțin certificate Let's Encrypt pentru: $DOMAIN"
@@ -52,4 +52,4 @@ echo "✅ Certificate Let's Encrypt instalate cu succes!"
 echo "   Valabile 90 de zile. Reînnoire: rulează din nou acest script."
 echo ""
 echo "ℹ️  Pentru reînnoire automată, adaugă în crontab:"
-echo "   0 3 * * * $(realpath "$0") $DOMAIN $EMAIL && docker compose -f $(realpath "$(dirname "$0")/../docker-compose.yml") restart nginx"
+echo "   0 3 * * * $(realpath "$0") $DOMAIN $EMAIL && docker compose -f $(realpath "$(dirname "$0")/../../docker-compose.yml") restart nginx"

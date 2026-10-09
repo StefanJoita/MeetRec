@@ -1,0 +1,46 @@
+# ============================================================
+# docker-compose.dev.yml — suprascrieri DOAR pentru dezvoltare
+# ============================================================
+# Folosire:
+#   docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d
+#   (sau: make dev)
+#
+# Ce adaugă față de docker-compose.yml (producție):
+#   - porturi expuse pe host pentru debugging (Postgres, Redis, API, search-indexer)
+#   - codul sursă montat live în containere (fără rebuild la fiecare modificare)
+#
+# NU folosi acest fișier în producție / la instalarea offline.
+# ============================================================
+
+services:
+  postgres:
+    ports:
+      - "5432:5432"
+
+  redis:
+    ports:
+      - "6379:6379"
+
+  api:
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./services/api/src:/app/src
+
+  ingest:
+    volumes:
+      - ./services/ingest/src:/app/src
+
+  stt-worker:
+    volumes:
+      - ./services/stt-worker/src:/app/src
+
+  audit-retention:
+    volumes:
+      - ./services/audit-retention/src:/app/src
+
+  search-indexer:
+    ports:
+      - "8001:8001"
+    volumes:
+      - ./services/search-indexer/src:/app/src

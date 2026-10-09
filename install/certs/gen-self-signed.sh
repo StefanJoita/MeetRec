@@ -3,9 +3,9 @@
 # gen-self-signed.sh — Generează certificate SSL self-signed
 # =============================================================
 # Folosire:
-#   ./scripts/gen-self-signed.sh                    → CN=localhost
-#   ./scripts/gen-self-signed.sh meetrec.local      → CN=meetrec.local
-#   ./scripts/gen-self-signed.sh 192.168.1.100      → CN=IP
+#   bash install/certs/gen-self-signed.sh                    → CN=localhost
+#   bash install/certs/gen-self-signed.sh meetrec.local      → CN=meetrec.local
+#   bash install/certs/gen-self-signed.sh 192.168.1.100      → CN=IP
 #
 # Certificate generate: nginx/ssl/fullchain.pem + privkey.pem
 # Valabile 10 ani (3650 zile)
@@ -14,7 +14,7 @@
 set -euo pipefail
 
 DOMAIN="${1:-localhost}"
-SSL_DIR="$(dirname "$0")/../nginx/ssl"
+SSL_DIR="$(cd "$(dirname "$0")/../.." && pwd)/nginx/ssl"
 CERT="$SSL_DIR/fullchain.pem"
 KEY="$SSL_DIR/privkey.pem"
 

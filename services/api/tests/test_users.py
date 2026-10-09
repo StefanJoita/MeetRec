@@ -21,6 +21,7 @@ def make_fake_admin() -> User:
     user.email = 'admin@meetrec.local'
     user.is_active = True
     user.is_admin = True
+    user.role = 'admin'
     user.must_change_password = False
     user.created_at = datetime.now(timezone.utc)
     user.last_login = None
@@ -36,6 +37,7 @@ def make_user_item(user_id: uuid.UUID | None = None) -> MagicMock:
     item.full_name = 'New User'
     item.is_active = True
     item.is_admin = False
+    item.role = 'operator'
     item.must_change_password = True
     item.created_at = datetime.now(timezone.utc)
     item.last_login = None

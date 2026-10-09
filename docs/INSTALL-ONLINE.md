@@ -1,6 +1,8 @@
-# Ghid de instalare MeetRec
+# MeetRec — Ghid de instalare online (server cu internet)
 
 Platformă self-hosted de transcriere automată a ședințelor. Tot procesarea audio se face local — datele nu părăsesc infrastructura organizației.
+
+> **Server fără acces la internet?** Folosește [INSTALL-OFFLINE.md](INSTALL-OFFLINE.md): pachet unic cu imagini, modele ML și Docker Engine.
 
 ---
 
@@ -62,7 +64,7 @@ Microfoanele de conferință se conectează prin **USB** și apar automat în li
 | **curl** | orice | Preinstalat pe majority distribuțiilor |
 | **openssl** | orice | Necesar pentru generarea certificatelor |
 
-> **Windows:** Instalează [Docker Desktop](https://www.docker.com/products/docker-desktop/) și [Git for Windows](https://git-scm.com), apoi rulează `.\install\install.ps1` — vezi [Secțiunea 2](#2-instalare-automată-recomandată).
+> **Windows:** Instalează [Docker Desktop](https://www.docker.com/products/docker-desktop/) și [Git for Windows](https://git-scm.com), apoi rulează `.\install\online\install.ps1` — vezi [Secțiunea 2](#2-instalare-automată-recomandată).
 > **macOS:** Instalează [Docker Desktop](https://www.docker.com/products/docker-desktop/) și urmează pașii din secțiunea [Instalare manuală](#3-instalare-manuală-pas-cu-pas).
 
 ### Porturi necesare
@@ -71,7 +73,8 @@ Microfoanele de conferință se conectează prin **USB** și apar automat în li
 |------|----------|------|
 | 80 | TCP | HTTP → redirect la HTTPS |
 | 443 | TCP | HTTPS (interfața web) |
-| 8080 | TCP | API direct (opțional, doar pentru debug) |
+
+PostgreSQL (5432), Redis (6379), API-ul (8080) și search-indexer (8001) **nu** sunt expuse pe host în producție. Pentru debugging local: `make dev` (folosește `docker-compose.dev.yml`).
 
 Asigură-te că aceste porturi sunt deschise în firewall-ul serverului.
 
@@ -91,7 +94,7 @@ cd MeetRec
 ### Pasul 2 — Rulează installer-ul
 
 ```bash
-bash install/install.sh
+bash install/online/install.sh
 ```
 
 Installer-ul va:
@@ -108,7 +111,7 @@ Installer-ul va:
 Dacă rulezi în CI/CD sau vrei valorile implicite:
 
 ```bash
-bash install/install.sh --non-interactive
+bash install/online/install.sh --non-interactive
 ```
 
 ---
@@ -169,8 +172,9 @@ SERVER_NAME=192.168.1.100     # sau meetrec.companie.ro
 | `JWT_SECRET_KEY` | *(de generat)* | Cheie secretă JWT — minim 32 caractere |
 | `POSTGRES_PASSWORD` | `change_me_in_production` | Parolă bază de date |
 | `SERVER_NAME` | `meeting-transcriber.local` | Domeniu sau IP server |
-| `WHISPER_MODEL` | `medium` | Model transcriere: `tiny`/`base`/`small`/`medium`/`large` |
-| `APP_ENV` | `development` | `production` dezactivează `/docs` OpenAPI |
+| `WHISPER_MODEL` | `large-v3` | Model transcriere inclus în imagine: `tiny`/`base`/`small`/`medium`/`large-v3` (schimbarea cere rebuild) |
+| `REDIS_PASSWORD` | *(de generat)* | Parolă Redis (caractere URL-safe, ex. `openssl rand -hex 24`) |
+| `APP_ENV` | `production` | `production` dezactivează `/docs` OpenAPI |
 | `WHISPER_PRIMARY_LANGUAGE` | `ro` | Limba principală pentru transcrieri |
 | `RETENTION_DAYS` | `1095` | Zile după care înregistrările se șterg automat (3 ani) |
 
@@ -188,11 +192,11 @@ mkdir -p data/inbox data/processed data/exports
 
 ```bash
 # localhost sau IP
-bash install/scripts/gen-self-signed.sh localhost
-bash install/scripts/gen-self-signed.sh 192.168.1.100
+bash install/certs/gen-self-signed.sh localhost
+bash install/certs/gen-self-signed.sh 192.168.1.100
 
 # sau cu domeniu
-bash install/scripts/gen-self-signed.sh meetrec.companie.ro
+bash install/certs/gen-self-signed.sh meetrec.companie.ro
 ```
 
 > Browserul va afișa un avertisment de securitate. Click **Avansat → Continuă**. Avertismentul poate fi eliminat adăugând certificatul în trusted store-ul sistemului.
@@ -202,12 +206,12 @@ bash install/scripts/gen-self-signed.sh meetrec.companie.ro
 Cerință: serverul trebuie să fie accesibil public pe portul 80.
 
 ```bash
-bash install/scripts/gen-letsencrypt.sh meetrec.companie.ro admin@companie.ro
+bash install/certs/gen-letsencrypt.sh meetrec.companie.ro admin@companie.ro
 ```
 
 Certificatele Let's Encrypt sunt valabile 90 de zile. Pentru reînnoire automată, adaugă în crontab:
 ```bash
-0 3 1 * * bash /calea/spre/MeetRec/install/scripts/gen-letsencrypt.sh meetrec.companie.ro admin@companie.ro && docker compose restart nginx
+0 3 1 * * bash /calea/spre/MeetRec/install/certs/gen-letsencrypt.sh meetrec.companie.ro admin@companie.ro && docker compose restart nginx
 ```
 
 ### Pasul 6 — Construiește imaginile Docker
@@ -287,10 +291,10 @@ asyncio.run(run())
 
 ```bash
 # IP specific
-bash install/scripts/gen-self-signed.sh 192.168.1.100
+bash install/certs/gen-self-signed.sh 192.168.1.100
 
 # Domeniu intern
-bash install/scripts/gen-self-signed.sh meetrec.local
+bash install/certs/gen-self-signed.sh meetrec.local
 
 # Aplică certificatele noi
 docker compose restart nginx
@@ -346,24 +350,24 @@ Din panoul **Admin → Utilizatori**:
 3. Sistemul detectează automat fișierul și începe transcrierea
 4. Statusul se actualizează în timp real: `queued` → `transcribing` → `completed`
 
-### Așteptare la primul start al STT Worker
+### Modelele ML (Whisper, aliniere, diarizare, embeddings)
 
-La primul start, Whisper descarcă modelul de transcriere:
+Modelele sunt **descărcate înainte de build** (`install/models/download-models.py`, rulat automat de installer)
+și **incluse în imaginile Docker** `stt-worker` și `search-indexer`. La runtime nu e nevoie de internet
+(`HF_HUB_OFFLINE=1` e setat în imagini).
 
-| Model | Dimensiune | Timp descărcare (100 Mbps) |
-|-------|------------|---------------------------|
-| `tiny` | ~75 MB | ~6 sec |
-| `base` | ~140 MB | ~11 sec |
-| `small` | ~460 MB | ~37 sec |
-| `medium` | ~1.5 GB | ~2 min |
-| `large` | ~3 GB | ~4 min |
+| Model Whisper | Dimensiune | RAM necesar |
+|-------|------------|-------------|
+| `small` | ~460 MB | ~2 GB |
+| `medium` | ~1.5 GB | ~5 GB |
+| `large-v3` (implicit) | ~3 GB | ~8–10 GB |
 
-Urmărești progresul cu:
+La pornire, STT Worker încarcă modelul de pe disc (1–3 minute):
 ```bash
 docker compose logs -f stt-worker
 ```
 
-Modelul este descărcat la build time și este baked în imaginea Docker — la runtime nu e nevoie de internet.
+Pentru instalarea pe un server **fără internet**, vezi [INSTALL-OFFLINE.md](INSTALL-OFFLINE.md).
 
 ---
 
@@ -417,13 +421,8 @@ Aplicația va fi accesibilă la `https://server:8443`.
 
 ### Căutare semantică (AI)
 
-La primul start, `search-indexer` descarcă modelul de embeddings (~120 MB). După ce a pornit cu succes, setează în `.env`:
-
-```bash
-HF_HUB_OFFLINE=1
-```
-
-Aceasta previne verificările online la fiecare repornire.
+Modelul de embeddings (`paraphrase-multilingual-MiniLM-L12-v2`, ~470 MB) este inclus în imaginea
+`search-indexer`. Nu e necesară nicio configurare și nicio conexiune la internet.
 
 ### Backup date
 
@@ -500,7 +499,7 @@ Dacă folosești certificate self-signed și un alt serviciu (nu browser) return
 ls -la nginx/ssl/
 
 # Regenerează dacă lipsesc
-bash install/scripts/gen-self-signed.sh localhost
+bash install/certs/gen-self-signed.sh localhost
 docker compose restart nginx
 ```
 
