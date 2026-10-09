@@ -111,7 +111,7 @@ async def test_session_complete_redis_pica_db_ramane_queued(inbox_client):
 
         resp = await inbox_client.post(
             f"/api/v1/inbox/session/{session_id}/complete",
-            data={"total_segments": "1"},
+            json={"total_segments": 1},
             headers={"Authorization": "Bearer fake"},  # get_current_user e override-uit
         )
 
@@ -168,7 +168,7 @@ async def test_session_complete_redis_ok_db_commit_dupa(inbox_client):
 
         resp = await inbox_client.post(
             f"/api/v1/inbox/session/{session_id}/complete",
-            data={"total_segments": "1"},
+            json={"total_segments": 1},
         )
 
     assert resp.status_code == 200
@@ -207,7 +207,7 @@ async def test_session_complete_inregistrare_inexistenta_404(inbox_client):
 
     resp = await inbox_client.post(
         f"/api/v1/inbox/session/{session_id}/complete",
-        data={"total_segments": "1"},
+        json={"total_segments": 1},
     )
 
     assert resp.status_code == 404
@@ -230,7 +230,7 @@ async def test_session_complete_deja_dispatchata_409(inbox_client):
 
     resp = await inbox_client.post(
         f"/api/v1/inbox/session/{session_id}/complete",
-        data={"total_segments": "1"},
+        json={"total_segments": 1},
     )
 
     assert resp.status_code == 409
