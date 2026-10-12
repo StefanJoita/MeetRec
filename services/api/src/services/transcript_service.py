@@ -64,12 +64,23 @@ class TranscriptService:
 
     async def _publish_job(self, recording: Recording) -> None:
         """Publică job de transcriere în Redis."""
-        job = {
-            "recording_id": str(recording.id),
-            "file_path": recording.file_path,
-            "audio_format": recording.audio_format,
-            "duration_seconds": recording.duration_seconds or 0,
-            "language_hint": "ro",
-        }
+        if recording.session_id is not None:
+            # Sesiune multi-fișier: același job ca Session Watcher (ingest) —
+            # stt-worker concatenează toate segmentele. Un job standard ar
+            # transcrie doar fișierul principal, iar segmentele rămase 'queued'
+            # ar ține înregistrarea în 'transcribing' la nesfârșit.
+            job = {
+                "recording_id": str(recording.id),
+                "session_mode": True,
+                "language_hint": "ro",
+            }
+        else:
+            job = {
+                "recording_id": str(recording.id),
+                "file_path": recording.file_path,
+                "audio_format": recording.audio_format,
+                "duration_seconds": recording.duration_seconds or 0,
+                "language_hint": "ro",
+            }
         async with aioredis.from_url(settings.redis_url, decode_responses=True) as r:
             await r.lpush(settings.redis_transcription_queue, json.dumps(job))
