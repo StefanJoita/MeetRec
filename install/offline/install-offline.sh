@@ -62,8 +62,11 @@ step "1/7 Verificare sistem și pachet"
 [[ $EUID -eq 0 ]] || err "Rulează ca root: sudo ./install-offline.sh"
 [[ "$(uname -m)" == "x86_64" ]] || err "Arhitectură nesuportată: $(uname -m). Pachetul este pentru x86_64 (amd64)."
 
-. /etc/os-release 2>/dev/null || true
-info "Sistem: ${PRETTY_NAME:-necunoscut}, kernel $(uname -r)"
+# Citit într-un subshell: os-release definește VERSION (ex. "22.04.3 LTS (Jammy Jellyfish)"),
+# care ar suprascrie versiunea pachetului și ar strica tag-urile imaginilor
+os_release() { (. /etc/os-release 2>/dev/null && printf '%s' "${!1:-}") || true; }
+OS_NAME="$(os_release PRETTY_NAME)"
+info "Sistem: ${OS_NAME:-necunoscut}, kernel $(uname -r)"
 
 MEM_GB=$(awk '/MemTotal/ {printf "%d", $2/1024/1024}' /proc/meminfo)
 [[ $MEM_GB -ge 14 ]] || warn "RAM: ${MEM_GB} GB. Recomandat minim 16 GB pentru Whisper large-v3."
@@ -80,7 +83,7 @@ fi
 
 # ── 2. Pachete de sistem + Docker Engine ──────────────────────
 step "2/7 Pachete de sistem și Docker Engine"
-CODENAME="${VERSION_CODENAME:-}"
+CODENAME="$(os_release VERSION_CODENAME)"
 
 # Instalează din packages/system/<codename>/ DOAR pachetele care lipsesc de pe server
 # (iptables, nftables, openssl + dependențe). Cele deja instalate nu sunt atinse.
