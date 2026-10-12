@@ -22,8 +22,15 @@ export default function LoginPage() {
     try {
       await login(data.username, data.password)
       navigate('/')
-    } catch {
-      setError('Nume de utilizator sau parolă incorectă.')
+    } catch (err) {
+      const status = (err as { response?: { status?: number } }).response?.status
+      if (status === 429) {
+        setError('Prea multe încercări de autentificare. Așteptați un minut și încercați din nou.')
+      } else if (status === 401) {
+        setError('Nume de utilizator sau parolă incorectă.')
+      } else {
+        setError('Serverul nu răspunde. Încercați din nou.')
+      }
     }
   }
 
