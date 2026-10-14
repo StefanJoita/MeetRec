@@ -50,15 +50,15 @@ describe('StatusBadge', () => {
     expect(container.querySelector('span')).toBeInTheDocument()
   })
 
-  it('aplică clasa verde pentru "completed"', () => {
+  it('aplică clasa verde (emerald) pentru "completed"', () => {
     const { container } = render(<StatusBadge status="completed" />)
     const span = container.querySelector('span')!
-    expect(span.className).toContain('green')
+    expect(span.className).toContain('emerald')
   })
 
-  it('aplică clasa roșie pentru "failed"', () => {
+  it('aplică clasa roșie (rose) pentru "failed"', () => {
     const { container } = render(<StatusBadge status="failed" />)
     const span = container.querySelector('span')!
-    expect(span.className).toContain('red')
+    expect(span.className).toContain('rose')
   })
 })
