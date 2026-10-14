@@ -77,6 +77,10 @@ class Settings(BaseSettings):
     # "int8" cel mai rapid pe CPU, "float32" mai compatibil
     whisper_compute_type: str = "int8"
 
+    # Fire CPU pentru transcriere (faster-whisper). 0 = toate nucleele disponibile
+    # containerului. Implicitul WhisperX e 4, indiferent câte nuclee are serverul.
+    whisper_threads: int = 0
+
     # --- Diarizare vorbitori ---
     diarization_enabled: bool = False
     hf_token: str = ""

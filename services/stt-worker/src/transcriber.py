@@ -19,14 +19,39 @@
 
 import asyncio
 import math
+import os
 from dataclasses import dataclass
-from typing import List, Optional
+from typing import Callable, List, Optional
 
 import structlog
 
 from src.config import settings
 
 logger = structlog.get_logger(__name__)
+
+
+def _whisper_threads() -> int:
+    """Fire pentru faster-whisper: WHISPER_THREADS sau toate nucleele containerului."""
+    if settings.whisper_threads > 0:
+        return settings.whisper_threads
+    try:
+        return len(os.sched_getaffinity(0))   # respectă cpuset-ul containerului
+    except AttributeError:                     # sistem fără sched_getaffinity
+        return os.cpu_count() or 4
+
+
+def _progress_logger(file_path: str, stage: str, step: int = 10) -> Callable[[float], None]:
+    """Callback WhisperX (procent 0–100) care loghează din `step` în `step` procente."""
+    next_mark = step
+
+    def report(percent: float) -> None:
+        nonlocal next_mark
+        if percent >= next_mark:
+            logger.info("transcription_progress", file=file_path, stage=stage,
+                        percent=int(percent))
+            next_mark = (int(percent) // step + 1) * step
+
+    return report
 
 
 # ── Structura pentru un segment de transcript ────────────────
@@ -71,6 +96,7 @@ class WhisperTranscriber:
         logger.info("models_loading",
                     whisper_model=settings.whisper_model,
                     compute_type=settings.whisper_compute_type,
+                    threads=_whisper_threads(),
                     diarization=settings.diarization_enabled)
 
         loop = asyncio.get_running_loop()
@@ -89,6 +115,7 @@ class WhisperTranscriber:
             compute_type=settings.whisper_compute_type,
             download_root=str(settings.whisper_model_path / "whisper"),
             language=settings.whisper_primary_language,
+            threads=_whisper_threads(),
         )
         logger.info("whisper_model_ready", model=settings.whisper_model)
 
@@ -164,7 +191,10 @@ class WhisperTranscriber:
         audio = whisperx.load_audio(file_path)
 
         # ── 1. Transcriere ────────────────────────────────────
-        result = self._model.transcribe(audio, batch_size=8, language=lang)
+        result = self._model.transcribe(
+            audio, batch_size=8, language=lang,
+            progress_callback=_progress_logger(file_path, "transcriere"),
+        )
         detected_language = result.get("language", lang)
 
         # ── 2. Aliniere forțată ───────────────────────────────
@@ -177,6 +207,7 @@ class WhisperTranscriber:
                     audio,
                     device="cpu",
                     return_char_alignments=False,
+                    progress_callback=_progress_logger(file_path, "aliniere"),
                 )
             except Exception as e:
                 logger.warning("alignment_failed", error=str(e))
@@ -190,7 +221,10 @@ class WhisperTranscriber:
                 if settings.max_speakers is not None:
                     diarize_kwargs["max_speakers"] = settings.max_speakers
 
-                diarize_segments = self._diarize_model(audio, **diarize_kwargs)
+                diarize_segments = self._diarize_model(
+                    audio, progress_callback=_progress_logger(file_path, "diarizare"),
+                    **diarize_kwargs,
+                )
                 result = whisperx.assign_word_speakers(diarize_segments, result)
             except Exception as e:
                 logger.error("diarization_failed", error=str(e))
