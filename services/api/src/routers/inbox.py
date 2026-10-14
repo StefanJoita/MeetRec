@@ -18,7 +18,6 @@ import asyncio
 import hashlib
 import json
 import re
-import shutil
 import uuid as uuid_lib
 from datetime import date, datetime, timezone
 from pathlib import Path
@@ -260,14 +259,41 @@ async def upload_to_inbox(
         dest = inbox_path / f"{original_stem}_{counter}{original_suffix}"
         counter += 1
 
+    # SHA256 calculat la salvare, cu același algoritm ca Ingest (validator.py)
+    sha256 = hashlib.sha256()
     try:
         with dest.open("wb") as out:
-            shutil.copyfileobj(file.file, out)
+            while chunk := file.file.read(1024 * 1024):
+                sha256.update(chunk)
+                out.write(chunk)
     except OSError as e:
+        dest.unlink(missing_ok=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Nu s-a putut salva fișierul: {e}",
         )
+
+    # ── Duplicat: același fișier există deja ──────────────────
+    # Ingest l-ar respinge oricum (file_hash_sha256 e unic), dar în tăcere:
+    # utilizatorul ar vedea „trimis cu succes” și nicio înregistrare nouă.
+    # Segmentele de sesiune rămân în grija Ingest (clienții de sesiune nu tratează 409).
+    if parsed_session_id is None:
+        duplicate = (await db.execute(
+            select(Recording.id, Recording.title, Recording.meeting_date)
+            .where(Recording.file_hash_sha256 == sha256.hexdigest())
+        )).first()
+        if duplicate is not None:
+            dest.unlink(missing_ok=True)
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail={
+                    "message": (
+                        f"Fișierul a fost deja încărcat: „{duplicate.title}” "
+                        f"din {duplicate.meeting_date:%d.%m.%Y}."
+                    ),
+                    "recording_id": str(duplicate.id),
+                },
+            )
 
     # ── Sidecar JSON ──────────────────────────────────────────
     meta: dict = {}

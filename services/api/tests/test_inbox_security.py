@@ -42,6 +42,8 @@ async def http():
 
 def login_as(user: MagicMock) -> AsyncMock:
     db = AsyncMock(spec=AsyncSession)
+    db.execute.return_value.first = MagicMock(return_value=None)        # niciun fișier duplicat
+    db.execute.return_value.scalar_one_or_none = MagicMock(return_value=None)
 
     async def _db():
         yield db
