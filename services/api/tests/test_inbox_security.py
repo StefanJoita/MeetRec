@@ -44,6 +44,7 @@ def login_as(user: MagicMock) -> AsyncMock:
     db = AsyncMock(spec=AsyncSession)
     db.execute.return_value.first = MagicMock(return_value=None)        # niciun fișier duplicat
     db.execute.return_value.scalar_one_or_none = MagicMock(return_value=None)
+    db.get.return_value = None                                          # app_settings: valorile din .env
 
     async def _db():
         yield db

@@ -9,6 +9,7 @@
 # STT Worker va face update la status='completed' când termină.
 # ============================================================
 
+import json
 import uuid
 from datetime import datetime, date, timezone
 from pathlib import Path
@@ -53,6 +54,15 @@ class DatabaseClient:
             await self._pool.close()
             logger.info("database_disconnected")
     
+    async def get_app_setting(self, key: str) -> Any:
+        """Valoarea setată din Administrare → Setări (tabelul app_settings), sau None."""
+        async with self._pool.acquire() as conn:
+            try:
+                raw = await conn.fetchval("SELECT value FROM app_settings WHERE key = $1", key)
+            except asyncpg.UndefinedTableError:
+                return None          # API-ul n-a aplicat încă migrarea 010
+        return json.loads(raw) if isinstance(raw, str) else raw
+
     async def check_duplicate(self, file_hash:str)->Optional[str]:
         """Verifica daca exista deja un fisier cu acelasi hash in DB
         Args:

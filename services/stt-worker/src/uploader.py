@@ -11,6 +11,7 @@ from typing import List, Optional
 import asyncpg
 import structlog
 
+from src import runtime_settings
 from src.config import settings
 
 logger = structlog.get_logger(__name__)
@@ -59,6 +60,15 @@ class DatabaseUploader:
             logger.info("db_disconnected")
 
     # ── Query helpers ─────────────────────────────────────────
+
+    async def fetch_app_settings(self) -> dict:
+        """Setările suprascrise din interfața de administrare (tabelul app_settings)."""
+        async with self._pool.acquire() as conn:
+            try:
+                rows = await conn.fetch(runtime_settings.QUERY, list(runtime_settings.ALL_KEYS))
+            except asyncpg.UndefinedTableError:
+                return {}            # API-ul n-a aplicat încă migrarea 010
+        return runtime_settings.parse_rows(rows)
 
     async def get_transcript_id(self, recording_id: str) -> Optional[str]:
         """Returnează UUID-ul transcriptului asociat înregistrării."""

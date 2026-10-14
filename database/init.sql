@@ -266,6 +266,19 @@ CREATE TABLE users (
 );
 
 -- ============================================================
+-- TABELUL: app_settings
+-- ============================================================
+-- Setări de funcționare schimbate din interfața de administrare.
+-- O cheie lipsă = se folosește valoarea din .env (variabila de mediu).
+-- Serviciile citesc tabelul la fiecare job / verificare.
+CREATE TABLE app_settings (
+    key         VARCHAR(100) PRIMARY KEY,
+    value       JSONB NOT NULL,
+    updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_by  UUID REFERENCES users(id) ON DELETE SET NULL
+);
+
+-- ============================================================
 -- TABELUL: recording_participants
 -- ============================================================
 CREATE TABLE recording_participants (

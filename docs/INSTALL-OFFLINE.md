@@ -438,19 +438,28 @@ curl -I https://meetrec.firma.local          # fără -k dacă CA-ul e importat
 
 Fișierul `/opt/meetrec/.env`. După orice modificare: `docker compose up -d`.
 
+**Din interfață (Administrare → Setări)** se pot schimba, fără `.env` și fără restart manual, setările marcate cu ✱ în tabel. Valoarea din interfață are prioritate față de `.env`; butonul „Implicit” revine la valoarea din `.env`. Fiecare modificare apare în jurnalul de audit (cine, valoarea veche, valoarea nouă).
+
+- Diarizarea pornită/oprită și diarizarea în paralel cer reîncărcarea modelelor: worker-ul de transcriere se repornește singur când nu are nimic în lucru (1-3 minute).
+- Celelalte se aplică la următoarea transcriere, la următoarea verificare (cel mult 15 minute) sau la următoarea rulare a retenției (zilnic).
+- Nu se pot schimba din interfață: secretele, rețeaua, căile, versiunea și modelul Whisper (fiecare imagine `stt-worker` conține un singur model).
+
+**Administrare → Stare sistem** arată versiunea, worker-ul de transcriere (model, fire, ce transcrie acum), lungimea cozii, spațiul liber pentru înregistrări, înregistrările pe stări și ultimele eșecuri.
+
 | Variabilă | Implicit | Descriere |
 |-----------|----------|-----------|
 | `SERVER_NAME` | IP-ul serverului | numele afișat (certificatele se generează separat, §6) |
 | `WHISPER_MODEL` | `large-v3` | **trebuie** să fie modelul inclus în imagine; alt model cere un pachet nou |
 | `WHISPER_COMPUTE_TYPE` | `int8` | `int8` (rapid, CPU) sau `float32` |
-| `DIARIZATION_ENABLED` | `true`/`false` | funcționează doar dacă `MANIFEST.txt` are `Diarizare: da` |
-| `MIN_SPEAKERS` / `MAX_SPEAKERS` | gol | indicații pentru diarizare |
-| `MAX_JOB_ATTEMPTS` | `2` | de câte ori poate cădea worker-ul pe același fișier (ex. memorie insuficientă) înainte ca înregistrarea să fie marcată „Eșuat” (§11.3) |
-| `STUCK_TRANSCRIPTION_HOURS` | `6` | după câte ore o înregistrare „În transcriere”, fără job în coadă, e marcată „Eșuat” |
-| `ABANDONED_SESSION_HOURS` | `24` | după câte ore o sesiune pre-înregistrată de un client, care n-a primit niciun fișier audio valid (ex. segment respins ca duplicat), e ștearsă (cu urmă în audit) |
-| `MAX_FILE_SIZE_BYTES` | `524288000` | dimensiunea maximă a unui fișier audio (500 MB) |
-| `RETENTION_DAYS` | `1095` | după câte zile se șterg înregistrările |
-| `AUDIT_LOG_RETENTION_DAYS` | `2190` | retenția jurnalului de audit |
+| `DIARIZATION_ENABLED` ✱ | `true`/`false` | funcționează doar dacă `MANIFEST.txt` are `Diarizare: da` |
+| `DIARIZATION_PARALLEL` ✱ | `true` | diarizarea rulează în paralel cu transcrierea (jumătate din nuclee fiecare); `false` = una după alta |
+| `MIN_SPEAKERS` / `MAX_SPEAKERS` ✱ | gol | indicații pentru diarizare |
+| `MAX_JOB_ATTEMPTS` ✱ | `2` | de câte ori poate cădea worker-ul pe același fișier (ex. memorie insuficientă) înainte ca înregistrarea să fie marcată „Eșuat” (§11.3) |
+| `STUCK_TRANSCRIPTION_HOURS` ✱ | `6` | după câte ore o înregistrare „În transcriere”, fără job în coadă, e marcată „Eșuat” |
+| `ABANDONED_SESSION_HOURS` ✱ | `24` | după câte ore o sesiune pre-înregistrată de un client, care n-a primit niciun fișier audio valid (ex. segment respins ca duplicat), e ștearsă (cu urmă în audit) |
+| `MAX_FILE_SIZE_BYTES` ✱ | `524288000` | dimensiunea maximă a unui fișier audio (500 MB); în interfață se setează în MB, maxim 600 (limita nginx) |
+| `RETENTION_DAYS` ✱ | `1095` | după câte zile de la încărcare se șterg înregistrările (audio + transcriere) |
+| `AUDIT_LOG_RETENTION_DAYS` ✱ | `2190` | retenția jurnalului de audit |
 | `JWT_EXPIRE_MINUTES` | `480` | durata sesiunii |
 | `NGINX_HTTPS_PORT` | `443` | portul HTTPS |
 | `FRONTEND_SUBNET` | `172.30.10.0/24` | subnetul rețelei Docker `frontend-network` (nginx, frontend, API); schimbă-l doar dacă se suprapune cu o rețea a organizației |

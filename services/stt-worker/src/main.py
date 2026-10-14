@@ -22,6 +22,7 @@ import os
 import signal
 import sys
 
+from src import runtime_settings
 from src.config import settings
 from src.consumer import JobConsumer
 from src.language_detector import LanguageDetector
@@ -52,6 +53,15 @@ async def startup() -> tuple[DatabaseUploader, JobConsumer]:
     # ── 1. Conectăm la PostgreSQL ─────────────────────────────
     uploader = DatabaseUploader()
     await uploader.connect()
+
+    # Setările din Administrare → Setări, înainte de încărcarea modelelor
+    try:
+        changed = runtime_settings.apply(await uploader.fetch_app_settings(), runtime_settings.ALL_KEYS)
+        if changed:
+            logger.info("app_settings_applied", **changed)
+    except Exception as e:
+        logger.warning("app_settings_unavailable", error=str(e))
+    runtime_settings.mark_loaded()
 
     # ── 2. Încărcăm modelul Whisper ───────────────────────────
     # Pasul CEL MAI LENT: 5-30 secunde, descarcă ~1.5GB prima dată.

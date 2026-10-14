@@ -76,6 +76,7 @@ def make_mock_consumer() -> tuple[JobConsumer, dict]:
     uploader.mark_processing = AsyncMock()
     uploader.save_results = AsyncMock()
     uploader.mark_failed = AsyncMock()
+    uploader.fetch_app_settings = AsyncMock(return_value={})   # nicio setare din interfață
 
     detector = AsyncMock()
     detector.detect = AsyncMock(return_value="ro")

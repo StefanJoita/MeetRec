@@ -26,6 +26,7 @@ import asyncpg
 import redis.asyncio as aioredis
 import structlog
 
+from src import runtime_settings
 from src.audit_writer import log_abandoned_session_deleted, log_stuck_transcription_failed
 from src.config import settings
 from src.database import DatabaseClient
@@ -191,6 +192,7 @@ class StuckTranscriptionReaper:
         self._stop_event.set()
 
     async def _run_once(self) -> None:
+        await runtime_settings.refresh(self._db.pool)   # Administrare → Setări
         try:
             reaped = await reap_stuck_transcriptions(
                 self._db.pool,
