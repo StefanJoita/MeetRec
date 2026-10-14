@@ -12,6 +12,11 @@
 # 'transcribing' de peste STUCK_TRANSCRIPTION_HOURS care NU apar nici în coada
 # principală, nici în vreo listă processing sunt marcate 'failed'. Utilizatorul
 # le poate relua cu butonul „Reîncearcă”.
+#
+# Tot aici: sesiunile pre-înregistrate (status 'session_registered') care n-au
+# primit niciun fișier audio în ABANDONED_SESSION_HOURS — clientul a renunțat
+# sau Ingest a respins segmentul 0 (duplicat, invalid). N-au audio de transcris,
+# deci sunt șterse (cu urmă în audit_logs), nu marcate 'failed'.
 
 import asyncio
 import json
@@ -21,7 +26,7 @@ import asyncpg
 import redis.asyncio as aioredis
 import structlog
 
-from src.audit_writer import log_stuck_transcription_failed
+from src.audit_writer import log_abandoned_session_deleted, log_stuck_transcription_failed
 from src.config import settings
 from src.database import DatabaseClient
 
@@ -129,6 +134,26 @@ async def reap_stuck_transcriptions(
     return reaped
 
 
+async def reap_abandoned_sessions(pool: asyncpg.Pool, hours: int) -> int:
+    """Șterge sesiunile fără audio mai vechi de `hours` ore. Returnează câte au fost șterse."""
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            """
+            DELETE FROM recordings
+            WHERE status = 'session_registered'
+              AND file_path = ''
+              AND COALESCE(last_segment_at, created_at) < NOW() - make_interval(hours => $1)
+            RETURNING id, title
+            """,
+            hours,
+        )
+    for row in rows:
+        await log_abandoned_session_deleted(pool, str(row["id"]), row["title"], hours)
+        logger.warning("abandoned_session_deleted", recording_id=str(row["id"]),
+                       title=row["title"], hours=hours)
+    return len(rows)
+
+
 class StuckTranscriptionReaper:
 
     def __init__(self, db: DatabaseClient):
@@ -144,6 +169,7 @@ class StuckTranscriptionReaper:
         logger.info(
             "stuck_reaper_started",
             stuck_hours=settings.stuck_transcription_hours,
+            abandoned_session_hours=settings.abandoned_session_hours,
             interval_seconds=settings.stuck_check_interval_seconds,
         )
         try:
@@ -175,6 +201,11 @@ class StuckTranscriptionReaper:
         except Exception as e:
             # Redis/DB indisponibil: nu marcăm nimic, reîncercăm la următoarea trecere
             logger.error("stuck_reaper_error", error=str(e))
-            return
-        if reaped:
-            logger.warning("stuck_reaper_run_completed", reaped=reaped)
+        else:
+            if reaped:
+                logger.warning("stuck_reaper_run_completed", reaped=reaped)
+
+        try:
+            await reap_abandoned_sessions(self._db.pool, settings.abandoned_session_hours)
+        except Exception as e:
+            logger.error("abandoned_session_reaper_error", error=str(e))

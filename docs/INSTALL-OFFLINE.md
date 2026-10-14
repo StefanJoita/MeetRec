@@ -447,6 +447,7 @@ Fișierul `/opt/meetrec/.env`. După orice modificare: `docker compose up -d`.
 | `MIN_SPEAKERS` / `MAX_SPEAKERS` | gol | indicații pentru diarizare |
 | `MAX_JOB_ATTEMPTS` | `2` | de câte ori poate cădea worker-ul pe același fișier (ex. memorie insuficientă) înainte ca înregistrarea să fie marcată „Eșuat” (§11.3) |
 | `STUCK_TRANSCRIPTION_HOURS` | `6` | după câte ore o înregistrare „În transcriere”, fără job în coadă, e marcată „Eșuat” |
+| `ABANDONED_SESSION_HOURS` | `24` | după câte ore o sesiune pre-înregistrată de un client, care n-a primit niciun fișier audio valid (ex. segment respins ca duplicat), e ștearsă (cu urmă în audit) |
 | `MAX_FILE_SIZE_BYTES` | `524288000` | dimensiunea maximă a unui fișier audio (500 MB) |
 | `RETENTION_DAYS` | `1095` | după câte zile se șterg înregistrările |
 | `AUDIT_LOG_RETENTION_DAYS` | `2190` | retenția jurnalului de audit |
