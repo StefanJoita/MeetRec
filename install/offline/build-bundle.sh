@@ -7,6 +7,7 @@
 #
 #   dist/meetrec-offline-<versiune>/
 #   ├── install-offline.sh           ← rulat pe serverul fără internet
+#   ├── uninstall-offline.sh         ← dezinstalare / reinstalare de la zero
 #   ├── docker-compose.yml           ← fără secțiuni build:, pull_policy: never
 #   ├── .env.example
 #   ├── database/init.sql
@@ -147,8 +148,9 @@ cp nginx/nginx.conf "$OUT/nginx/"
 cp -r nginx/conf.d "$OUT/nginx/"
 cp install/certs/gen-local-ca.sh install/certs/gen-self-signed.sh "$OUT/install/certs/"
 cp install/offline/install-offline.sh "$OUT/install-offline.sh"
+cp install/offline/uninstall-offline.sh "$OUT/uninstall-offline.sh"
 cp docs/INSTALL-OFFLINE.md "$OUT/docs/"
-chmod +x "$OUT/install-offline.sh" "$OUT/install/certs/"*.sh
+chmod +x "$OUT/install-offline.sh" "$OUT/uninstall-offline.sh" "$OUT/install/certs/"*.sh
 
 # docker-compose.yml pentru server: fără build: (nu există cod sursă acolo)
 # și pull_policy: never (nu există registry) pentru fiecare serviciu.
