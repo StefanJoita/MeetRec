@@ -22,7 +22,8 @@ install/
 │   ├── build-bundle.sh             [mașina cu internet] construiește dist/meetrec-offline-<ver>.tar
 │   ├── download-docker-packages.sh [mașina cu internet] Docker Engine (.deb + binare statice); apelat de build-bundle.sh
 │   ├── download-system-packages.sh [mașina cu internet] iptables, nftables, openssl + dependențe (.deb); apelat de build-bundle.sh
-│   └── install-offline.sh          [serverul offline] installerul inclus în pachet
+│   ├── install-offline.sh          [serverul offline] installerul inclus în pachet
+│   └── uninstall-offline.sh        [serverul offline] dezinstalare / reinstalare de la zero (inclus în pachet)
 │
 ├── models/                       modelele ML incluse în imagini (folosite de ambele variante)
 │   ├── download-models.py          descarcă Whisper, aliniere, diarizare, embeddings în services/*/models/

@@ -213,6 +213,7 @@ Opțiuni: `--whisper-model medium`, `--skip-diarization`. Modelele Whisper desc�
 ```
 meetrec-offline-<versiune>/
 ├── install-offline.sh          ← installerul pentru server
+├── uninstall-offline.sh        ← dezinstalare / reinstalare de la zero (§10.1)
 ├── docker-compose.yml          ← varianta offline (fără build:, pull_policy: never)
 ├── .env.example
 ├── MANIFEST.txt                ← versiuni imagini, revizii modele, pachete Docker
@@ -562,6 +563,31 @@ sudo ln -sfn /opt/meetrec-offline-<nouă> /opt/meetrec
 - Migrațiile bazei de date (Alembic) rulează automat la pornirea API-ului.
 - Dacă rețeaua Docker `mt-frontend` existentă are alt subnet decât `FRONTEND_SUBNET` (instalări anterioare, fără subnet fix), installerul oprește containerele și o recreează. Volumele de date nu sunt afectate.
 - **Revenire la versiunea anterioară:** `cd /opt/meetrec-offline-<veche>`, setează `MEETREC_VERSION=<veche>` în `.env`, apoi `docker compose up -d`. Imaginile vechi rămân încărcate până la `docker image prune`. Restaurează și backup-ul bazei de date dacă versiunea nouă a aplicat migrații.
+
+### 10.1 Dezinstalare și reinstalare de la zero
+
+`uninstall-offline.sh` (în directorul pachetului) șterge ce a creat installerul, ca serverul să poată primi o instalare curată:
+
+```bash
+cd /opt/meetrec-offline-<versiune>
+sudo ./uninstall-offline.sh            # arată ce găsește, oferă backup al bazei de date, cere „da”
+sudo ./install-offline.sh              # instalare de la zero, din același pachet
+```
+
+| Opțiune | Containere + imagini | Volume (bază de date, audio, exporturi) | `.env`, `data/` | `nginx/ssl/` | Docker Engine |
+|---------|:-:|:-:|:-:|:-:|:-:|
+| *(implicit)* | șterse | **șterse** | șterse | șters | rămâne |
+| `--keep-certs` | șterse | **șterse** | șterse | păstrat | rămâne |
+| `--keep-data` | șterse | păstrate | păstrate | păstrat | rămâne |
+| `--remove-docker` | șterse | **șterse** | șterse | șters | dezinstalat, cu `/var/lib/docker` |
+
+- `--yes` sare peste confirmare și peste backup (pentru scripturi).
+- Backup-ul oferit e un `pg_dump` al bazei de date, salvat lângă directorul pachetului (ex. `/opt/meetrec-backup-<dată>.dump`); se restaurează ca în §9.3. Fișierele audio nu sunt incluse — pentru ele, §9.2.
+- Sunt găsite și volumele instalărilor vechi, făcute din alte directoare (proiecte Compose cu volumul `audio_storage`); lista apare înainte de confirmare.
+- `--keep-certs` e util cu CA locală: fără el, reinstalarea generează o CA nouă, iar fiecare client trebuie să importe din nou `meetrec-ca.crt` (§6.1).
+- `--remove-docker` dezinstalează Docker doar dacă a fost pus de installer (pachetele `.deb` din `packages/docker/` sau binarele statice). Șterge și containerele altor aplicații de pe server; scriptul le listează înainte.
+- Nu se ating: pachetele de sistem (iptables, nftables, openssl), `/etc/hosts`, CA-ul importat pe clienți și fișierele pachetului (`images/`, `packages/`), deci reinstalarea nu cere un nou transfer.
+- Pentru a elimina complet MeetRec după dezinstalare: `sudo rm -rf /opt/meetrec-offline-<versiune>` (și linkul `/opt/meetrec`, dacă există).
 
 ---
 
