@@ -7,6 +7,7 @@ export interface UploadState {
   uploading: boolean
   done: boolean
   error: string
+  duplicateOf: string | null   // id-ul înregistrării existente, la fișier deja încărcat (409)
 }
 
 export interface UploadMetadata {
@@ -23,6 +24,7 @@ export function useUploadWithProgress() {
     uploading: false,
     done: false,
     error: '',
+    duplicateOf: null,
   })
   const abortRef = useRef<AbortController | null>(null)
 
@@ -30,7 +32,7 @@ export function useUploadWithProgress() {
     const controller = new AbortController()
     abortRef.current = controller
 
-    setState({ progress: 0, uploading: true, done: false, error: '' })
+    setState({ progress: 0, uploading: true, done: false, error: '', duplicateOf: null })
 
     const form = new FormData()
     form.append('file', file)
@@ -51,17 +53,21 @@ export function useUploadWithProgress() {
           setState(s => ({ ...s, progress: pct }))
         },
       })
-      setState({ progress: 100, uploading: false, done: true, error: '' })
+      setState({ progress: 100, uploading: false, done: true, error: '', duplicateOf: null })
       return data
     } catch (e: unknown) {
       if ((e as { name?: string })?.name === 'CanceledError') {
-        setState({ progress: 0, uploading: false, done: false, error: '' })
+        setState({ progress: 0, uploading: false, done: false, error: '', duplicateOf: null })
         return null
       }
-      const msg =
-        (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail
+      // detail: text, sau { message, recording_id } la fișier duplicat (409)
+      const detail = (e as { response?: { data?: { detail?: unknown } } })?.response?.data?.detail
+      const duplicate = typeof detail === 'object' && detail !== null
+        ? detail as { message?: string; recording_id?: string }
+        : null
+      const msg = (typeof detail === 'string' ? detail : duplicate?.message)
         ?? 'Nu am putut încărca fișierul. Încearcă din nou.'
-      setState(s => ({ ...s, uploading: false, error: msg }))
+      setState(s => ({ ...s, uploading: false, error: msg, duplicateOf: duplicate?.recording_id ?? null }))
       return null
     }
   }
@@ -71,7 +77,7 @@ export function useUploadWithProgress() {
   }
 
   function reset() {
-    setState({ progress: 0, uploading: false, done: false, error: '' })
+    setState({ progress: 0, uploading: false, done: false, error: '', duplicateOf: null })
   }
 
   return { ...state, upload, cancel, reset }

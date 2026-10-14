@@ -1,5 +1,5 @@
 import { useCallback, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { UploadCloud, FileAudio, X, ArrowLeft, CheckCircle } from 'lucide-react'
 import { useUploadWithProgress, type UploadMetadata } from '@/hooks/useUploadWithProgress'
 import { cn } from '@/lib/cn'
@@ -12,7 +12,7 @@ export default function NewRecordingPage() {
   const [file, setFile] = useState<File | null>(null)
   const [dragging, setDragging] = useState(false)
   const [fileError, setFileError] = useState('')
-  const { progress, uploading, done, error, upload, cancel, reset } = useUploadWithProgress()
+  const { progress, uploading, done, error, duplicateOf, upload, cancel, reset } = useUploadWithProgress()
 
   // Metadata form state
   const [title, setTitle] = useState('')
@@ -196,6 +196,11 @@ export default function NewRecordingPage() {
       {(fileError || error) && (
         <div className="mt-4 bg-red-50 border border-red-200 rounded-lg px-4 py-3 text-sm text-red-700">
           {fileError || error}
+          {!fileError && duplicateOf && (
+            <Link to={`/recordings/${duplicateOf}`} className="ml-1 font-medium underline">
+              Deschide înregistrarea
+            </Link>
+          )}
         </div>
       )}
 
