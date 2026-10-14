@@ -86,6 +86,11 @@ class Settings(BaseSettings):
     hf_token: str = ""
     min_speakers: Optional[int] = None
     max_speakers: Optional[int] = None
+    # Diarizarea are nevoie doar de audio → rulează în paralel cu transcrierea,
+    # pe jumătate din nuclee fiecare. Peste DIARIZATION_PARALLEL_MAX_MINUTES de audio,
+    # etapele rulează una după alta (memoria de lucru a diarizării crește cu durata).
+    diarization_parallel: bool = True
+    diarization_parallel_max_minutes: int = 180
 
     @field_validator("min_speakers", "max_speakers", mode="before")
     @classmethod

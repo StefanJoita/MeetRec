@@ -85,9 +85,9 @@ LABEL meetrec.whisper_model="${WHISPER_MODEL}"
 RUN --mount=type=bind,source=models,target=/tmp/models \
     set -e; \
     case "$WHISPER_MODEL" in large) repo=large-v3 ;; *) repo="$WHISPER_MODEL" ;; esac; \
-    src="/tmp/models/whisper/models--Systran--faster-whisper-$repo"; \
-    if [ ! -d "$src" ]; then \
-        echo "EROARE: lipsește modelul Whisper '$WHISPER_MODEL' ($src) — rulează: python install/models/download-models.py --whisper-model $WHISPER_MODEL" >&2; \
+    src=$(ls -d /tmp/models/whisper/models--*--faster-whisper-"$repo" 2>/dev/null | head -1); \
+    if [ -z "$src" ]; then \
+        echo "EROARE: lipsește modelul Whisper '$WHISPER_MODEL' (models/whisper/models--*--faster-whisper-$repo) — rulează: python install/models/download-models.py --whisper-model $WHISPER_MODEL" >&2; \
         exit 1; \
     fi; \
     mkdir -p /app/models/whisper; \

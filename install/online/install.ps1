@@ -118,9 +118,9 @@ Write-Info "Domain: $Domain"
 
 # Whisper model
 if (-not $WhisperModel) {
-    $WhisperModel = Prompt-Input "Whisper model [tiny/base/small/medium/large-v3]" "large-v3"
+    $WhisperModel = Prompt-Input "Whisper model [tiny/base/small/medium/large-v3/large-v3-turbo]" "large-v3"
 }
-$validModels = @("tiny","base","small","medium","large-v2","large-v3")
+$validModels = @("tiny","base","small","medium","large-v2","large-v3","large-v3-turbo")
 if ($WhisperModel -notin $validModels) {
     Write-Warn "Unknown model '$WhisperModel', defaulting to 'large-v3'."
     $WhisperModel = "large-v3"
@@ -253,7 +253,7 @@ Write-Step "6/7  Docker build"
 Set-Location $RepoRoot
 
 # ML models are baked into the images -> download them BEFORE the build
-$haveWhisper  = Test-Path "services\stt-worker\models\whisper\models--Systran--faster-whisper-*"
+$haveWhisper  = Test-Path "services\stt-worker\models\whisper\models--*--faster-whisper-*"
 $haveEmbedder = Test-Path "services\search-indexer\models\models--sentence-transformers--*"
 if ($haveWhisper -and $haveEmbedder) {
     Write-Ok "ML models already present (services\*\models\)"
