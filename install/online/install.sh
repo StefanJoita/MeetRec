@@ -141,6 +141,7 @@ if [[ "${skip_env:-false}" != true ]]; then
         echo "    small  → echilibrat      calitate bună     (~460MB)"
         echo "    medium → echilibrat      calitate foarte bună (~1.5GB, ~5GB RAM)"
         echo "    large-v3 → recomandat,   calitate maximă   (~3GB, ~10GB RAM)"
+        echo "    large-v3-turbo → aproape ca large-v3, de câteva ori mai rapid (~1.6GB)"
         read -rp "  Model Whisper [large-v3]: " _model
         [[ -n "$_model" ]] && WHISPER_MODEL="$_model"
 
@@ -216,7 +217,7 @@ step "6/7 Build și pornire servicii"
 cd "$REPO_ROOT"
 
 # Modelele ML sunt incluse în imagini → trebuie descărcate ÎNAINTE de build
-if ls -d services/stt-worker/models/whisper/models--Systran--faster-whisper-* &>/dev/null \
+if ls -d services/stt-worker/models/whisper/models--*--faster-whisper-* &>/dev/null \
    && ls -d services/search-indexer/models/models--sentence-transformers--* &>/dev/null; then
     ok "Modele ML găsite deja (services/*/models/)"
 else

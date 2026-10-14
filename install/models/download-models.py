@@ -16,7 +16,7 @@
 # linia HF_TOKEN=... din .env (rădăcina repo-ului).
 #
 # Structura rezultată (layout cache HuggingFace, folosit cu HF_HUB_OFFLINE=1):
-#   services/stt-worker/models/whisper/models--Systran--faster-whisper-<model>/
+#   services/stt-worker/models/whisper/models--<org>--faster-whisper-<model>/   (Systran; mobiuslabsgmbh pentru turbo)
 #   services/stt-worker/models/huggingface/hub/models--gigant--romanian-wav2vec2/
 #   services/stt-worker/models/huggingface/hub/models--pyannote--speaker-diarization-community-1/
 #   services/stt-worker/models/nltk_data/tokenizers/punkt_tab/
@@ -41,6 +41,8 @@ WHISPER_REPOS = {
     "large-v2": "Systran/faster-whisper-large-v2",
     "large-v3": "Systran/faster-whisper-large-v3",
     "large": "Systran/faster-whisper-large-v3",
+    # distilat din large-v3: 4 straturi de decodare în loc de 32, de câteva ori mai rapid pe CPU
+    "large-v3-turbo": "mobiuslabsgmbh/faster-whisper-large-v3-turbo",
 }
 
 # Model de aliniere wav2vec2 pentru română (whisperx 3.8.6, alignment.py)

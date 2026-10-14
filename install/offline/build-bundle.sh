@@ -73,7 +73,7 @@ ok "Docker $(docker version --format '{{.Server.Version}}'), versiune pachet: $V
 
 # ── 2. Modele ML ──────────────────────────────────────────────
 step "2/7 Modele ML"
-if [[ -d "services/stt-worker/models/whisper/models--Systran--faster-whisper-$WHISPER_MODEL" ]] \
+if compgen -G "services/stt-worker/models/whisper/models--*--faster-whisper-$WHISPER_MODEL" >/dev/null \
    && ls -d services/search-indexer/models/models--sentence-transformers--* >/dev/null 2>&1; then
     ok "Modele găsite în services/*/models/"
 else
@@ -181,7 +181,7 @@ REDIS_PASSWORD=x docker compose -f "$OUT/docker-compose.yml" --env-file "$OUT/.e
     echo ""
     echo "Modele ML incluse în imagini:"
     # Din models/whisper/ intră în imagine doar modelul pachetului (Dockerfile stt-worker)
-    for d in "services/stt-worker/models/whisper/models--Systran--faster-whisper-$WHISPER_MODEL" \
+    for d in services/stt-worker/models/whisper/models--*--faster-whisper-"$WHISPER_MODEL" \
              services/stt-worker/models/huggingface/hub/models--* \
              services/search-indexer/models/models--*; do
         [[ -d "$d" ]] || continue

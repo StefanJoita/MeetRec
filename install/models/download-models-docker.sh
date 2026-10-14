@@ -22,6 +22,13 @@ if [[ "$(uname -s)" == "Linux" ]]; then
     USER_FLAGS=(--user "$(id -u):$(id -g)")
 fi
 
+# Git Bash pe Windows: Docker Desktop vrea calea Windows (C:/...), iar MSYS
+# nu trebuie să transforme /repo din -w într-o cale Windows
+if [[ "$(uname -s)" == MINGW* || "$(uname -s)" == MSYS* ]]; then
+    REPO_ROOT="$(cd "$REPO_ROOT" && pwd -W)"
+    export MSYS_NO_PATHCONV=1
+fi
+
 docker run --rm "${USER_FLAGS[@]}" \
     -v "$REPO_ROOT:/repo" -w /repo \
     -e HF_TOKEN="${HF_TOKEN:-}" \

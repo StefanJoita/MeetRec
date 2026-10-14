@@ -20,6 +20,8 @@
 import asyncio
 import math
 import os
+import time
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from typing import Callable, List, Optional
 
@@ -30,14 +32,36 @@ from src.config import settings
 logger = structlog.get_logger(__name__)
 
 
-def _whisper_threads() -> int:
-    """Fire pentru faster-whisper: WHISPER_THREADS sau toate nucleele containerului."""
-    if settings.whisper_threads > 0:
-        return settings.whisper_threads
+def _cpu_count() -> int:
     try:
         return len(os.sched_getaffinity(0))   # respectă cpuset-ul containerului
     except AttributeError:                     # sistem fără sched_getaffinity
         return os.cpu_count() or 4
+
+
+def _parallel_enabled() -> bool:
+    return settings.diarization_enabled and settings.diarization_parallel
+
+
+def _whisper_threads() -> int:
+    """
+    Fire pentru faster-whisper (fixate la încărcarea modelului): WHISPER_THREADS,
+    altfel toate nucleele — sau jumătate, când diarizarea rulează în paralel.
+    """
+    if settings.whisper_threads > 0:
+        return settings.whisper_threads
+    cores = _cpu_count()
+    return max(1, cores // 2) if _parallel_enabled() else cores
+
+
+def _torch_threads_parallel() -> int:
+    """Fire PyTorch (diarizare, aliniere) cât timp transcrierea rulează în paralel."""
+    return max(1, _cpu_count() - _whisper_threads())
+
+
+def _set_torch_threads(n: int) -> None:
+    import torch
+    torch.set_num_threads(n)
 
 
 def _progress_logger(file_path: str, stage: str, step: int = 10) -> Callable[[float], None]:
@@ -52,6 +76,11 @@ def _progress_logger(file_path: str, stage: str, step: int = 10) -> Callable[[fl
             next_mark = (int(percent) // step + 1) * step
 
     return report
+
+
+def _stage_done(file_path: str, stage: str, started: float) -> None:
+    logger.info("transcription_stage_done", file=file_path, stage=stage,
+                elapsed_sec=round(time.monotonic() - started, 1))
 
 
 # ── Structura pentru un segment de transcript ────────────────
@@ -190,41 +219,68 @@ class WhisperTranscriber:
         lang = language_hint or settings.whisper_primary_language
         audio = whisperx.load_audio(file_path)
 
-        # ── 1. Transcriere ────────────────────────────────────
-        result = self._model.transcribe(
-            audio, batch_size=8, language=lang,
-            progress_callback=_progress_logger(file_path, "transcriere"),
-        )
-        detected_language = result.get("language", lang)
+        # ── 0. Diarizare în paralel (are nevoie doar de audio) ─
+        minutes = len(audio) / 16000 / 60          # load_audio → 16 kHz mono
+        diarize_future = None
+        if self._diarize_model is not None and _parallel_enabled():
+            if minutes <= settings.diarization_parallel_max_minutes:
+                torch_threads = _torch_threads_parallel()
+                _set_torch_threads(torch_threads)   # pentru aliniere, în firul curent
+                logger.info("diarization_parallel", file=file_path, audio_minutes=round(minutes, 1),
+                            whisper_threads=_whisper_threads(), torch_threads=torch_threads)
+                executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="diarize")
+                diarize_future = executor.submit(self._diarize, audio, file_path, torch_threads)
+                executor.shutdown(wait=False)
+            else:
+                logger.info("diarization_sequential_long_audio", file=file_path,
+                            audio_minutes=round(minutes, 1),
+                            max_minutes=settings.diarization_parallel_max_minutes)
 
-        # ── 2. Aliniere forțată ───────────────────────────────
-        if self._align_model is not None and result.get("segments"):
+        try:
+            # ── 1. Transcriere ────────────────────────────────
+            started = time.monotonic()
+            result = self._model.transcribe(
+                audio, batch_size=8, language=lang,
+                progress_callback=_progress_logger(file_path, "transcriere"),
+            )
+            _stage_done(file_path, "transcriere", started)
+            detected_language = result.get("language", lang)
+
+            # ── 2. Aliniere forțată ───────────────────────────
+            if self._align_model is not None and result.get("segments"):
+                started = time.monotonic()
+                try:
+                    result = whisperx.align(
+                        result["segments"],
+                        self._align_model,
+                        self._align_metadata,
+                        audio,
+                        device="cpu",
+                        return_char_alignments=False,
+                        progress_callback=_progress_logger(file_path, "aliniere"),
+                    )
+                    _stage_done(file_path, "aliniere", started)
+                except Exception as e:
+                    logger.warning("alignment_failed", error=str(e))
+        except BaseException:
+            if diarize_future is not None:
+                # Firul nu poate fi oprit: îl așteptăm, ca să nu concureze cu jobul următor
+                logger.warning("waiting_for_parallel_diarization_after_error", file=file_path)
+                diarize_future.result()
+                _set_torch_threads(_cpu_count())
+            raise
+
+        # ── 3. Diarizare (rezultatul firului paralel sau rulată acum) ─
+        if diarize_future is not None:
+            diarize_segments = diarize_future.result()
+            _set_torch_threads(_cpu_count())
+        elif self._diarize_model is not None and result.get("segments"):
+            diarize_segments = self._diarize(audio, file_path)
+        else:
+            diarize_segments = None
+
+        if diarize_segments is not None and result.get("segments"):
             try:
-                result = whisperx.align(
-                    result["segments"],
-                    self._align_model,
-                    self._align_metadata,
-                    audio,
-                    device="cpu",
-                    return_char_alignments=False,
-                    progress_callback=_progress_logger(file_path, "aliniere"),
-                )
-            except Exception as e:
-                logger.warning("alignment_failed", error=str(e))
-
-        # ── 3. Diarizare ──────────────────────────────────────
-        if self._diarize_model is not None and result.get("segments"):
-            try:
-                diarize_kwargs = {}
-                if settings.min_speakers is not None:
-                    diarize_kwargs["min_speakers"] = settings.min_speakers
-                if settings.max_speakers is not None:
-                    diarize_kwargs["max_speakers"] = settings.max_speakers
-
-                diarize_segments = self._diarize_model(
-                    audio, progress_callback=_progress_logger(file_path, "diarizare"),
-                    **diarize_kwargs,
-                )
                 result = whisperx.assign_word_speakers(diarize_segments, result)
             except Exception as e:
                 logger.error("diarization_failed", error=str(e))
@@ -233,6 +289,27 @@ class WhisperTranscriber:
             self._convert_segment(seg, idx, detected_language)
             for idx, seg in enumerate(result.get("segments", []))
         ]
+
+    def _diarize(self, audio, file_path: str, torch_threads: Optional[int] = None):
+        """Diarizare pyannote. Returnează segmentele de vorbitori sau None la eroare."""
+        if torch_threads is not None:
+            _set_torch_threads(torch_threads)   # setarea PyTorch se aplică firului curent
+        diarize_kwargs = {}
+        if settings.min_speakers is not None:
+            diarize_kwargs["min_speakers"] = settings.min_speakers
+        if settings.max_speakers is not None:
+            diarize_kwargs["max_speakers"] = settings.max_speakers
+        started = time.monotonic()
+        try:
+            segments = self._diarize_model(
+                audio, progress_callback=_progress_logger(file_path, "diarizare"),
+                **diarize_kwargs,
+            )
+        except Exception as e:
+            logger.error("diarization_failed", error=str(e))
+            return None
+        _stage_done(file_path, "diarizare", started)
+        return segments
 
     def _convert_segment(
         self,
