@@ -3,7 +3,8 @@
 #
 # Reguli:
 #   - Înregistrări audio: șterse după RETENTION_DAYS (default 3 ani)
-#     Condiție: recordings.retain_until < NOW()
+#     Condiție: retain_until (dacă e setat explicit), altfel created_at + RETENTION_DAYS,
+#     a trecut. RETENTION_DAYS poate fi schimbat din Administrare → Setări.
 #     Efect: șterge fișierul de pe disc + rândul din DB (CASCADE șterge transcript)
 #
 #   - Audit logs: șterse după AUDIT_LOG_RETENTION_DAYS (default 6 ani)
@@ -34,19 +35,24 @@ class RecordingToDelete:
 
 async def fetch_expired_recordings(pool: asyncpg.Pool) -> List[RecordingToDelete]:
     """
-    Returnează înregistrările cu retain_until expirat.
-    retain_until NULL înseamnă că nu are politică de ștergere → ignorăm.
+    Returnează înregistrările expirate: retain_until, dacă e setat explicit,
+    altfel data creării + RETENTION_DAYS. (retain_until nu e completat la
+    creare, deci fără valoarea calculată nicio înregistrare n-ar expira.)
     """
     async with pool.acquire() as conn:
         rows = await conn.fetch(
             """
-            SELECT id, title, file_path, retain_until
-            FROM recordings
-            WHERE retain_until IS NOT NULL
-              AND retain_until < CURRENT_DATE
+            SELECT id, title, file_path, expires AS retain_until
+            FROM (
+                SELECT id, title, file_path, status,
+                       COALESCE(retain_until, (created_at + make_interval(days => $1))::date) AS expires
+                FROM recordings
+            ) r
+            WHERE expires < CURRENT_DATE
               AND status != 'archived'
-            ORDER BY retain_until ASC
-            """
+            ORDER BY expires ASC
+            """,
+            settings.retention_days,
         )
     return [
         RecordingToDelete(
