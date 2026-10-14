@@ -13,7 +13,7 @@ import structlog
 
 from src.config import settings
 from src.limiter import limiter
-from src.routers import recordings, transcript, search, auth, export, audit, inbox, users
+from src.routers import recordings, transcript, search, auth, export, audit, inbox, users, admin
 
 logger = structlog.get_logger()
 
@@ -123,6 +123,8 @@ app.include_router(search.router, prefix="/api/v1")
 app.include_router(export.router, prefix="/api/v1")
 app.include_router(audit.router, prefix="/api/v1")
 app.include_router(users.router, prefix="/api/v1")
+app.include_router(admin.router, prefix="/api/v1")
+app.include_router(admin.config_router, prefix="/api/v1")
 
 # ── Health Check ─────────────────────────────────────────────
 @app.get("/health", tags=["system"])

@@ -9,6 +9,8 @@ import { createUser, deleteUser, getUsers, updateUser, resetUserPassword } from 
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
 import { useToast } from '@/contexts/ToastContext'
 import { useAuth } from '@/contexts/AuthContext'
+import SettingsPanel from '@/components/admin/SettingsPanel'
+import SystemStatusPanel from '@/components/admin/SystemStatusPanel'
 
 const ACTION_COLORS: Record<string, string> = {
   UPLOAD: 'bg-blue-100 text-blue-700',
@@ -43,6 +45,7 @@ const RESOURCE_LABELS: Record<string, string> = {
   transcript: 'Transcriere',
   user: 'Utilizator',
   search: 'Căutare',
+  app_setting: 'Setare',
 }
 
 function formatRelativeTime(timestamp: string): { relative: string; absolute: string } {
@@ -75,6 +78,10 @@ function getLogDescription(log: AuditLog): string | null {
     const q = details.query as string | undefined
     if (q) return `"${q}"`
   }
+  if (log.resource_type === 'app_setting' && details.key) {
+    const show = (v: unknown) => (v === null || v === undefined ? 'automat' : String(v))
+    return `${details.key}: ${show(details.old)} → ${show(details.new)}${details.reset ? ' (implicit)' : ''}`
+  }
   return null
 }
 
@@ -83,7 +90,7 @@ export default function AdminPage() {
   const toast = useToast()
   const queryClient = useQueryClient()
 
-  const [activeSection, setActiveSection] = useState<'audit' | 'users'>('audit')
+  const [activeSection, setActiveSection] = useState<'audit' | 'users' | 'settings' | 'system'>('audit')
 
   const [page, setPage] = useState(1)
   const [actionFilter, setActionFilter] = useState('')
@@ -230,7 +237,7 @@ export default function AdminPage() {
         </div>
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Administrare</h1>
-          <p className="text-sm text-gray-500">Audit și management utilizatori</p>
+          <p className="text-sm text-gray-500">Audit, utilizatori, setări și starea sistemului</p>
         </div>
       </div>
 
@@ -255,7 +262,23 @@ export default function AdminPage() {
         >
           Utilizatori
         </button>
+        {(['settings', 'system'] as const).map(section => (
+          <button
+            key={section}
+            onClick={() => setActiveSection(section)}
+            className={`px-4 py-2 rounded-lg text-sm font-medium border ${
+              activeSection === section
+                ? 'bg-blue-600 text-white border-blue-600'
+                : 'bg-white text-gray-700 border-gray-300'
+            }`}
+          >
+            {section === 'settings' ? 'Setări' : 'Stare sistem'}
+          </button>
+        ))}
       </div>
+
+      {activeSection === 'settings' && <SettingsPanel />}
+      {activeSection === 'system' && <SystemStatusPanel />}
 
       {activeSection === 'audit' && stats && (
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 mb-6">

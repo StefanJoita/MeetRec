@@ -27,6 +27,9 @@ from src.publisher import JobPublisher, TranscriptionJob
 
 logger=get_logger(__name__)
 
+MIB = 1024 * 1024
+ENV_MAX_FILE_SIZE_BYTES = settings.max_file_size_bytes   # din .env, înainte de orice suprascriere
+
 class FileProcessor:
     """
     Orchestreaza proceasarea completa a unui fisier audio nou.
@@ -48,6 +51,15 @@ class FileProcessor:
             self.database=database
             self.publisher=publisher
     
+
+    async def _refresh_max_file_size(self) -> None:
+        """Limita de mărime setabilă din Administrare → Setări (MB); altfel cea din .env."""
+        try:
+            mb = await self.database.get_app_setting("max_file_size_mb")
+        except Exception as e:
+            logger.warning("app_settings_unavailable", error=str(e))
+            return
+        settings.max_file_size_bytes = int(mb) * MIB if mb is not None else ENV_MAX_FILE_SIZE_BYTES
 
     async def process(self, file_path: Path) -> bool:
         """
@@ -71,6 +83,7 @@ class FileProcessor:
                 sidecar_path.unlink(missing_ok=True)
 
         # ── Pasul 1: Validare ──────────────────────────────────
+        await self._refresh_max_file_size()
         result = self.validator.validate(file_path)
  
         if not result.is_valid:

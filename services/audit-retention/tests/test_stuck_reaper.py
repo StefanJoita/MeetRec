@@ -31,6 +31,8 @@ class FakeConn:
         self.db = db
 
     async def fetch(self, sql, *args):
+        if "FROM app_settings" in sql:
+            return [{"key": k, "value": json.dumps(v)} for k, v in self.db.app_settings.items()]
         if "DELETE FROM recordings" in sql:
             # sesiunile „vechi” fără audio (SQL-ul real filtrează după ore și file_path)
             self.db.delete_args.append(args)
@@ -69,6 +71,7 @@ class FakeDB:
         self.recordings = dict(recordings)
         self.sessions = dict(sessions or {})   # id → titlu, sesiuni abandonate
         self.delete_args: list = []
+        self.app_settings: dict = {}           # Administrare → Setări
         self.messages: dict = {}
         self.failed_transcripts: list = []
         self.audit: list = []
@@ -196,6 +199,25 @@ class TestReapAbandonedSessions:
         await reaper._run_once()
 
         assert db.sessions == {}
+
+
+class TestRunOnceUsesAppSettings:
+
+    @pytest.mark.asyncio
+    async def test_hours_from_admin_settings_are_used(self, monkeypatch):
+        from src import runtime_settings
+        from src.config import settings
+        for k in runtime_settings.KEYS:
+            monkeypatch.setattr(settings, k, getattr(settings, k))   # restaurat după test
+        db = FakeDB({}, sessions={str(uuid.uuid4()): "x"})
+        db.app_settings = {"abandoned_session_hours": 48, "stuck_transcription_hours": 3}
+        reaper = StuckTranscriptionReaper(db)
+        reaper._redis = fakeredis.FakeAsyncRedis(decode_responses=True)
+
+        await reaper._run_once()
+
+        assert settings.stuck_transcription_hours == 3
+        assert db.delete_args == [(48,)]
 
 
 class TestRecordingIdsInRedis:

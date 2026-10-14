@@ -40,14 +40,20 @@ from typing import Optional
 import redis.asyncio as aioredis
 import structlog
 
+from src import runtime_settings
 from src.audio_assembler import AudioAssembler, AssemblyError
 from src.config import settings
 from src.language_detector import LanguageDetector
 from src.postprocessor import PostProcessor
-from src.transcriber import WhisperTranscriber, TranscriptSegment
+from src.transcriber import WhisperTranscriber, TranscriptSegment, _whisper_threads
 from src.uploader import DatabaseUploader, TranscriptMetadata
 
 logger = structlog.get_logger(__name__)
+
+# Starea fiecărui worker, citită de API (Administrare → Stare sistem).
+# Reîmprospătată la cel mult 30 s (BLMOVE / verificarea ștergerii); expiră dacă procesul moare.
+STATUS_PREFIX = "stt_worker:status:"
+STATUS_TTL_SECONDS = 120
 
 
 class JobConsumer:
@@ -82,6 +88,8 @@ class JobConsumer:
         self._queue = settings.redis_transcription_queue
         self._worker_id = settings.worker_id or socket.gethostname()
         self._processing_list = f"{self._queue}:processing:{self._worker_id}"
+        self._status_key = f"{STATUS_PREFIX}{self._worker_id}"
+        self._started_at = time.time()
 
     # ── Lifecycle ─────────────────────────────────────────────
 
@@ -209,6 +217,10 @@ class JobConsumer:
 
         timeout=30: verificăm _running la fiecare 30 secunde.
         """
+        # Între joburi: setările din interfață și starea pentru Administrare → Stare sistem
+        await self._refresh_settings()
+        await self._publish_status()
+
         try:
             job_json = await self._redis.blmove(
                 self._queue, self._processing_list, timeout=30, src="RIGHT", dest="LEFT"
@@ -261,11 +273,13 @@ class JobConsumer:
         """
         work = asyncio.ensure_future(self._process_job(job))
         recording_id = job.get("recording_id")
+        await self._publish_status(recording_id)
         try:
             while True:
                 done, _ = await asyncio.wait({work}, timeout=settings.deletion_check_interval_seconds)
                 if done:
                     return work.result()
+                await self._publish_status(recording_id)
                 if recording_id and not await self._recording_exists(recording_id):
                     logger.warning("recording_deleted_during_transcription", recording_id=recording_id)
                     await self._ack(job_json)
@@ -274,6 +288,42 @@ class JobConsumer:
         finally:
             if not work.done():
                 work.cancel()
+
+    async def _refresh_settings(self) -> None:
+        """
+        Aplică setările schimbate din interfață. Rulează doar între joburi.
+        Cele care cer reîncărcarea modelelor (diarizare) opresc procesul;
+        Docker îl repornește, iar la pornire noile valori sunt citite din tabel.
+        """
+        try:
+            values = await self._uploader.fetch_app_settings()
+        except Exception as e:
+            logger.warning("app_settings_refresh_failed", error=str(e))
+            return
+        changed = runtime_settings.apply(values, runtime_settings.JOB_KEYS)
+        if changed:
+            logger.info("app_settings_applied", **changed)
+        pending = runtime_settings.restart_needed(values)
+        if pending:
+            logger.warning("app_settings_require_restart", keys=pending)
+            self._exit_process()
+
+    async def _publish_status(self, recording_id: Optional[str] = None) -> None:
+        """Starea worker-ului în Redis (expiră dacă procesul nu mai răspunde)."""
+        status = {
+            "worker_id": self._worker_id,
+            "whisper_model": settings.whisper_model,
+            "whisper_threads": _whisper_threads(),
+            "diarization_enabled": settings.diarization_enabled,
+            "diarization_parallel": settings.diarization_parallel,
+            "current_recording_id": recording_id,
+            "started_at": self._started_at,
+            "updated_at": time.time(),
+        }
+        try:
+            await self._redis.set(self._status_key, json.dumps(status), ex=STATUS_TTL_SECONDS)
+        except Exception as e:
+            logger.debug("worker_status_publish_failed", error=str(e))
 
     async def _recording_exists(self, recording_id: str) -> bool:
         try:

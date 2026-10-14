@@ -34,6 +34,7 @@ from src.database import get_db
 from src.middleware.auth import get_current_operator_or_above
 from src.models.recording import Recording, RecordingAudioSegment, RecordingStatus
 from src.models.transcript import Transcript
+from src.services import app_settings
 
 router = APIRouter(
     prefix="/inbox",
@@ -259,11 +260,17 @@ async def upload_to_inbox(
         dest = inbox_path / f"{original_stem}_{counter}{original_suffix}"
         counter += 1
 
-    # SHA256 calculat la salvare, cu același algoritm ca Ingest (validator.py)
+    # SHA256 calculat la salvare, cu același algoritm ca Ingest (validator.py).
+    # Limita de mărime e setabilă din interfața de administrare (app_settings).
+    max_bytes = await app_settings.effective_value(db, "max_file_size_mb") * app_settings.MIB
     sha256 = hashlib.sha256()
+    size = 0
     try:
         with dest.open("wb") as out:
             while chunk := file.file.read(1024 * 1024):
+                size += len(chunk)
+                if size > max_bytes:
+                    break
                 sha256.update(chunk)
                 out.write(chunk)
     except OSError as e:
@@ -271,6 +278,12 @@ async def upload_to_inbox(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Nu s-a putut salva fișierul: {e}",
+        )
+    if size > max_bytes:
+        dest.unlink(missing_ok=True)
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail=f"Fișierul depășește limita de {max_bytes // app_settings.MIB} MB.",
         )
 
     # ── Duplicat: același fișier există deja ──────────────────

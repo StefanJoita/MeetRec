@@ -69,3 +69,16 @@ async def test_session_segments_skip_duplicate_check(http, tmp_path, monkeypatch
 
     assert resp.status_code == 202
     assert db.execute.call_count == 1             # doar căutarea sesiunii, fără verificarea hash-ului
+
+
+@pytest.mark.asyncio
+async def test_file_over_admin_limit_returns_413(http, tmp_path, monkeypatch):
+    monkeypatch.setattr(settings, "inbox_path", tmp_path)
+    db = login_as(make_user(participant=False))
+    db.get.return_value = SimpleNamespace(value=1)          # max_file_size_mb = 1 (din interfață)
+
+    resp = await http.post("/api/v1/inbox/upload", files={"file": ("mare.wav", b"x" * (1024 * 1024 + 1))})
+
+    assert resp.status_code == 413
+    assert "1 MB" in resp.json()["detail"]
+    assert list(tmp_path.iterdir()) == []

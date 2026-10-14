@@ -14,6 +14,7 @@ from src.retention_policy import (
     delete_expired_audit_logs,
 )
 from src.audit_writer import log_retention_delete, log_audit_purge
+from src import runtime_settings
 
 logger = structlog.get_logger(__name__)
 
@@ -53,8 +54,10 @@ class RetentionScheduler:
 
     async def _run_once(self) -> None:
         """O iterație completă: șterge înregistrările expirate + audit logs vechi."""
-        logger.info("retention_run_started")
         pool = self._db.pool
+        await runtime_settings.refresh(pool)        # Administrare → Setări
+        logger.info("retention_run_started", retention_days=settings.retention_days,
+                    audit_retention_days=settings.audit_log_retention_days)
 
         # ── 1. Înregistrări audio expirate ────────────────────────────────
         expired = await fetch_expired_recordings(pool)

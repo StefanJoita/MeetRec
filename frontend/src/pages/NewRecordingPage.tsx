@@ -1,14 +1,19 @@
 import { useCallback, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
+import { useQuery } from '@tanstack/react-query'
+import { getUploadConfig } from '@/api/admin'
 import { UploadCloud, FileAudio, X, ArrowLeft, CheckCircle } from 'lucide-react'
 import { useUploadWithProgress, type UploadMetadata } from '@/hooks/useUploadWithProgress'
 import { cn } from '@/lib/cn'
 
 const ACCEPTED = '.mp3,.wav,.m4a,.ogg,.flac,.webm'
-const MAX_MB = 500
+const DEFAULT_MAX_MB = 500
 
 export default function NewRecordingPage() {
   const navigate = useNavigate()
+  // Limita e setabilă din Administrare → Setări; serverul o verifică oricum (413)
+  const { data: uploadConfig } = useQuery({ queryKey: ['upload-config'], queryFn: getUploadConfig, staleTime: 60_000 })
+  const MAX_MB = uploadConfig ? Math.floor(uploadConfig.max_file_size_bytes / (1024 * 1024)) : DEFAULT_MAX_MB
   const [file, setFile] = useState<File | null>(null)
   const [dragging, setDragging] = useState(false)
   const [fileError, setFileError] = useState('')
@@ -28,7 +33,7 @@ export default function NewRecordingPage() {
     }
     setFile(f)
     setFileError('')
-  }, [])
+  }, [MAX_MB])
 
   const onDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault()
