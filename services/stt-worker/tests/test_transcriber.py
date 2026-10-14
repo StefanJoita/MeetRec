@@ -1,110 +1,96 @@
 # services/stt-worker/tests/test_transcriber.py
 # ============================================================
-# Teste pentru WhisperTranscriber
+# Teste pentru WhisperTranscriber (WhisperX)
 # ============================================================
 # STRATEGIE DE MOCK:
 #
-# Whisper este importat INSIDE funcțiilor (local import):
-#   def _load_model_sync(self):
-#       import whisper          ← import local, nu la nivel de modul!
-#       return whisper.load_model(...)
+# whisperx este importat INSIDE funcțiilor (import local), deci îl
+# înlocuim în sys.modules: patch.dict("sys.modules", {"whisperx": mock}).
+# Python găsește mock-ul înainte de a executa `import whisperx`.
 #
-# PROBLEMA cu patch("src.transcriber.whisper"):
-#   Această abordare funcționează DOAR dacă whisper e importat la
-#   nivel de modul (top-level). La import local, modulul nu există
-#   ca atribut în src.transcriber → AttributeError.
-#
-# SOLUȚIA: patch.dict("sys.modules", {"whisper": mock})
-#   Python verifică sys.modules ÎNAINTE de a executa `import whisper`.
-#   Dacă "whisper" există deja acolo, returnează obiectul nostru mock.
-#   Funcționează indiferent unde e `import whisper` în cod.
-#
-# ALTERNATIVA (mai simplă pentru teste transcribe):
-#   Setăm direct t._model = mock_model, sărim over load_model().
-#   Mai curat, mai rapid, testăm comportamentul dorit direct.
+# Pentru transcriere setăm direct t._model (modelul faster-whisper) și
+# lăsăm alinierea/diarizarea dezactivate: testăm conversia segmentelor.
+# Firele, progresul și diarizarea paralelă au teste separate:
+#   test_transcriber_threads_progress.py, test_transcriber_parallel.py
 # ============================================================
 
 import math
 import sys
-import pytest
 from unittest.mock import MagicMock, patch
 
-from src.transcriber import WhisperTranscriber, TranscriptSegment
+import numpy as np
+import pytest
+
+from src import transcriber
+from src.transcriber import TranscriptSegment, WhisperTranscriber
 
 
 # ── Helpers ───────────────────────────────────────────────────
 
-def make_whisper_segment(
-    start=0.0, end=5.0,
-    text=" Bună ziua.",
-    avg_logprob=-0.15,
-    language=None,
-) -> dict:
-    """Simulează un segment raw din whisper.transcribe()."""
-    return {
-        "start": start, "end": end,
-        "text": text, "avg_logprob": avg_logprob,
-        "no_speech_prob": 0.01, "language": language,
-    }
+def make_segment(start=0.0, end=5.0, text=" Bună ziua.", avg_logprob=-0.15, **extra) -> dict:
+    """Simulează un segment din FasterWhisperPipeline.transcribe()."""
+    return {"start": start, "end": end, "text": text, "avg_logprob": avg_logprob, **extra}
 
-
-def make_mock_model(segments=None, detected_language="ro") -> MagicMock:
-    """Creează un model Whisper mock cu segmente predefinite."""
-    model = MagicMock()
-    model.device = "cpu"
-    model.transcribe.return_value = {
-        "language": detected_language,
-        "segments": segments or [
-            make_whisper_segment(0.0, 5.2, " Bună ziua.", -0.15),
-            make_whisper_segment(5.2, 10.4, " Azi discutăm bugetul.", -0.20),
-        ],
-    }
-    return model
-
-
-# ── Fixture: transcriber cu model deja "încărcat" ────────────
-# Bypass-uim load_model() (care are nevoie de whisper instalat)
-# și setăm direct _model = mock pentru testele de transcribe.
 
 @pytest.fixture
-def loaded_transcriber():
-    """WhisperTranscriber cu model mock deja setat — fără whisper real."""
+def whisperx_mock():
+    """whisperx fals: load_audio întoarce 10 s de liniște; diarizarea e oprită."""
+    mock = MagicMock()
+    mock.load_audio.return_value = np.zeros(16000 * 10, dtype=np.float32)
+    mock.load_align_model.return_value = (MagicMock(), {"language": "ro"})
+    with patch.dict(sys.modules, {"whisperx": mock}), \
+         patch.object(transcriber.settings, "diarization_enabled", False):
+        yield mock
+
+
+@pytest.fixture
+def loaded_transcriber(whisperx_mock):
+    """WhisperTranscriber cu model mock deja setat, fără aliniere și diarizare."""
     t = WhisperTranscriber()
-    t._model = make_mock_model()
+    t._model = MagicMock()
+    t._model.transcribe.return_value = {
+        "language": "ro",
+        "segments": [make_segment(0.0, 5.2, " Bună ziua."), make_segment(5.2, 10.4, " Azi discutăm bugetul.")],
+    }
     return t
 
 
+def returns(t, *segments, language="ro"):
+    t._model.transcribe.return_value = {"language": language, "segments": list(segments)}
+
+
 # ============================================================
-# TEST: load_model — folosim patch.dict(sys.modules)
+# TEST: load_model
 # ============================================================
 
 class TestLoadModel:
 
-    async def test_load_model_calls_whisper_load(self):
-        """whisper.load_model() trebuie apelat cu modelul și path-ul din settings."""
-        mock_whisper = MagicMock()
-        mock_whisper.load_model.return_value = MagicMock()
+    async def test_load_model_calls_whisperx_with_settings(self, whisperx_mock):
+        """whisperx.load_model() primește modelul, compute_type și limba din settings."""
+        t = WhisperTranscriber()
+        await t.load_model()
 
-        with patch.dict(sys.modules, {"whisper": mock_whisper}):
-            t = WhisperTranscriber()
-            await t.load_model()
+        whisperx_mock.load_model.assert_called_once()
+        args, kwargs = whisperx_mock.load_model.call_args
+        assert args[0] == transcriber.settings.whisper_model
+        assert kwargs["device"] == "cpu"
+        assert kwargs["compute_type"] == transcriber.settings.whisper_compute_type
+        assert kwargs["language"] == transcriber.settings.whisper_primary_language
 
-        mock_whisper.load_model.assert_called_once()
-        # Primul argument = numele modelului ("medium" default)
-        call_args = mock_whisper.load_model.call_args[0]
-        assert call_args[0] == t._model_name
-
-    async def test_load_model_stores_model_reference(self):
+    async def test_load_model_stores_model_reference(self, whisperx_mock):
         """_model trebuie setat după load_model()."""
-        mock_model = MagicMock()
-        mock_whisper = MagicMock()
-        mock_whisper.load_model.return_value = mock_model
+        t = WhisperTranscriber()
+        assert t._model is None
+        await t.load_model()
+        assert t._model is whisperx_mock.load_model.return_value
 
-        with patch.dict(sys.modules, {"whisper": mock_whisper}):
-            t = WhisperTranscriber()
-            assert t._model is None
-            await t.load_model()
-            assert t._model is mock_model
+    async def test_missing_align_model_is_not_fatal(self, whisperx_mock):
+        """Fără model de aliniere pentru limbă, transcrierea continuă fără el."""
+        whisperx_mock.load_align_model.side_effect = ValueError("no align model")
+        t = WhisperTranscriber()
+        await t.load_model()
+        assert t._model is not None
+        assert t._align_model is None
 
     async def test_transcribe_without_load_raises(self):
         """transcribe() fără load_model() trebuie să ridice RuntimeError."""
@@ -120,138 +106,117 @@ class TestLoadModel:
 class TestTranscribe:
 
     async def test_returns_list_of_segments(self, loaded_transcriber):
-        """transcribe() trebuie să returneze o listă de TranscriptSegment."""
-        loaded_transcriber._model.transcribe.return_value = {
-            "language": "ro",
-            "segments": [
-                make_whisper_segment(0.0, 5.0, " Bună ziua."),
-                make_whisper_segment(5.0, 10.0, " Azi discutăm."),
-            ],
-        }
         result = await loaded_transcriber.transcribe("/fake/audio.mp3", "ro")
 
         assert len(result) == 2
         assert all(isinstance(s, TranscriptSegment) for s in result)
 
     async def test_segment_indices_are_sequential(self, loaded_transcriber):
-        """segment_index trebuie să fie 0, 1, 2, ..."""
-        loaded_transcriber._model.transcribe.return_value = {
-            "language": "ro",
-            "segments": [
-                make_whisper_segment(0.0, 5.0),
-                make_whisper_segment(5.0, 10.0),
-                make_whisper_segment(10.0, 15.0),
-            ],
-        }
+        returns(loaded_transcriber, make_segment(0, 5), make_segment(5, 10), make_segment(10, 15))
         result = await loaded_transcriber.transcribe("/fake/audio.mp3", "ro")
 
         assert [s.segment_index for s in result] == [0, 1, 2]
 
     async def test_text_is_stripped(self, loaded_transcriber):
-        """Whisper pune spațiu la început: ' Bună ziua.' → 'Bună ziua.'"""
-        loaded_transcriber._model.transcribe.return_value = {
-            "language": "ro",
-            "segments": [make_whisper_segment(text=" Bună ziua. ")],
-        }
+        """Whisper pune spațiu la început: ' Bună ziua. ' → 'Bună ziua.'"""
+        returns(loaded_transcriber, make_segment(text=" Bună ziua. "))
         result = await loaded_transcriber.transcribe("/fake/audio.mp3", "ro")
 
         assert result[0].text == "Bună ziua."
 
     async def test_timestamps_preserved(self, loaded_transcriber):
-        """start_time și end_time trebuie copiate exact din Whisper."""
-        loaded_transcriber._model.transcribe.return_value = {
-            "language": "ro",
-            "segments": [make_whisper_segment(start=12.5, end=17.3)],
-        }
+        returns(loaded_transcriber, make_segment(start=12.5, end=17.3))
         result = await loaded_transcriber.transcribe("/fake/audio.mp3", "ro")
 
-        assert result[0].start_time == 12.5
-        assert result[0].end_time == 17.3
-
-    async def test_fp16_false_passed_to_transcribe(self, loaded_transcriber):
-        """fp16=False TREBUIE transmis — altfel RuntimeError pe CPU."""
-        await loaded_transcriber.transcribe("/fake/audio.mp3", "ro")
-
-        call_kwargs = loaded_transcriber._model.transcribe.call_args[1]
-        assert call_kwargs.get("fp16") is False
+        assert (result[0].start_time, result[0].end_time) == (12.5, 17.3)
 
     async def test_language_hint_passed_when_provided(self, loaded_transcriber):
-        """language_hint trebuie transmis la whisper.transcribe()."""
         await loaded_transcriber.transcribe("/fake/audio.mp3", language_hint="en")
 
-        call_kwargs = loaded_transcriber._model.transcribe.call_args[1]
-        assert call_kwargs.get("language") == "en"
+        assert loaded_transcriber._model.transcribe.call_args.kwargs["language"] == "en"
 
-    async def test_no_language_hint_not_passed(self, loaded_transcriber):
-        """Fără language_hint → parametrul 'language' nu trebuie transmis."""
+    async def test_no_language_hint_uses_primary_language(self, loaded_transcriber):
+        """Fără language_hint → limba principală din settings (implicit ro)."""
         await loaded_transcriber.transcribe("/fake/audio.mp3", language_hint=None)
 
-        call_kwargs = loaded_transcriber._model.transcribe.call_args[1]
-        assert "language" not in call_kwargs
+        assert (loaded_transcriber._model.transcribe.call_args.kwargs["language"]
+                == transcriber.settings.whisper_primary_language)
+
+    async def test_detected_language_set_on_segments(self, loaded_transcriber):
+        returns(loaded_transcriber, make_segment(), language="en")
+        result = await loaded_transcriber.transcribe("/fake/audio.mp3", "en")
+
+        assert result[0].language == "en"
 
     async def test_empty_audio_returns_empty_list(self, loaded_transcriber):
-        """Audio fără vorbire → Whisper returnează [] → returnăm []."""
-        loaded_transcriber._model.transcribe.return_value = {
-            "language": "ro", "segments": []
-        }
+        """Audio fără vorbire → niciun segment."""
+        returns(loaded_transcriber)
         result = await loaded_transcriber.transcribe("/fake/silent.mp3", "ro")
 
         assert result == []
 
+    async def test_speaker_id_none_without_diarization(self, loaded_transcriber):
+        result = await loaded_transcriber.transcribe("/fake/audio.mp3", "ro")
+
+        assert all(s.speaker_id is None for s in result)
+
+    async def test_alignment_failure_keeps_unaligned_segments(self, loaded_transcriber, whisperx_mock):
+        """O eroare la aliniere nu pierde transcrierea."""
+        loaded_transcriber._align_model = MagicMock()
+        whisperx_mock.align.side_effect = RuntimeError("wav2vec2")
+        result = await loaded_transcriber.transcribe("/fake/audio.mp3", "ro")
+
+        assert [s.text for s in result] == ["Bună ziua.", "Azi discutăm bugetul."]
+
 
 # ============================================================
-# TEST: confidence score conversion
+# TEST: confidence score
 # ============================================================
 
 class TestConfidenceScore:
 
     async def test_high_confidence_logprob(self, loaded_transcriber):
         """avg_logprob=-0.1 → exp(-0.1) ≈ 0.905"""
-        loaded_transcriber._model.transcribe.return_value = {
-            "language": "ro",
-            "segments": [make_whisper_segment(avg_logprob=-0.1)],
-        }
+        returns(loaded_transcriber, make_segment(avg_logprob=-0.1))
         result = await loaded_transcriber.transcribe("/fake/audio.mp3", "ro")
 
-        expected = round(max(0.0, min(1.0, math.exp(-0.1))), 3)
-        assert result[0].confidence == expected
+        assert result[0].confidence == round(math.exp(-0.1), 3)
 
     async def test_low_confidence_logprob(self, loaded_transcriber):
-        """avg_logprob=-2.0 → exp(-2.0) ≈ 0.135"""
-        loaded_transcriber._model.transcribe.return_value = {
-            "language": "ro",
-            "segments": [make_whisper_segment(avg_logprob=-2.0)],
-        }
+        returns(loaded_transcriber, make_segment(avg_logprob=-2.0))
         result = await loaded_transcriber.transcribe("/fake/audio.mp3", "ro")
 
         assert 0.0 < result[0].confidence < 0.5
 
     async def test_confidence_clamped_to_zero(self, loaded_transcriber):
-        """avg_logprob=-100 → exp(-100) ≈ 0 → clamp la 0.0"""
-        loaded_transcriber._model.transcribe.return_value = {
-            "language": "ro",
-            "segments": [make_whisper_segment(avg_logprob=-100.0)],
-        }
+        returns(loaded_transcriber, make_segment(avg_logprob=-100.0))
         result = await loaded_transcriber.transcribe("/fake/audio.mp3", "ro")
 
-        assert result[0].confidence >= 0.0
+        assert result[0].confidence == 0.0
 
     async def test_confidence_clamped_to_one(self, loaded_transcriber):
-        """avg_logprob=0.1 → exp(0.1) > 1.0 → clamp la 1.0 (DECIMAL(4,3) în DB!)"""
-        loaded_transcriber._model.transcribe.return_value = {
-            "language": "ro",
-            "segments": [make_whisper_segment(avg_logprob=0.1)],
-        }
+        """avg_logprob=0.1 → exp(0.1) > 1.0 → 1.0 (DECIMAL(4,3) în DB)."""
+        returns(loaded_transcriber, make_segment(avg_logprob=0.1))
         result = await loaded_transcriber.transcribe("/fake/audio.mp3", "ro")
 
-        assert result[0].confidence <= 1.0
+        assert result[0].confidence == 1.0
 
     async def test_confidence_max_3_decimals(self, loaded_transcriber):
-        """confidence trebuie rotunjit la max 3 zecimale (DECIMAL(4,3) în DB)."""
-        loaded_transcriber._model.transcribe.return_value = {
-            "language": "ro",
-            "segments": [make_whisper_segment(avg_logprob=-0.33333)],
-        }
+        returns(loaded_transcriber, make_segment(avg_logprob=-0.33333))
         result = await loaded_transcriber.transcribe("/fake/audio.mp3", "ro")
 
         assert result[0].confidence == round(result[0].confidence, 3)
+
+    async def test_aligned_segment_uses_word_scores(self, loaded_transcriber):
+        """După aliniere segmentul nu mai are avg_logprob → media scorurilor cuvintelor."""
+        returns(loaded_transcriber, {"start": 0, "end": 2, "text": " Da da",
+                                     "words": [{"word": "Da", "score": 0.8}, {"word": "da", "score": 0.6}]})
+        result = await loaded_transcriber.transcribe("/fake/audio.mp3", "ro")
+
+        assert result[0].confidence == 0.7
+
+    async def test_no_score_defaults_to_half(self, loaded_transcriber):
+        returns(loaded_transcriber, {"start": 0, "end": 2, "text": " ?"})
+        result = await loaded_transcriber.transcribe("/fake/audio.mp3", "ro")
+
+        assert result[0].confidence == 0.5

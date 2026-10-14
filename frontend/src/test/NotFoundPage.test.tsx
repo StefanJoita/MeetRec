@@ -15,7 +15,7 @@ function renderPage() {
 describe('NotFoundPage', () => {
   it('afișează codul 404', () => {
     renderPage()
-    expect(screen.getByText('404')).toBeInTheDocument()
+    expect(screen.getByText(/404/)).toBeInTheDocument()
   })
 
   it('afișează un mesaj de eroare', () => {

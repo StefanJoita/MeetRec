@@ -44,7 +44,7 @@ describe('LoginPage — randare', () => {
 
   it('afișează câmpul Utilizator', () => {
     renderLoginPage()
-    expect(screen.getByPlaceholderText('admin')).toBeInTheDocument()
+    expect(screen.getByPlaceholderText('Nume utilizator')).toBeInTheDocument()
   })
 
   it('afișează câmpul Parolă', () => {
@@ -100,7 +100,7 @@ describe('LoginPage — submit', () => {
     const loginFn = vi.fn().mockResolvedValue(undefined)
     renderLoginPage(loginFn)
 
-    await userEvent.type(screen.getByPlaceholderText('admin'), 'testuser')
+    await userEvent.type(screen.getByPlaceholderText('Nume utilizator'), 'testuser')
     await userEvent.type(screen.getByPlaceholderText('••••••••'), 'parola123')
     await userEvent.click(screen.getByRole('button', { name: 'Conectare' }))
 
@@ -109,16 +109,20 @@ describe('LoginPage — submit', () => {
     })
   })
 
-  it('afișează eroarea când login eșuează', async () => {
-    const loginFn = vi.fn().mockRejectedValue(new Error('401'))
+  it.each([
+    [401, 'Nume de utilizator sau parolă incorectă.'],
+    [429, 'Prea multe încercări de autentificare. Așteptați un minut și încercați din nou.'],
+    [undefined, 'Serverul nu răspunde. Încercați din nou.'],
+  ])('afișează mesajul potrivit când login eșuează (status %s)', async (status, message) => {
+    const loginFn = vi.fn().mockRejectedValue(status ? { response: { status } } : new Error('Network Error'))
     renderLoginPage(loginFn)
 
-    await userEvent.type(screen.getByPlaceholderText('admin'), 'wrong')
+    await userEvent.type(screen.getByPlaceholderText('Nume utilizator'), 'wrong')
     await userEvent.type(screen.getByPlaceholderText('••••••••'), 'wrong')
     await userEvent.click(screen.getByRole('button', { name: 'Conectare' }))
 
     await waitFor(() => {
-      expect(screen.getByText('Nume de utilizator sau parolă incorectă.')).toBeInTheDocument()
+      expect(screen.getByText(message)).toBeInTheDocument()
     })
   })
 
@@ -127,7 +131,7 @@ describe('LoginPage — submit', () => {
     const loginFn = vi.fn().mockReturnValue(new Promise(() => {}))
     renderLoginPage(loginFn)
 
-    await userEvent.type(screen.getByPlaceholderText('admin'), 'admin')
+    await userEvent.type(screen.getByPlaceholderText('Nume utilizator'), 'admin')
     await userEvent.type(screen.getByPlaceholderText('••••••••'), 'parola')
     await userEvent.click(screen.getByRole('button', { name: 'Conectare' }))
 
@@ -140,7 +144,7 @@ describe('LoginPage — submit', () => {
     const loginFn = vi.fn().mockReturnValue(new Promise(() => {}))
     renderLoginPage(loginFn)
 
-    await userEvent.type(screen.getByPlaceholderText('admin'), 'admin')
+    await userEvent.type(screen.getByPlaceholderText('Nume utilizator'), 'admin')
     await userEvent.type(screen.getByPlaceholderText('••••••••'), 'parola')
     await userEvent.click(screen.getByRole('button', { name: 'Conectare' }))
 
