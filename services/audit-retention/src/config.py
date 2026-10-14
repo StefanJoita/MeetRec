@@ -31,6 +31,9 @@ class Settings(BaseSettings):
     redis_transcription_queue: str = "transcription_jobs"
     stuck_transcription_hours: int = 6
     stuck_check_interval_seconds: int = 900   # 15 minute
+    # Sesiuni pre-înregistrate (/inbox/session/create) care n-au primit niciun audio
+    # valid (ex. segmentul 0 respins ca duplicat) în ABANDONED_SESSION_HOURS: șterse.
+    abandoned_session_hours: int = 24
 
     log_level: str = "INFO"
 

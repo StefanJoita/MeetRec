@@ -17,6 +17,7 @@ import pytest
 from src.stuck_reaper import (
     STUCK_MESSAGE,
     StuckTranscriptionReaper,
+    reap_abandoned_sessions,
     reap_stuck_transcriptions,
     recording_ids_in_redis,
 )
@@ -30,6 +31,13 @@ class FakeConn:
         self.db = db
 
     async def fetch(self, sql, *args):
+        if "DELETE FROM recordings" in sql:
+            # sesiunile „vechi” fără audio (SQL-ul real filtrează după ore și file_path)
+            self.db.delete_args.append(args)
+            assert "status = 'session_registered'" in sql and "file_path = ''" in sql
+            deleted = [{"id": rid, "title": title} for rid, title in self.db.sessions.items()]
+            self.db.sessions.clear()
+            return deleted
         self.db.select_args.append(args)
         return [{"id": rid} for rid, status in self.db.recordings.items() if status == "transcribing"]
 
@@ -57,8 +65,10 @@ class FakeConn:
 class FakeDB:
     """Înregistrările „vechi” în 'transcribing' (SELECT-ul real filtrează după ore)."""
 
-    def __init__(self, recordings: dict):
+    def __init__(self, recordings: dict, sessions: dict | None = None):
         self.recordings = dict(recordings)
+        self.sessions = dict(sessions or {})   # id → titlu, sesiuni abandonate
+        self.delete_args: list = []
         self.messages: dict = {}
         self.failed_transcripts: list = []
         self.audit: list = []
@@ -152,6 +162,40 @@ class TestReapStuckTranscriptions:
         await reaper._run_once()                # nu aruncă excepție
 
         assert db.recordings[lost] == "transcribing"
+
+
+class TestReapAbandonedSessions:
+
+    @pytest.mark.asyncio
+    async def test_abandoned_sessions_are_deleted_and_audited(self):
+        sid = str(uuid.uuid4())
+        db = FakeDB({}, sessions={sid: "Ședința CA"})
+
+        assert await reap_abandoned_sessions(db.pool, 24) == 1
+
+        assert db.sessions == {}
+        assert db.delete_args == [(24,)]
+        assert db.audit == [{"reason": "abandoned_session", "title": "Ședința CA", "abandoned_hours": 24}]
+
+    @pytest.mark.asyncio
+    async def test_nothing_to_delete(self):
+        db = FakeDB({})
+
+        assert await reap_abandoned_sessions(db.pool, 24) == 0
+        assert db.audit == []
+
+    @pytest.mark.asyncio
+    async def test_run_once_cleans_sessions_even_if_redis_is_down(self):
+        sid = str(uuid.uuid4())
+        db = FakeDB({str(uuid.uuid4()): "transcribing"}, sessions={sid: "x"})
+        reaper = StuckTranscriptionReaper(db)
+        broken_redis = MagicMock()
+        broken_redis.scan_iter = MagicMock(side_effect=ConnectionError("Redis down"))
+        reaper._redis = broken_redis
+
+        await reaper._run_once()
+
+        assert db.sessions == {}
 
 
 class TestRecordingIdsInRedis:
