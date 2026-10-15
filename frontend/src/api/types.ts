@@ -239,6 +239,10 @@ export interface AuditLog {
   resource_id?: string
   success: boolean
   details?: Record<string, unknown>
+  resource_name?: string | null
+  resource_deleted?: boolean
+  recording_id?: string | null
+  description?: string | null
 }
 
 export interface PaginatedAuditLogs {

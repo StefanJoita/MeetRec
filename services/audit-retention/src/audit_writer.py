@@ -30,7 +30,8 @@ async def log_retention_delete(
             """,
             str(uuid.uuid4()),
             recording_id,
-            f'{{"title": "{recording_title}", "reason": "retention_policy"}}',
+            json.dumps({"resource_name": recording_title, "title": recording_title,
+                        "reason": "retention_policy"}, ensure_ascii=False),
         )
 
 
@@ -50,7 +51,7 @@ async def log_audit_purge(pool: asyncpg.Pool, deleted_count: int) -> None:
             VALUES ($1, 'RETENTION_DELETE', 'audit_logs', $2, true, '127.0.0.1')
             """,
             str(uuid.uuid4()),
-            f'{{"deleted_count": {deleted_count}, "reason": "audit_log_retention_policy"}}',
+            json.dumps({"deleted_count": deleted_count, "reason": "audit_log_retention_policy"}),
         )
 
 
@@ -69,14 +70,15 @@ async def log_abandoned_session_deleted(
             """,
             str(uuid.uuid4()),
             recording_id,
-            json.dumps({"reason": "abandoned_session", "title": title, "abandoned_hours": hours},
-                       ensure_ascii=False),
+            json.dumps({"reason": "abandoned_session", "resource_name": title, "title": title,
+                        "abandoned_hours": hours}, ensure_ascii=False),
         )
 
 
 async def log_stuck_transcription_failed(
     pool: asyncpg.Pool,
     recording_id: str,
+    title: str,
     hours: int,
 ) -> None:
     """Urmă în audit_logs: înregistrare marcată 'failed' automat (transcriere blocată)."""
@@ -88,5 +90,6 @@ async def log_stuck_transcription_failed(
             """,
             str(uuid.uuid4()),
             recording_id,
-            json.dumps({"reason": "stuck_transcription", "stuck_hours": hours}),
+            json.dumps({"reason": "stuck_transcription", "resource_name": title, "stuck_hours": hours},
+                       ensure_ascii=False),
         )

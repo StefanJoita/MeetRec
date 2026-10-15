@@ -185,6 +185,25 @@ class DatabaseClient:
                     recording_id,
                 )
 
+                # Fișier copiat direct în inbox (fără API): singura urmă în jurnalul de audit.
+                # Încărcările prin API sunt jurnalizate de API (sidecar cu uploaded_via).
+                if not meta.get("uploaded_via") and not session_id_val:
+                    await conn.execute(
+                        """
+                        INSERT INTO audit_logs (id, action, resource_type, resource_id, details, success, user_ip)
+                        VALUES ($1, 'UPLOAD', 'recording', $2, $3, true, '127.0.0.1')
+                        """,
+                        str(uuid.uuid4()),
+                        recording_id,
+                        json.dumps({
+                            "resource_name": final_title,
+                            "filename": metadata.filename,
+                            "size_bytes": metadata.file_size_bytes,
+                            "sha256": metadata.file_hash_sha256,
+                            "source": "inbox_folder",
+                        }, ensure_ascii=False),
+                    )
+
         logger.info(
             "recording_created",
             recording_id=recording_id,

@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.database import get_db
 from src.limiter import limiter
-from src.middleware.audit import log_audit
+from src.middleware.audit import log_audit, user_details
 from src.middleware.auth import (
     authenticate_user,
     create_access_token,
@@ -42,19 +42,12 @@ def _invalid_credentials() -> HTTPException:
     )
 
 
-async def _audit_lockout(request: Request, db: AsyncSession, username: str, event: str) -> None:
-    await log_audit(
-        request, db,
-        action="LOGIN",
-        resource_type="user",
-        details={
-            "event": event,
-            "username": username,
-            "max_failed_attempts": MAX_FAILED_ATTEMPTS,
-            "lockout_minutes": LOCKOUT_SECONDS // 60,
-        },
-        success=False,
-    )
+async def _audit_login_failure(request: Request, db: AsyncSession, username: str, event: str) -> None:
+    """Autentificare eșuată (login_failed) sau blocată (account_locked / login_rejected_locked)."""
+    details = {"event": event, "username": username}
+    if event != "login_failed":
+        details.update(max_failed_attempts=MAX_FAILED_ATTEMPTS, lockout_minutes=LOCKOUT_SECONDS // 60)
+    await log_audit(request, db, action="LOGIN", resource_type="user", details=details, success=False)
     # Commit explicit: răspunsul e 401 (excepție) → get_db() ar face rollback
     await db.commit()
 
@@ -79,13 +72,14 @@ async def login(
     5 eșecuri consecutive (src/services/login_lockout.py).
     """
     if await lockout.is_locked(body.username):
-        await _audit_lockout(request, db, body.username, event="login_rejected_locked")
+        await _audit_login_failure(request, db, body.username, event="login_rejected_locked")
         raise _invalid_credentials()
 
     user = await authenticate_user(body.username, body.password, db)
     if not user:
-        if await lockout.register_failure(body.username):
-            await _audit_lockout(request, db, body.username, event="account_locked")
+        locked = await lockout.register_failure(body.username)
+        await _audit_login_failure(request, db, body.username,
+                                   event="account_locked" if locked else "login_failed")
         raise _invalid_credentials()
 
     await lockout.reset(body.username)
@@ -96,6 +90,8 @@ async def login(
         .where(User.id == user.id)
         .values(last_login=datetime.now(timezone.utc))
     )
+    await log_audit(request, db, action="LOGIN", resource_type="user", resource_id=user.id,
+                    details={**user_details(user), "event": "login_success"}, user_id=user.id)
     await db.commit()
 
     token = create_access_token(str(user.id))

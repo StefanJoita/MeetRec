@@ -688,6 +688,7 @@ sudo tcpdump -ni any 'not net 10.0.0.0/8 and not net 172.16.0.0/12 and not net 1
 - **Porturi:** doar 80/443 sunt publicate. `docker-compose.dev.yml` (porturi de debugging) **nu** face parte din pachet.
 - **Redis** necesită parolă, iar PostgreSQL nu e accesibil din afara rețelei Docker.
 - **`APP_ENV=production`** dezactivează `/docs` și `/redoc`.
+- **Jurnalul de audit** se poate doar completa: baza de date refuză modificarea, ștergerea sau golirea tabelului `audit_logs` (trigger `audit_logs_protect`). Singura excepție e ștergerea automată la expirarea retenției, pentru intrări mai vechi de un an. Protecția oprește aplicația și greșelile, nu un administrator cu acces la baza de date: proprietarul tabelului poate elimina trigger-ul, deci accesul la `.env` (parola DB) trebuie restricționat.
 
 ---
 

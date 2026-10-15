@@ -10,6 +10,8 @@ from src.models.audit_log import User
 from src.schemas.recording import TranscriptResponse
 from src.services.transcript_service import TranscriptService
 from src.middleware.audit import log_audit
+from src.models.recording import Recording
+from sqlalchemy import select
 
 router = APIRouter(prefix="/transcripts", tags=["transcripts"], dependencies=[Depends(get_current_user)])
 
@@ -43,8 +45,9 @@ async def get_transcript(
     if not transcript:
         raise HTTPException(status_code=404, detail="Transcriptul nu există sau nu e gata.")
 
+    title = await db.scalar(select(Recording.title).where(Recording.id == recording_id))
     await log_audit(request, db, action="VIEW", resource_type="transcript",
-                    resource_id=transcript.id)
+                    resource_id=transcript.id, details={"resource_name": title})
     return transcript
 
 
@@ -57,6 +60,7 @@ async def retry_transcription(
     request: Request,
     _: User = Depends(get_current_operator_or_above),
     service: TranscriptService = Depends(get_service),
+    db: AsyncSession = Depends(get_db),
 ):
     """
     Retrimierea unui job de transcriere eșuat.
@@ -68,4 +72,7 @@ async def retry_transcription(
             status_code=400,
             detail="Nu se poate retrimi. Verificați că înregistrarea există și are status 'failed'."
         )
+    title = await db.scalar(select(Recording.title).where(Recording.id == recording_id))
+    await log_audit(request, db, action="TRANSCRIBE", resource_type="recording",
+                    resource_id=recording_id, details={"resource_name": title, "event": "retry"})
     return {"message": "Job retrimat cu succes.", "recording_id": str(recording_id)}

@@ -1,21 +1,31 @@
 import client from '@/api/client'
 import type { PaginatedAuditLogs } from '@/api/types'
 
-export async function getAuditLogs(page: number, pageSize: number, search?: string, action?: string): Promise<PaginatedAuditLogs> {
+export type AuditResourceGroup = 'recording' | 'user' | 'app_setting' | 'audit_logs'
+
+export interface AuditLogFilters {
+  search?: string
+  action?: string
+  resource?: AuditResourceGroup | ''
+}
+
+function filterParams({ search, action, resource }: AuditLogFilters): Record<string, string> {
+  return {
+    ...(search ? { search } : {}),
+    ...(action ? { action } : {}),
+    ...(resource ? { resource } : {}),
+  }
+}
+
+export async function getAuditLogs(page: number, pageSize: number, filters: AuditLogFilters = {}): Promise<PaginatedAuditLogs> {
   const { data } = await client.get<PaginatedAuditLogs>('/audit-logs', {
-    params: {
-      page,
-      page_size: pageSize,
-      ...(search ? { search } : {}),
-      ...(action ? { action } : {}),
-    },
+    params: { page, page_size: pageSize, ...filterParams(filters) },
   })
   return data
 }
 
-export function downloadAuditLogsCsv(action?: string): void {
-  const params = new URLSearchParams()
-  if (action) params.set('action', action)
+export function downloadAuditLogsCsv(filters: AuditLogFilters = {}): void {
+  const params = new URLSearchParams(filterParams(filters))
   const token = localStorage.getItem('access_token')
   const base  = '/api/v1'
   const url   = `${base}/audit-logs/export${params.size ? '?' + params.toString() : ''}`

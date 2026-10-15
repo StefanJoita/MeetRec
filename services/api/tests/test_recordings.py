@@ -454,6 +454,7 @@ class TestDeleteRecording:
         204 = "operația a reușit, fără body în răspuns".
         """
         svc = make_mock_service()
+        svc.get_by_id.return_value = MagicMock()  # titlul pentru jurnal, citit înainte de ștergere
         svc.delete.return_value = True  # înregistrarea a existat și a fost ștearsă
 
         async with override_service(svc, user=make_fake_user(is_admin=True)) as client:
@@ -465,6 +466,7 @@ class TestDeleteRecording:
     async def test_delete_existing_has_no_body(self):
         """204 No Content trebuie să fie fără body."""
         svc = make_mock_service()
+        svc.get_by_id.return_value = MagicMock()
         svc.delete.return_value = True
 
         async with override_service(svc, user=make_fake_user(is_admin=True)) as client:
@@ -505,6 +507,7 @@ class TestDeleteRecording:
     async def test_delete_returns_500_when_storage_permissions_block_file_removal(self):
         """Erorile de permisiune pe storage trebuie returnate controlat, nu ca traceback brut."""
         svc = make_mock_service()
+        svc.get_by_id.return_value = MagicMock()  # titlul pentru jurnal, citit înainte de ștergere
         svc.delete.side_effect = RecordingDeletionError(
             "Fișierul audio nu poate fi șters deoarece storage-ul nu permite scrierea pentru API."
         )
@@ -528,6 +531,7 @@ class TestUpdateRecording:
     async def test_update_existing_returns_200(self):
         """PATCH pe o înregistrare existentă trebuie să returneze 200."""
         svc = make_mock_service()
+        svc.get_by_id.return_value = MagicMock()  # valorile dinainte, pentru jurnal
         svc.update.return_value = MagicMock()  # modelul ORM Recording actualizat
         svc.to_recording_response.return_value = make_recording_response(title="Titlu nou")
 
@@ -561,6 +565,7 @@ class TestUpdateRecording:
         Body-ul poate conține un singur câmp — e valid.
         """
         svc = make_mock_service()
+        svc.get_by_id.return_value = MagicMock()  # valorile dinainte, pentru jurnal
         svc.update.return_value = MagicMock()  # modelul ORM Recording actualizat
         svc.to_recording_response.return_value = make_recording_response(location="Sala B")
 

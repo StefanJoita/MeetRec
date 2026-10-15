@@ -49,7 +49,7 @@ class FakeConn:
             return None
         self.db.recordings[recording_id] = "failed"
         self.db.messages[recording_id] = message
-        return recording_id
+        return "Ședința blocată"                   # RETURNING title
 
     async def execute(self, sql, *args):
         if "INSERT INTO audit_logs" in sql:
@@ -109,7 +109,8 @@ class TestReapStuckTranscriptions:
         assert db.recordings[lost] == "failed"
         assert db.messages[lost] == STUCK_MESSAGE.format(hours=HOURS)
         assert db.failed_transcripts == [lost]
-        assert db.audit == [{"reason": "stuck_transcription", "stuck_hours": HOURS}]
+        assert db.audit == [{"reason": "stuck_transcription", "resource_name": "Ședința blocată",
+                             "stuck_hours": HOURS}]
 
     @pytest.mark.asyncio
     async def test_recording_still_in_main_queue_is_not_touched(self, redis):
@@ -178,7 +179,8 @@ class TestReapAbandonedSessions:
 
         assert db.sessions == {}
         assert db.delete_args == [(24,)]
-        assert db.audit == [{"reason": "abandoned_session", "title": "Ședința CA", "abandoned_hours": 24}]
+        assert db.audit == [{"reason": "abandoned_session", "resource_name": "Ședința CA",
+                             "title": "Ședința CA", "abandoned_hours": 24}]
 
     @pytest.mark.asyncio
     async def test_nothing_to_delete(self):
