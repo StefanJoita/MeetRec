@@ -6,10 +6,12 @@
 #   PUT    /admin/settings/{key}    → setează din interfață (validat, auditat)
 #   DELETE /admin/settings/{key}    → revine la valoarea din .env
 #   GET    /admin/system            → versiune, worker-e, coadă, disc, eșecuri recente
+#   GET    /admin/processing        → durata transcrierii pe înregistrare și pe etape
 #   GET    /config/upload           → limita de upload (pentru orice utilizator autentificat)
 # ============================================================
 
 import json
+import math
 import os
 import shutil
 from datetime import datetime
@@ -17,9 +19,9 @@ from typing import Any, Dict, List, Optional
 
 import redis.asyncio as aioredis
 import structlog
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel
-from sqlalchemy import func, select
+from sqlalchemy import Float, cast, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.config import settings
@@ -28,6 +30,7 @@ from src.middleware.audit import log_audit
 from src.middleware.auth import get_current_admin, get_current_user
 from src.models.audit_log import User
 from src.models.recording import Recording
+from src.models.transcript import Transcript, TranscriptStatus
 from src.services import app_settings as registry
 
 logger = structlog.get_logger(__name__)
@@ -64,6 +67,36 @@ class SettingUpdate(BaseModel):
 
 class UploadConfig(BaseModel):
     max_file_size_bytes: int
+
+
+class ProcessingItem(BaseModel):
+    recording_id: str
+    title: str
+    completed_at: Optional[datetime]
+    model_used: Optional[str]
+    audio_sec: Optional[int]
+    processing_sec: int
+    ratio: Optional[float]           # processing_sec / audio_sec (sub 1 = mai repede ca timpul real)
+    transcription_sec: Optional[float]
+    alignment_sec: Optional[float]
+    diarization_sec: Optional[float]
+    diarization_parallel: bool
+
+
+class ProcessingSummary(BaseModel):
+    count: int
+    audio_sec: int
+    processing_sec: int
+    ratio: Optional[float]           # pe total: timp de procesare / durată audio
+
+
+class ProcessingPage(BaseModel):
+    items: List[ProcessingItem]
+    total: int
+    page: int
+    page_size: int
+    pages: int
+    summary: ProcessingSummary
 
 
 # ── Setări ───────────────────────────────────────────────────
@@ -224,3 +257,68 @@ async def system_status(
             for f in failed
         ],
     }
+
+
+# ── Durata procesării ────────────────────────────────────────
+
+def _ratio(processing: Optional[float], audio: Optional[float]) -> Optional[float]:
+    return round(processing / audio, 2) if processing and audio else None
+
+
+def _num(value) -> Optional[float]:
+    return float(value) if value is not None else None
+
+
+@router.get("/processing", response_model=ProcessingPage, summary="Durata procesării pe înregistrare")
+async def processing_times(
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
+    sort: str = Query("recent", pattern="^(recent|slowest)$"),
+    _: User = Depends(get_current_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    """Transcrierile finalizate, cu durata totală și pe etape (cele mai noi sau cele mai lente)."""
+    done = (Transcript.status == TranscriptStatus.COMPLETED.value,
+            Transcript.processing_time_sec.isnot(None))
+    ratio = (cast(Transcript.processing_time_sec, Float)
+             / func.nullif(Recording.duration_seconds, 0))
+    order = ((ratio.desc().nulls_last(), Transcript.completed_at.desc()) if sort == "slowest"
+             else (Transcript.completed_at.desc().nulls_last(),))
+
+    totals = (await db.execute(
+        select(func.count(), func.coalesce(func.sum(Recording.duration_seconds), 0),
+               func.coalesce(func.sum(Transcript.processing_time_sec), 0))
+        .select_from(Transcript).join(Recording, Recording.id == Transcript.recording_id)
+        .where(*done)
+    )).one()
+    count, audio_total, processing_total = totals
+
+    rows = (await db.execute(
+        select(Recording.id, Recording.title, Recording.duration_seconds,
+               Transcript.completed_at, Transcript.model_used, Transcript.processing_time_sec,
+               Transcript.transcription_sec, Transcript.alignment_sec,
+               Transcript.diarization_sec, Transcript.diarization_parallel)
+        .select_from(Transcript).join(Recording, Recording.id == Transcript.recording_id)
+        .where(*done)
+        .order_by(*order)
+        .offset((page - 1) * page_size)
+        .limit(page_size)
+    )).all()
+
+    return ProcessingPage(
+        items=[ProcessingItem(
+            recording_id=str(r.id), title=r.title, completed_at=r.completed_at,
+            model_used=r.model_used, audio_sec=r.duration_seconds,
+            processing_sec=r.processing_time_sec,
+            ratio=_ratio(r.processing_time_sec, r.duration_seconds),
+            transcription_sec=_num(r.transcription_sec), alignment_sec=_num(r.alignment_sec),
+            diarization_sec=_num(r.diarization_sec),
+            diarization_parallel=bool(r.diarization_parallel),
+        ) for r in rows],
+        total=count, page=page, page_size=page_size,
+        pages=max(1, math.ceil(count / page_size)),
+        summary=ProcessingSummary(
+            count=count, audio_sec=int(audio_total), processing_sec=int(processing_total),
+            ratio=_ratio(processing_total, audio_total),
+        ),
+    )

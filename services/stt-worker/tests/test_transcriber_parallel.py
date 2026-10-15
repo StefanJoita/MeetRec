@@ -78,6 +78,17 @@ class TestParallelDiarization:
         assert whisperx_mock.assign_word_speakers.call_args.args[0] == "DIARIZE_DF"
         assert [s.speaker_id for s in segments] == ["SPEAKER_00"]
 
+    def test_stage_timings_recorded_for_parallel_run(self, whisperx_mock):
+        t = make_transcriber([])
+
+        t._run_sync("/data/a.wav", "ro")
+
+        timings = t.last_timings
+        assert timings.diarization_parallel is True
+        assert timings.transcription_sec is not None
+        assert timings.alignment_sec is None              # fără model de aliniere
+        assert timings.diarization_sec is not None
+
     def test_threads_are_split_and_restored(self, whisperx_mock):
         t = make_transcriber([])
 
@@ -96,6 +107,7 @@ class TestParallelDiarization:
         assert [s.text for s in segments] == ["salut"]
         assert segments[0].speaker_id is None
         whisperx_mock.assign_word_speakers.assert_not_called()
+        assert t.last_timings.diarization_sec is None     # etapa eșuată nu are durată
 
     def test_transcription_error_waits_for_diarization_then_raises(self, whisperx_mock):
         events = []
@@ -117,6 +129,8 @@ class TestParallelDiarization:
 
         assert [e[0] for e in events] == ["transcriere", "diarizare", "diarizare_gata"]
         assert events[0][1] == events[1][1]                # același fir, una după alta
+        assert t.last_timings.diarization_parallel is False
+        assert t.last_timings.diarization_sec is not None
 
     def test_parallel_disabled_uses_all_cores_sequentially(self, whisperx_mock):
         events = []

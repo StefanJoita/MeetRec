@@ -177,6 +177,31 @@ async def test_save_results_passes_word_count(uploader_with_mock_pool):
     assert 123 in flat
 
 
+def transcripts_update(conn):
+    """Parametrii UPDATE-ului pe transcripts care marchează transcrierea finalizată."""
+    for c in conn.execute.call_args_list:
+        if "UPDATE transcripts" in c[0][0] and "processing_time_sec" in c[0][0]:
+            return c[0][1:]
+    raise AssertionError("UPDATE transcripts lipsă")
+
+
+async def test_save_results_saves_stage_timings(uploader_with_mock_pool):
+    u, conn = uploader_with_mock_pool
+    meta = make_metadata(transcription_sec=154.0, alignment_sec=6.2,
+                         diarization_sec=264.7, diarization_parallel=True)
+    await u.save_results(TRANSCRIPT_ID, RECORDING_ID, [make_segment(0)], meta)
+    assert transcripts_update(conn)[-4:] == (154.0, 6.2, 264.7, True)
+
+
+async def test_save_session_results_saves_stage_timings(uploader_with_mock_pool):
+    u, conn = uploader_with_mock_pool
+    conn.fetchrow.return_value = {"total": 222}
+    meta = make_metadata(transcription_sec=154.0, alignment_sec=None,
+                         diarization_sec=264.7, diarization_parallel=True)
+    await u.save_session_results(TRANSCRIPT_ID, RECORDING_ID, [make_segment(0)], meta)
+    assert transcripts_update(conn)[-4:] == (154.0, None, 264.7, True)
+
+
 async def test_save_results_uses_transaction(uploader_with_mock_pool):
     u, conn = uploader_with_mock_pool
     await u.save_results(TRANSCRIPT_ID, RECORDING_ID, [make_segment(0)], make_metadata())

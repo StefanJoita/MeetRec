@@ -4,7 +4,7 @@ import enum
 from datetime import datetime
 from typing import Optional, List
 
-from sqlalchemy import String, Integer, Text, Numeric, ForeignKey, TIMESTAMP, Index, Enum as SAEnum
+from sqlalchemy import Boolean, String, Integer, Text, Numeric, ForeignKey, TIMESTAMP, Index, Enum as SAEnum
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID, TSVECTOR
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
@@ -55,6 +55,11 @@ class Transcript(Base):
     word_count: Mapped[int] = mapped_column(Integer, default=0)
     confidence_avg: Mapped[Optional[float]] = mapped_column(Numeric(4, 3))
     processing_time_sec: Mapped[Optional[int]] = mapped_column(Integer)
+    # Durata etapelor (secunde); diarizarea în paralel se suprapune cu transcrierea
+    transcription_sec: Mapped[Optional[float]] = mapped_column(Numeric(8, 1))
+    alignment_sec: Mapped[Optional[float]] = mapped_column(Numeric(8, 1))
+    diarization_sec: Mapped[Optional[float]] = mapped_column(Numeric(8, 1))
+    diarization_parallel: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
 
     # ── Full-text search ───────────────────────────────────
     # TSVECTOR = format special PostgreSQL pentru căutare rapidă în text

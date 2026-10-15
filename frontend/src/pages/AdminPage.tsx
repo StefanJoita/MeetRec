@@ -11,6 +11,7 @@ import { useToast } from '@/contexts/ToastContext'
 import { useAuth } from '@/contexts/AuthContext'
 import SettingsPanel from '@/components/admin/SettingsPanel'
 import SystemStatusPanel from '@/components/admin/SystemStatusPanel'
+import ProcessingPanel from '@/components/admin/ProcessingPanel'
 
 const ACTION_COLORS: Record<string, string> = {
   UPLOAD: 'bg-blue-100 text-blue-700',
@@ -39,6 +40,8 @@ const ACTION_LABELS: Record<string, string> = {
   CREATE: 'Creare',
   UPDATE: 'Modificare',
 }
+
+const SECTION_LABELS = { settings: 'Setări', system: 'Stare sistem', processing: 'Procesări' } as const
 
 const RESOURCE_LABELS: Record<string, string> = {
   recording: 'Înregistrare',
@@ -90,7 +93,7 @@ export default function AdminPage() {
   const toast = useToast()
   const queryClient = useQueryClient()
 
-  const [activeSection, setActiveSection] = useState<'audit' | 'users' | 'settings' | 'system'>('audit')
+  const [activeSection, setActiveSection] = useState<'audit' | 'users' | 'settings' | 'system' | 'processing'>('audit')
 
   const [page, setPage] = useState(1)
   const [actionFilter, setActionFilter] = useState('')
@@ -237,7 +240,7 @@ export default function AdminPage() {
         </div>
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Administrare</h1>
-          <p className="text-sm text-gray-500">Audit, utilizatori, setări și starea sistemului</p>
+          <p className="text-sm text-gray-500">Audit, utilizatori, setări, starea sistemului și durata procesărilor</p>
         </div>
       </div>
 
@@ -262,7 +265,7 @@ export default function AdminPage() {
         >
           Utilizatori
         </button>
-        {(['settings', 'system'] as const).map(section => (
+        {(['settings', 'system', 'processing'] as const).map(section => (
           <button
             key={section}
             onClick={() => setActiveSection(section)}
@@ -272,13 +275,14 @@ export default function AdminPage() {
                 : 'bg-white text-gray-700 border-gray-300'
             }`}
           >
-            {section === 'settings' ? 'Setări' : 'Stare sistem'}
+            {SECTION_LABELS[section]}
           </button>
         ))}
       </div>
 
       {activeSection === 'settings' && <SettingsPanel />}
       {activeSection === 'system' && <SystemStatusPanel />}
+      {activeSection === 'processing' && <ProcessingPanel />}
 
       {activeSection === 'audit' && stats && (
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 mb-6">

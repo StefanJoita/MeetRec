@@ -451,6 +451,7 @@ class JobConsumer:
             # ── Pasul 6: Calculăm metadata agregată ───────────
             processing_time = int(time.monotonic() - job_start)
             metadata = self._compute_metadata(segments, final_language, model_name, processing_time)
+            self._add_stage_timings(metadata)
 
             # ── Gardă: 0 segmente = Whisper nu a detectat vorbire ─
             if not segments:
@@ -557,6 +558,7 @@ class JobConsumer:
             metadata = self._compute_metadata(
                 segments, detected_language, model_name, processing_time
             )
+            self._add_stage_timings(metadata)
 
             # ── 5. Mutăm fișierul concatenat în storage permanent ────────
             # Fișierul temp din /tmp devine fișierul principal al înregistrării,
@@ -591,6 +593,14 @@ class JobConsumer:
             # Ștergem fișierul temp doar dacă nu a fost mutat (caz de eroare)
             if merged_path is not None and merged_path.exists():
                 merged_path.unlink(missing_ok=True)
+
+    def _add_stage_timings(self, metadata: TranscriptMetadata) -> None:
+        """Copiază în metadate durata etapelor ultimei transcrieri."""
+        t = self._transcriber.last_timings
+        metadata.transcription_sec = t.transcription_sec
+        metadata.alignment_sec = t.alignment_sec
+        metadata.diarization_sec = t.diarization_sec
+        metadata.diarization_parallel = t.diarization_parallel
 
     def _compute_metadata(
         self,
