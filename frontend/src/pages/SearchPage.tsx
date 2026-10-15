@@ -90,11 +90,10 @@ export default function SearchPage() {
     <div className="p-6 max-w-3xl mx-auto">
       <div className="mb-6">
         <h1 className="page-title">Căutare transcrieri</h1>
-        <p className="page-subtitle">Potrivire exactă după cuvinte cheie și căutare după sens</p>
       </div>
 
       {/* Search bar */}
-      <form onSubmit={handleSubmit} className="mb-2">
+      <form onSubmit={handleSubmit} className="mb-4">
         <div className="relative">
           <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-slate-400 pointer-events-none" />
           <input
@@ -133,10 +132,6 @@ export default function SearchPage() {
           </div>
         </div>
       </form>
-      <p className="text-xs text-slate-400 mb-4">
-        Diacriticele sunt opționale · <code className="text-slate-500">"frază exactă"</code> ·{' '}
-        <code className="text-slate-500">buget OR fonduri</code> · <code className="text-slate-500">-exclus</code>
-      </p>
 
       {/* Advanced filters panel */}
       {filtersOpen && (
@@ -179,7 +174,6 @@ export default function SearchPage() {
                   <option value="">Oricine</option>
                   {speakers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
                 </select>
-                <p className="text-xs text-slate-400 mt-1">Doar persoanele asociate cu vorbitori în pagina înregistrării.</p>
               </div>
             )}
           </div>
@@ -202,7 +196,6 @@ export default function SearchPage() {
         <EmptyState
           icon={Search}
           title="Caută în toate transcrierile"
-          description="Poți căuta după cuvinte cheie, subiecte discutate sau fraze exacte. Căutarea combină potrivirea exactă cu căutarea după sens și caută și în titlurile ședințelor."
         />
       )}
 

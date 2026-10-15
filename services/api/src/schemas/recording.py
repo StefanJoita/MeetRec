@@ -264,9 +264,9 @@ class CombinedSearchResponse(BaseModel):
 # ── AUTH ─────────────────────────────────────────────────────
 
 class SpeakerMappingUpdate(BaseModel):
-    """Mapare vorbitori diarizare → participanți linkați."""
+    """Mapare vorbitori diarizare → participanți linkați sau nume scrise liber."""
     mapping: dict[str, str] = Field(
-        description="SPEAKER_XX → user_id UUID string",
+        description="SPEAKER_XX → id-ul unui participant linkat (UUID) sau un nume (maxim 100 de caractere)",
         default_factory=dict
     )
 

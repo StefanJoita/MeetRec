@@ -6,6 +6,7 @@
 import mimetypes
 import os
 import uuid
+from datetime import datetime
 from pathlib import Path
 from typing import Optional, List
 from fastapi import APIRouter, Depends, HTTPException, Query, status, Request
@@ -124,6 +125,42 @@ async def get_recordings_stats(
         "processing": counts.get("queued", 0) + counts.get("transcribing", 0),
         "failed": counts.get("failed", 0),
         "total_duration_seconds": int(total_duration_seconds),
+    }
+
+
+# ── GET /recordings/activity ─────────────────────────────────
+IN_PROGRESS = ("uploaded", "validating", "queued", "transcribing")
+
+
+@router.get("/activity", summary="Transcrieri în curs și cele terminate recent (notificări)")
+async def recordings_activity(
+    since: Optional[datetime] = Query(default=None, description="Ultimul `server_time` primit"),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Interogat periodic de interfață: înregistrările în curs și cele care au devenit
+    „completed” / „failed” după `since`. Interfața anunță doar înregistrările pe care
+    le-a văzut în curs, ca o editare ulterioară să nu producă o notificare.
+    """
+    server_time = (await db.execute(select(func.now()))).scalar_one()
+    query = select(Recording.id, Recording.title, Recording.status, Recording.updated_at)
+    if current_user.is_participant:
+        query = query.where(participant_access_clause(current_user.id))
+    finished = Recording.status.in_(("completed", "failed"))
+    if since is not None:
+        finished = finished & (Recording.updated_at > since)
+    rows = (await db.execute(
+        query.where(Recording.status.in_(IN_PROGRESS) | finished).limit(200)
+    )).all()
+
+    def item(r):
+        return {"id": str(r.id), "title": r.title, "status": getattr(r.status, "value", r.status)}
+
+    return {
+        "server_time": server_time.isoformat(),
+        "in_progress": [item(r) for r in rows if item(r)["status"] in IN_PROGRESS],
+        "finished": [item(r) for r in rows if item(r)["status"] in ("completed", "failed")] if since else [],
     }
 
 

@@ -135,7 +135,8 @@ async def combined_search_transcripts(
     date_to:   Optional[date] = Query(default=None, description="Data maximă ședință (YYYY-MM-DD)"),
     location:  Optional[str]  = Query(default=None, description="Filtrează după locație"),
     min_duration: Optional[int] = Query(default=None, ge=0, description="Durată minimă în secunde"),
-    speaker: Optional[uuid.UUID] = Query(default=None, description="Doar fragmentele acestei persoane"),
+    speaker: Optional[str] = Query(default=None, max_length=100,
+                                   description="Doar fragmentele acestei persoane (id utilizator sau nume)"),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -177,7 +178,7 @@ async def combined_search_transcripts(
 
 
 class SpeakerOption(BaseModel):
-    id: uuid.UUID
+    id: str             # valoarea din speaker_mapping: id utilizator sau numele scris liber
     name: str
 
 

@@ -41,13 +41,8 @@ export default function TranscriptionProgress({ status }: TranscriptionProgressP
 
       {/* Titlu */}
       <div className="text-center">
-        <p className="text-sm font-semibold text-gray-800 mb-1">
+        <p className="text-sm font-semibold text-gray-800">
           {status === 'queued' ? 'În așteptare transcriere...' : 'Transcriere în curs...'}
-        </p>
-        <p className="text-xs text-gray-500 max-w-xs leading-relaxed">
-          {status === 'queued'
-            ? 'Fișierul este în coadă. Transcrierea pornește când ajunge la procesare.'
-            : 'Transcrierea este în curs. Durata poate varia în funcție de fișier și de încărcarea sistemului.'}
         </p>
       </div>
 

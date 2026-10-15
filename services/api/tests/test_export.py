@@ -285,3 +285,40 @@ async def test_export_pdf_with_speakers(export_client, mock_db):
 
     assert resp.status_code == 200
     assert resp.content.startswith(b"%PDF")
+
+
+# ── Paragrafe pe vorbitor ─────────────────────────────────────
+
+def test_consecutive_segments_of_same_speaker_become_one_paragraph():
+    from src.routers.export import _paragraphs
+    segments = [
+        make_segment(0.0, "Bună ziua.", "SPEAKER_00"),
+        make_segment(3.0, "Începem ședința.", "SPEAKER_00"),
+        make_segment(6.0, "Mulțumesc.", "SPEAKER_01"),
+        make_segment(8.0, "Fără vorbitor.", None),
+        make_segment(9.0, "Tot fără.", None),
+        make_segment(10.0, "Revin eu.", "SPEAKER_00"),
+    ]
+    labels = {"SPEAKER_00": "Ion Popescu", "SPEAKER_01": "Vorbitor 2"}
+
+    assert _paragraphs(segments, labels) == [
+        (0.0, "Ion Popescu", "Bună ziua. Începem ședința."),
+        (6.0, "Vorbitor 2", "Mulțumesc."),
+        (8.0, None, "Fără vorbitor."),                  # fără vorbitor: segmente separate
+        (9.0, None, "Tot fără."),
+        (10.0, "Ion Popescu", "Revin eu."),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_export_uses_free_text_speaker_names(export_client, mock_db):
+    resp = await export_with_speakers(export_client, mock_db, "txt", {"SPEAKER_00": "Ion <Popescu> & co"})
+
+    assert "[00:00] Ion <Popescu> & co: Bună ziua, deschidem ședința." in resp.content.decode("utf-8")
+
+
+@pytest.mark.asyncio
+async def test_pdf_survives_markup_characters(export_client, mock_db):
+    resp = await export_with_speakers(export_client, mock_db, "pdf", {"SPEAKER_00": "Ion <b>Popescu & co"})
+
+    assert resp.status_code == 200 and resp.content.startswith(b"%PDF")

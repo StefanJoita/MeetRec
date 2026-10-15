@@ -5,6 +5,7 @@ import {
   LogOut, Menu, X,
 } from 'lucide-react'
 import { useAuth } from '@/contexts/AuthContext'
+import { useTranscriptionNotifications } from '@/hooks/useTranscriptionNotifications'
 import { cn } from '@/lib/cn'
 
 const navItems = [
@@ -24,6 +25,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
   const { user, logout } = useAuth()
   const navigate = useNavigate()
   const [sidebarOpen, setSidebarOpen] = useState(false)
+  useTranscriptionNotifications()
 
   async function handleLogout() {
     await logout()

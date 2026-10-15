@@ -1,5 +1,5 @@
 import client from './client'
-import type { PaginatedRecordings, RecordingResponse as Recording, ParticipantUserInfo } from './types'
+import type { PaginatedRecordings, RecordingResponse as Recording, ParticipantUserInfo, RecordingUpdate } from './types'
 
 export interface RecordingsParams {
   page?: number
@@ -98,5 +98,29 @@ export async function updateSpeakerMapping(
     `/recordings/${recordingId}/speaker-mapping`,
     { mapping }
   )
+  return data
+}
+
+export async function updateRecording(id: string, data: RecordingUpdate): Promise<Recording> {
+  const { data: updated } = await client.patch<Recording>(`/recordings/${id}`, data)
+  return updated
+}
+
+export interface RecordingActivityItem {
+  id: string
+  title: string
+  status: string
+}
+
+export interface RecordingActivity {
+  server_time: string
+  in_progress: RecordingActivityItem[]
+  finished: RecordingActivityItem[]
+}
+
+export async function getRecordingsActivity(since: string | null): Promise<RecordingActivity> {
+  const { data } = await client.get<RecordingActivity>('/recordings/activity', {
+    params: since ? { since } : {},
+  })
   return data
 }
