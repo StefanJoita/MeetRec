@@ -3,7 +3,7 @@ import { useParams, useNavigate, useSearchParams, Link } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient, type Query } from '@tanstack/react-query'
 import axios from 'axios'
 import {
-  ArrowLeft, Download, RefreshCw, Trash2,
+  ArrowLeft, Download, RefreshCw, Trash2, Pencil,
   Calendar, Clock, MapPin, Users, FileAudio, ChevronDown, Check, ChevronRight,
 } from 'lucide-react'
 import client from '@/api/client'
@@ -22,6 +22,7 @@ import TranscriptViewer from '@/components/TranscriptViewer'
 import TranscriptionProgress from '@/components/recording/TranscriptionProgress'
 import ParticipantLinker from '@/components/ParticipantLinker'
 import SpeakerMappingEditor from '@/components/SpeakerMappingEditor'
+import EditRecordingDialog from '@/components/recording/EditRecordingDialog'
 
 const EXPORT_FORMATS = [
   { value: 'txt', label: 'Text (.txt)' },
@@ -39,6 +40,7 @@ export default function RecordingDetailPage() {
   const audioPlayerRef = useRef<AudioPlayerHandle>(null)
   const [exportOpen, setExportOpen] = useState(false)
   const [showDeleteDialog, setShowDeleteDialog] = useState(false)
+  const [editOpen, setEditOpen] = useState(false)
   const [copied, setCopied] = useState(false)
   const exportRef = useRef<HTMLDivElement>(null)
   const prevStatusRef = useRef<string | null>(null)
@@ -120,13 +122,18 @@ export default function RecordingDetailPage() {
     },
   })
 
+  // Vorbitor → nume: participantul asociat sau numele scris liber
+  // (un id de utilizator care nu mai există cade pe „Vorbitor N”)
   const speakerMap = useMemo(() => {
-    if (!recording?.speaker_mapping || !recording?.resolved_participants) return {}
+    if (!recording?.speaker_mapping) return {}
     const byId = Object.fromEntries(
-      recording.resolved_participants.map(p => [p.user_id.toString(), p.full_name ?? p.username])
+      (recording.resolved_participants ?? []).map(p => [p.user_id.toString(), p.full_name ?? p.username])
     )
+    const isId = (v: string) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v)
     return Object.fromEntries(
-      Object.entries(recording.speaker_mapping).map(([spk, uid]) => [spk, byId[uid] ?? uid])
+      Object.entries(recording.speaker_mapping)
+        .map(([spk, value]) => [spk, byId[value] ?? (isId(value) ? '' : value)])
+        .filter(([, name]) => name)
     )
   }, [recording])
 
@@ -259,6 +266,18 @@ export default function RecordingDetailPage() {
             </div>
           )}
 
+          {canManageParticipants && (
+            <Tooltip content="Editează datele ședinței">
+              <button
+                onClick={() => setEditOpen(true)}
+                className="btn-ghost text-slate-400 hover:text-primary-600 hover:bg-primary-50"
+                aria-label="Editează datele ședinței"
+              >
+                <Pencil className="h-4 w-4" />
+              </button>
+            </Tooltip>
+          )}
+
           {user?.is_admin && (
             <Tooltip content="Șterge înregistrarea">
               <button
@@ -308,9 +327,9 @@ export default function RecordingDetailPage() {
             recordingId={id!}
             linked={resolvedParticipants ?? recording.resolved_participants ?? []}
           />
-          {transcript?.segments && (recording.resolved_participants?.length ?? 0) > 0 && (
+          {transcript?.segments.some(s => s.speaker_id) && (
             <div className="mt-4 pt-4 border-t border-slate-100">
-              <h3 className="text-xs font-semibold text-slate-500 mb-3">Atribuire vorbitori</h3>
+              <h3 className="text-xs font-semibold text-slate-500 mb-3">Vorbitori</h3>
               <SpeakerMappingEditor
                 recordingId={id!}
                 segments={transcript.segments}
@@ -320,6 +339,10 @@ export default function RecordingDetailPage() {
             </div>
           )}
         </div>
+      )}
+
+      {editOpen && (
+        <EditRecordingDialog recording={recording} onClose={() => setEditOpen(false)} />
       )}
 
       {/* Audio Player — sticky */}

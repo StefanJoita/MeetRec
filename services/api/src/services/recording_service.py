@@ -261,8 +261,9 @@ class RecordingService:
         current_user,
     ) -> Optional[Recording]:
         """
-        Actualizează maparea vorbitori → participanți.
-        Validează că toți user_id din mapping sunt participanți linkați la înregistrare.
+        Actualizează maparea vorbitori → persoane.
+        Valoarea e fie id-ul unui participant linkat la înregistrare, fie un nume
+        scris liber (persoane fără cont în aplicație).
         """
         result = await self.db.execute(
             select(Recording)
@@ -276,17 +277,32 @@ class RecordingService:
         if not recording:
             return None
 
-        # Validăm că toți user_id sunt participanți linkați
+        from fastapi import HTTPException
         linked_ids = {str(p.user_id) for p in recording.participant_links}
-        for speaker, user_id in mapping.items():
-            if user_id and user_id not in linked_ids:
-                from fastapi import HTTPException
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"Utilizatorul {user_id} nu este participant la această înregistrare.",
-                )
+        clean: dict[str, str] = {}
+        for speaker, value in mapping.items():
+            value = (value or "").strip()
+            if not value:
+                continue                                   # neatribuit
+            if _is_uuid(value):
+                if value not in linked_ids:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"Utilizatorul {value} nu este participant la această înregistrare.",
+                    )
+            elif len(value) > 100 or any(ord(c) < 32 for c in value):
+                raise HTTPException(status_code=422, detail="Numele vorbitorului e invalid (maxim 100 de caractere).")
+            clean[speaker] = value
 
-        recording.speaker_mapping = mapping
+        recording.speaker_mapping = clean
         await self.db.flush()
         await self.db.refresh(recording)
         return recording
+
+
+def _is_uuid(value: str) -> bool:
+    try:
+        uuid.UUID(value)
+        return True
+    except ValueError:
+        return False

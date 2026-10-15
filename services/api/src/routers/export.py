@@ -5,6 +5,7 @@
 
 import io
 import re
+from xml.sax.saxutils import escape   # reportlab interpretează marcaje în Paragraph
 import uuid
 from datetime import datetime
 from urllib.parse import quote
@@ -52,6 +53,25 @@ def _default_speaker_label(speaker_id: str) -> str:
     """„SPEAKER_00” → „Vorbitor 1” (aceeași etichetă ca în interfață); altceva → necunoscut."""
     match = re.fullmatch(r"SPEAKER_(\d+)", speaker_id)
     return f"Vorbitor {int(match.group(1)) + 1}" if match else "Vorbitor necunoscut"
+
+
+def _paragraphs(segments, display_map: dict) -> list[tuple[float, str | None, str]]:
+    """
+    (început, vorbitor, text): segmentele consecutive ale aceluiași vorbitor devin
+    un singur paragraf, ca într-un proces-verbal. Fără vorbitor, fiecare segment
+    rămâne separat.
+    """
+    paragraphs: list[list] = []
+    previous = None
+    for seg in segments:
+        speaker = seg.speaker_id or None
+        if speaker is not None and speaker == previous and paragraphs:
+            paragraphs[-1][2].append(seg.text)
+        else:
+            label = display_map.get(speaker) if speaker else None
+            paragraphs.append([float(seg.start_time), label, [seg.text]])
+        previous = speaker
+    return [(start, label, " ".join(t.strip() for t in texts)) for start, label, texts in paragraphs]
 
 
 async def _build_speaker_display_map(
@@ -183,13 +203,13 @@ def _export_txt(recording, transcript, filename_base: str, display_map: dict) ->
         "=" * 60,
         "",
     ]
-    for seg in transcript.segments:
-        timestamp = f"[{_format_time(float(seg.start_time))}]"
-        label = display_map.get(seg.speaker_id) if seg.speaker_id else None
+    for start, label, text in _paragraphs(transcript.segments, display_map):
+        timestamp = f"[{_format_time(start)}]"
         if label:
-            lines.append(f"{timestamp} {label}: {seg.text}")
+            lines.append(f"{timestamp} {label}: {text}")
+            lines.append("")                       # rând liber între intervenții
         else:
-            lines.append(f"{timestamp}  {seg.text}")
+            lines.append(f"{timestamp}  {text}")
 
     content = "\n".join(lines)
     buf = io.BytesIO(content.encode("utf-8"))
@@ -287,7 +307,7 @@ def _export_pdf(recording, transcript, filename_base: str, display_map: dict) ->
     story = []
 
     # Titlu
-    story.append(Paragraph(recording.title, title_style))
+    story.append(Paragraph(escape(recording.title), title_style))
     story.append(Paragraph(f"Data ședinței: {recording.meeting_date}", meta_style))
     story.append(Paragraph(f"Durată: {recording.duration_formatted}", meta_style))
     story.append(Paragraph(
@@ -309,14 +329,13 @@ def _export_pdf(recording, transcript, filename_base: str, display_map: dict) ->
     story.append(Spacer(1, 0.4 * cm))
 
     # Segmente
-    for seg in transcript.segments:
-        ts = _format_time(float(seg.start_time))
-        label = display_map.get(seg.speaker_id) if seg.speaker_id else None
+    for start, label, text in _paragraphs(transcript.segments, display_map):
+        ts = _format_time(start)
         if label:
-            story.append(Paragraph(f"{ts} · {label}", speaker_style))
+            story.append(Paragraph(f"{ts} · {escape(label)}", speaker_style))
         else:
             story.append(Paragraph(ts, timestamp_style))
-        story.append(Paragraph(seg.text, segment_style))
+        story.append(Paragraph(escape(text), segment_style))
 
     doc.build(story)
     buf.seek(0)
@@ -364,9 +383,8 @@ def _export_docx(recording, transcript, filename_base: str, display_map: dict) -
     doc.add_paragraph()  # spațiu
 
     # Segmente
-    for seg in transcript.segments:
-        ts = _format_time(float(seg.start_time))
-        label = display_map.get(seg.speaker_id) if seg.speaker_id else None
+    for start, label, text in _paragraphs(transcript.segments, display_map):
+        ts = _format_time(start)
 
         ts_par = doc.add_paragraph()
         if label:
@@ -378,7 +396,7 @@ def _export_docx(recording, transcript, filename_base: str, display_map: dict) -
         ts_run.font.size = Pt(8)
         ts_run.bold = True
 
-        text_par = doc.add_paragraph(seg.text)
+        text_par = doc.add_paragraph(text)
         text_par.style.font.size = Pt(10)
 
     buf = io.BytesIO()

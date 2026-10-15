@@ -99,11 +99,6 @@ export default function SettingsPanel() {
 
   return (
     <div className="space-y-6">
-      <p className="text-sm text-gray-500">
-        Setările de funcționare se aplică fără reinstalare. Secretele, rețeaua și modelul Whisper
-        rămân în fișierul <code className="text-xs bg-gray-100 px-1 rounded">.env</code> de pe server.
-      </p>
-
       {groups.map(group => (
         <section key={group.name} className="card divide-y divide-gray-100">
           <h2 className="px-5 py-3 text-sm font-semibold text-gray-700">{group.name}</h2>
@@ -131,7 +126,6 @@ export default function SettingsPanel() {
                     )}
                   </div>
                   <p className="text-xs text-gray-500 mt-1">{s.description}</p>
-                  <p className="text-xs text-gray-400 mt-1">Se aplică: {s.applies}</p>
                 </div>
 
                 <div className="flex items-center gap-2 shrink-0">

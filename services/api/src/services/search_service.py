@@ -104,7 +104,7 @@ class SearchFilters:
     date_to: Optional[str] = None
     location: Optional[str] = None
     min_duration: Optional[int] = None
-    speaker: Optional[uuid.UUID] = None       # utilizatorul asociat vorbitorului (speaker_mapping)
+    speaker: Optional[str] = None             # valoarea din speaker_mapping: id utilizator sau nume
     language: Optional[str] = None
 
     def sql(self, user: Optional[User], segments: bool = True) -> Tuple[str, dict]:
@@ -171,7 +171,7 @@ class SearchService:
         date_to: Optional[str] = None,
         location: Optional[str] = None,
         min_duration: Optional[int] = None,
-        speaker: Optional[uuid.UUID] = None,
+        speaker: Optional[str] = None,
     ) -> Tuple[List[SearchResult], int]:
         """
         Returns (results, total_count).
@@ -262,7 +262,7 @@ class SearchService:
         date_to: Optional[str] = None,
         location: Optional[str] = None,
         min_duration: Optional[int] = None,
-        speaker: Optional[uuid.UUID] = None,
+        speaker: Optional[str] = None,
         embedding: Optional[Tuple[List[float], str]] = None,
     ) -> Tuple[List[SemanticSearchResult], bool]:
         """
@@ -372,7 +372,7 @@ class SearchService:
         date_to: Optional[str] = None,
         location: Optional[str] = None,
         min_duration: Optional[int] = None,
-        speaker: Optional[uuid.UUID] = None,
+        speaker: Optional[str] = None,
     ) -> CombinedOutcome:
         """
         Căutare exactă + după sens, combinate prin Reciprocal Rank Fusion și grupate
@@ -448,14 +448,19 @@ class SearchService:
         if not hits:
             return
         rec_ids = list({h.recording_id for h in hits})
+        # Valoarea e id-ul unui utilizator sau un nume scris liber
         rows = (await self.db.execute(text("""
-            SELECT r.id AS recording_id, m.key AS speaker_id, COALESCE(u.full_name, u.username) AS name
+            SELECT r.id AS recording_id, m.key AS speaker_id, m.value AS value,
+                   COALESCE(u.full_name, u.username) AS user_name
             FROM recordings r
             CROSS JOIN LATERAL jsonb_each_text(r.speaker_mapping) m
-            JOIN users u ON u.id::text = m.value
+            LEFT JOIN users u ON u.id::text = m.value
             WHERE r.id = ANY(:ids)
         """), {"ids": rec_ids})).mappings().all()
-        names = {(row["recording_id"], row["speaker_id"]): row["name"] for row in rows}
+        names = {
+            (row["recording_id"], row["speaker_id"]): row["user_name"] or (None if _looks_like_uuid(row["value"]) else row["value"])
+            for row in rows
+        }
         for h in hits:
             h.speaker_name = names.get((h.recording_id, h.speaker_id)) or _speaker_label(h.speaker_id)
 
@@ -463,14 +468,18 @@ class SearchService:
         """Persoanele asociate cu vorbitori în ședințele vizibile utilizatorului (filtrul „Vorbitor”)."""
         participant_sql, params = _participant_filter_sql(current_user)
         rows = (await self.db.execute(text(f"""
-            SELECT DISTINCT u.id, COALESCE(u.full_name, u.username) AS name
+            SELECT DISTINCT m.value AS value, COALESCE(u.full_name, u.username) AS user_name
             FROM recordings r
             CROSS JOIN LATERAL jsonb_each_text(r.speaker_mapping) m
-            JOIN users u ON u.id::text = m.value
+            LEFT JOIN users u ON u.id::text = m.value
             WHERE TRUE {participant_sql}
-            ORDER BY name
         """), params)).mappings().all()
-        return [{"id": row["id"], "name": row["name"]} for row in rows]
+        options = {}
+        for row in rows:
+            name = row["user_name"] or (None if _looks_like_uuid(row["value"]) else row["value"])
+            if name:                                   # utilizator șters: fără opțiune
+                options[row["value"]] = name
+        return [{"id": value, "name": name} for value, name in sorted(options.items(), key=lambda o: o[1].lower())]
 
     async def _get_query_embedding(self, query: str) -> Optional[Tuple[List[float], str]]:
         """
@@ -485,6 +494,14 @@ class SearchService:
                 return body["embedding"], body["model"]
         except Exception:
             return None
+
+
+def _looks_like_uuid(value: str) -> bool:
+    try:
+        uuid.UUID(value)
+        return True
+    except (TypeError, ValueError):
+        return False
 
 
 def _speaker_label(speaker_id: str) -> str:

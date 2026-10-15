@@ -198,11 +198,27 @@ async def test_combined_endpoint_audits_only_first_page():
 
 @pytest.mark.asyncio
 async def test_speakers_endpoint():
-    uid = uuid.uuid4()
-    with patch.object(SearchService, "speakers", AsyncMock(return_value=[{"id": uid, "name": "Ion Popescu"}])):
+    uid = str(uuid.uuid4())
+    options = [{"id": uid, "name": "Ion Popescu"}, {"id": "Ana Pop", "name": "Ana Pop"}]
+    with patch.object(SearchService, "speakers", AsyncMock(return_value=options)):
         resp = await get("/api/v1/search/speakers", AsyncMock(), operator())
 
-    assert resp.json() == [{"id": str(uid), "name": "Ion Popescu"}]
+    assert resp.json() == options
+
+
+@pytest.mark.asyncio
+async def test_speakers_include_free_text_names_and_skip_deleted_users():
+    db = AsyncMock()
+    uid = str(uuid.uuid4())
+    db.execute.return_value = rows_result([
+        {"value": uid, "user_name": "Ion Popescu"},
+        {"value": "Ana Pop", "user_name": None},                  # nume scris liber
+        {"value": str(uuid.uuid4()), "user_name": None},          # utilizator șters
+    ])
+
+    options = await SearchService(db).speakers(None)
+
+    assert options == [{"id": "Ana Pop", "name": "Ana Pop"}, {"id": uid, "name": "Ion Popescu"}]
 
 
 def test_combined_search_is_rate_limited():

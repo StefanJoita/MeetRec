@@ -239,10 +239,7 @@ export default function AdminPage() {
         <div className="h-9 w-9 bg-blue-50 rounded-lg flex items-center justify-center">
           <ShieldCheck className="h-5 w-5 text-blue-600" />
         </div>
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Administrare</h1>
-          <p className="text-sm text-gray-500">Audit, utilizatori, setări, starea sistemului și durata procesărilor</p>
-        </div>
+        <h1 className="text-2xl font-bold text-gray-900">Administrare</h1>
       </div>
 
       <div className="flex gap-2 mb-6">

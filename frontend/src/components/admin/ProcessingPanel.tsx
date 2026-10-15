@@ -91,7 +91,7 @@ export default function ProcessingPanel() {
               <th className={TH}>Înregistrare</th>
               <th className={TH}>Audio</th>
               <th className={TH}>Procesare</th>
-              <th className={TH} title="Timp de procesare / durata audio. Sub 1× = mai repede decât timpul real.">Raport</th>
+              <th className={TH}>Raport</th>
               <th className={`${TH} hidden md:table-cell`}>Etape</th>
             </tr>
           </thead>
@@ -127,12 +127,6 @@ export default function ProcessingPanel() {
           </tbody>
         </table>
       </div>
-
-      <p className="text-xs text-gray-400 mb-4">
-        Procesarea include detectarea limbii și toate etapele, fără timpul de așteptare în coadă.
-        Când diarizarea rulează în paralel, se suprapune cu transcrierea, deci etapele nu se adună.
-        Transcrierile făcute înainte de această versiune nu au etapele măsurate.
-      </p>
 
       <Pagination page={data.page} pages={data.pages} total={data.total} onPageChange={setPage} />
     </div>

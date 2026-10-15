@@ -2,6 +2,7 @@ import { useCallback, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { getUploadConfig } from '@/api/admin'
+import { requestNotificationPermission } from '@/hooks/useTranscriptionNotifications'
 import { UploadCloud, FileAudio, X, ArrowLeft, CheckCircle } from 'lucide-react'
 import { useUploadWithProgress, type UploadMetadata } from '@/hooks/useUploadWithProgress'
 import { cn } from '@/lib/cn'
@@ -43,6 +44,7 @@ export default function NewRecordingPage() {
   }, [handleFile])
 
   async function handleUpload() {
+    requestNotificationPermission()   // notificare de sistem când transcrierea e gata
     if (!file) { setFileError('Selectați un fișier audio.'); return }
     const meta: UploadMetadata = {
       title: title.trim() || undefined,
@@ -65,10 +67,7 @@ export default function NewRecordingPage() {
       <div className="p-6 max-w-md mx-auto text-center mt-16">
         <CheckCircle className="h-14 w-14 text-green-500 mx-auto mb-4" />
         <h2 className="text-xl font-semibold text-gray-900 mb-2">Fișier trimis cu succes</h2>
-        <p className="text-sm text-gray-500 mb-6">
-          Înregistrarea va apărea în listă după validare și preluare pentru transcriere.
-          Timpul de procesare poate varia.
-        </p>
+        <p className="text-sm text-gray-500 mb-6">Apare în listă după validare.</p>
         <div className="flex gap-3 justify-center">
           <button onClick={() => navigate('/')} className="btn-primary">
             Vezi lista de înregistrări
@@ -101,11 +100,7 @@ export default function NewRecordingPage() {
         <ArrowLeft className="h-4 w-4" /> Înapoi
       </button>
 
-      <h1 className="page-title mb-2">Înregistrare nouă</h1>
-      <p className="text-sm text-gray-500 mb-6">
-        Selectați fișierul audio. Sistemul îl validează, creează înregistrarea și pornește
-        transcrierea.
-      </p>
+      <h1 className="page-title mb-6">Înregistrare nouă</h1>
 
       {/* Dropzone */}
       <div

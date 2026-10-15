@@ -3,6 +3,7 @@ import { useVirtualizer } from '@tanstack/react-virtual'
 import { Search, X, ChevronUp, ChevronDown } from 'lucide-react'
 import type { TranscriptSegment as Segment } from '@/api/types'
 import { cn } from '@/lib/cn'
+import { speakerName } from '@/lib/speakers'
 import { formatTime } from '@/lib/formatTime'
 
 interface TranscriptViewerProps {
@@ -27,12 +28,6 @@ function getSpeakerColor(speakerId: string, allSpeakers: string[]): string {
   return SPEAKER_COLORS[idx % SPEAKER_COLORS.length]
 }
 
-function getSpeakerLabel(speakerId: string, speakerMap?: Record<string, string>): string {
-  if (speakerMap && speakerMap[speakerId]) return speakerMap[speakerId]
-  // "SPEAKER_00" → "V1", "SPEAKER_01" → "V2" etc.
-  const match = speakerId.match(/(\d+)$/)
-  return match ? `V${parseInt(match[1], 10) + 1}` : speakerId
-}
 
 function getActiveIndex(segments: Segment[], currentTime: number): number {
   for (let i = segments.length - 1; i >= 0; i--) {
@@ -178,10 +173,7 @@ export default function TranscriptViewer({ segments, getCurrentTime, onSegmentCl
   return (
     <div>
       {/* Hint + search trigger */}
-      <div className="flex items-center justify-between mb-3 px-3">
-        <p className="text-xs text-gray-400">
-          Apasă pe orice segment pentru a sări la momentul respectiv în înregistrare.
-        </p>
+      <div className="flex items-center justify-end mb-3 px-3">
         <button
           onClick={() => { setSearchOpen(true); setTimeout(() => searchRef.current?.focus(), 50) }}
           className="inline-flex items-center gap-1 text-xs text-slate-400 hover:text-slate-600 transition-colors"
@@ -258,6 +250,10 @@ export default function TranscriptViewer({ segments, getCurrentTime, onSegmentCl
               ? seg.text.toLowerCase().includes(searchQuery.toLowerCase())
               : false
             const isCurrent = virtualItem.index === currentMatchSegIdx
+            // Segmentele consecutive ale aceluiași vorbitor formează o intervenție:
+            // numele apare o singură dată, la începutul ei
+            const prevSpeaker = virtualItem.index > 0 ? segments[virtualItem.index - 1].speaker_id : null
+            const startsTurn  = !!seg.speaker_id && seg.speaker_id !== prevSpeaker
 
             return (
               <div
@@ -273,9 +269,17 @@ export default function TranscriptViewer({ segments, getCurrentTime, onSegmentCl
                 }}
                 role="listitem"
               >
+                {startsTurn && (
+                  <div className={cn('px-3 pb-1', virtualItem.index > 0 && 'pt-3')}>
+                    <span className={cn('text-xs font-semibold px-1.5 py-0.5 rounded',
+                      getSpeakerColor(seg.speaker_id!, allSpeakers))}>
+                      {speakerName(seg.speaker_id!, speakerMap)}
+                    </span>
+                  </div>
+                )}
                 <button
                   type="button"
-                  aria-label={`Segment la ${formatTime(seg.start_time)}: ${seg.text}`}
+                  aria-label={`Segment la ${formatTime(seg.start_time)}${seg.speaker_id ? `, ${speakerName(seg.speaker_id, speakerMap)}` : ''}: ${seg.text}`}
                   aria-current={isActive ? 'true' : undefined}
                   onClick={() => onSegmentClick(seg.start_time)}
                   onKeyDown={(e) => {
@@ -285,7 +289,7 @@ export default function TranscriptViewer({ segments, getCurrentTime, onSegmentCl
                     }
                   }}
                   className={cn(
-                    'w-full text-left flex gap-3 px-3 py-2.5 rounded-lg cursor-pointer transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500',
+                    'w-full text-left flex gap-3 px-3 py-1.5 rounded-lg cursor-pointer transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500',
                     isCurrent
                       ? 'bg-yellow-50 border-l-4 border-yellow-400'
                       : isMatch
@@ -298,17 +302,6 @@ export default function TranscriptViewer({ segments, getCurrentTime, onSegmentCl
                   <span className="text-xs font-mono text-gray-400 pt-0.5 shrink-0 w-12" aria-hidden="true">
                     {formatTime(seg.start_time)}
                   </span>
-                  {seg.speaker_id && (
-                    <span
-                      className={cn(
-                        'text-xs font-semibold px-1.5 py-0.5 rounded shrink-0 self-start mt-0.5',
-                        getSpeakerColor(seg.speaker_id, allSpeakers)
-                      )}
-                      aria-label={`Vorbitor ${getSpeakerLabel(seg.speaker_id, speakerMap)}`}
-                    >
-                      {getSpeakerLabel(seg.speaker_id, speakerMap)}
-                    </span>
-                  )}
                   <p className={cn('text-sm leading-relaxed', isActive ? 'text-gray-900 font-medium' : 'text-gray-700')}>
                     <HighlightedText text={seg.text} query={searchQuery} />
                   </p>
