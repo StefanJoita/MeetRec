@@ -88,7 +88,7 @@ async def test_rrf_ranks_segments_found_by_both_first():
     s1, s2, s3 = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
     svc = service_with([fts(REC_A, s1), fts(REC_A, s2)], [sem(REC_A, s2), sem(REC_A, s3)])
 
-    out = await svc.combined_search("buget local")
+    out = await svc.combined_search("bugetul local pe anul viitor")
 
     hits = out.groups[0].hits
     assert [h.segment_id for h in hits] == [s2, s1, s3]     # s2: în ambele liste
@@ -96,7 +96,47 @@ async def test_rrf_ranks_segments_found_by_both_first():
     assert hits[0].score == pytest.approx(1 / 62 + 1 / 61, abs=1e-6)
     assert (out.fts_count, out.semantic_count, out.both_count) == (2, 2, 1)
     svc.search.assert_awaited_once()
-    assert svc.search.call_args.kwargs["query"] == "buget OR local"
+    assert svc.search.call_args.kwargs["query"] == "bugetul OR local OR anul OR viitor"
+
+
+@pytest.mark.asyncio
+async def test_short_query_semantic_only_reorders_exact_matches():
+    """„salut” nu trebuie să aducă „mulțumesc”: la 1–2 cuvinte, după sens nu adaugă rezultate."""
+    exact, related = uuid.uuid4(), uuid.uuid4()
+    svc = service_with([fts(REC_A, exact)], [sem(REC_A, related, 0.54), sem(REC_A, exact, 0.4)])
+
+    out = await svc.combined_search("salut")
+
+    hits = out.groups[0].hits
+    assert [h.segment_id for h in hits] == [exact]
+    assert hits[0].source == "both"
+    assert out.semantic_count == 1 and out.total_hits == 1
+
+
+@pytest.mark.asyncio
+async def test_short_query_without_exact_matches_finds_nothing():
+    svc = service_with([], [sem(REC_A, uuid.uuid4(), 0.46)])
+
+    out = await svc.combined_search("salut")
+
+    assert out.groups == [] and out.total_hits == 0
+
+
+@pytest.mark.parametrize("similarities, kept", [
+    ([0.76, 0.75, 0.63, 0.55, 0.48], [0.76, 0.75, 0.63]),   # aproape de cel mai bun
+    ([0.58, 0.52, 0.49], [0.58, 0.52]),                      # minimum 0,5
+    ([0.45, 0.40], []),
+])
+def test_long_query_keeps_strong_semantic_results(similarities, kept):
+    results = [sem(REC_A, uuid.uuid4(), x) for x in similarities]
+
+    filtered = search_service.filter_semantic(results, "proteste violente în Franța")
+
+    assert [r.similarity for r in filtered] == kept
+
+
+def test_semantic_endpoint_returns_nothing_for_short_queries():
+    assert search_service.filter_semantic([sem(REC_A, uuid.uuid4(), 0.9)], "buget local") == []
 
 
 @pytest.mark.asyncio

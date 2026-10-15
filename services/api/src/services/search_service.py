@@ -40,7 +40,16 @@ TS_QUERY = f"websearch_to_tsquery('{TS_CONFIG}', :query)"
 RRF_K = 60              # constanta standard din Reciprocal Rank Fusion
 CANDIDATES = 200        # câte rezultate se iau din fiecare căutare înainte de combinare
 HITS_PER_GROUP = 3      # câte fragmente se afișează pentru o ședință
-MIN_SIMILARITY = 0.3    # sub acest prag, căutarea după sens aduce mai mult zgomot decât rezultate
+# Căutarea după sens — praguri calibrate pe transcrieri reale (vectori MiniLM cu context ±1):
+#   - la 1–2 cuvinte, scorurile nu separă rezultatele bune de zgomot („salut” ≈ „mulțumesc”,
+#     „buget”: segmentul relevant 0,35, sub segmente fără legătură la 0,43) → căutarea după sens
+#     doar reordonează potrivirile exacte, nu adaugă rezultate;
+#   - de la 3 cuvinte, rezultatele relevante ies clar în față (0,6–0,76) → se păstrează cele
+#     peste MIN_SIMILARITY și aproape de cel mai bun (TOP_MARGIN).
+CANDIDATE_SIMILARITY = 0.3   # candidați din SQL (filtrarea finală se face după lungimea întrebării)
+MIN_SIMILARITY = 0.5
+TOP_MARGIN = 0.15
+SHORT_QUERY_TERMS = 2
 
 
 # Cuvinte de legătură ignorate când întrebarea e în limbaj natural (PostgreSQL nu are
@@ -56,6 +65,19 @@ STOPWORDS = {
 _OPERATORS = re.compile(r'"|(^|\s)-\S|\sOR\s')
 
 
+def meaningful_terms(query: str) -> List[str]:
+    """Cuvintele întrebării, fără cuvintele de legătură."""
+    return [w for w in re.findall(r"[\w-]+", query) if w.lower() not in STOPWORDS]
+
+
+def filter_semantic(results: List[SemanticSearchResult], query: str) -> List[SemanticSearchResult]:
+    """Rezultatele după sens care merită afișate singure (fără potrivire exactă)."""
+    if len(meaningful_terms(query)) <= SHORT_QUERY_TERMS or not results:
+        return []
+    cutoff = max(MIN_SIMILARITY, max(r.similarity for r in results) - TOP_MARGIN)
+    return [r for r in results if r.similarity >= cutoff]
+
+
 def any_terms_query(query: str) -> str:
     """
     Întrebare în limbaj natural („proteste violente în Franța”) → termenii legați cu OR,
@@ -64,7 +86,7 @@ def any_terms_query(query: str) -> str:
     """
     if _OPERATORS.search(query):
         return query
-    words = [w for w in re.findall(r"[\w-]+", query) if w.lower() not in STOPWORDS]
+    words = meaningful_terms(query)
     return " OR ".join(words) if len(words) > 1 else query
 
 
@@ -264,6 +286,7 @@ class SearchService:
         min_duration: Optional[int] = None,
         speaker: Optional[str] = None,
         embedding: Optional[Tuple[List[float], str]] = None,
+        candidates: bool = False,
     ) -> Tuple[List[SemanticSearchResult], bool]:
         """
         Returns (results, available). available=False: search-indexer indisponibil
@@ -306,7 +329,7 @@ class SearchService:
                 t.status = 'completed'
                 AND seg.embedding IS NOT NULL
                 AND seg.embedding_model = :model
-                AND 1 - (seg.embedding <=> '{vector_literal}'::vector) > {MIN_SIMILARITY}
+                AND 1 - (seg.embedding <=> '{vector_literal}'::vector) > {CANDIDATE_SIMILARITY}
                 {filter_sql}
             ORDER BY seg.embedding <=> '{vector_literal}'::vector ASC
             LIMIT :limit
@@ -327,6 +350,8 @@ class SearchService:
             )
             for row in rows
         ]
+        if not candidates:
+            results = filter_semantic(results, query)
         return results, True
 
     # ── Ședințe după titlu / detalii ─────────────────────────
@@ -387,7 +412,13 @@ class SearchService:
         embedding_task = asyncio.create_task(self._get_query_embedding(query))
         fts_results, _ = await self.search(query=any_terms_query(query), limit=CANDIDATES, **kwargs)
         sem_results, semantic_available = await self.semantic_search(
-            query=query, limit=CANDIDATES, embedding=await embedding_task, **kwargs)
+            query=query, limit=CANDIDATES, embedding=await embedding_task, candidates=True, **kwargs)
+        if len(meaningful_terms(query)) <= SHORT_QUERY_TERMS:
+            # întrebare scurtă: după sens doar reordonează potrivirile exacte
+            exact_ids = {r.segment_id for r in fts_results}
+            sem_results = [r for r in sem_results if r.segment_id in exact_ids]
+        else:
+            sem_results = filter_semantic(sem_results, query)
         recordings = await self.recording_matches(any_terms_query(query), current_user, filters)
 
         fused: Dict[str, _Fused] = {}
