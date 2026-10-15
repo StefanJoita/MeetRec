@@ -145,16 +145,47 @@ export interface CombinedSearchResult {
   rank: number | null
   similarity: number | null
   source: 'fts' | 'semantic' | 'both'
+  score: number
+  speaker_id: string | null
+  speaker_name: string | null
+}
+
+export interface SearchGroup {
+  recording_id: string
+  recording_title: string
+  meeting_date: string
+  score: number
+  total_hits: number
+  hits: CombinedSearchResult[]
+}
+
+export interface RecordingMatch {
+  recording_id: string
+  title: string
+  meeting_date: string
+  location: string | null
+  headline: string | null
 }
 
 export interface CombinedSearchResponse {
   query: string
-  results: CombinedSearchResult[]
-  total_results: number
+  groups: SearchGroup[]
+  recordings: RecordingMatch[]
+  total_groups: number
+  total_hits: number
+  page: number
+  page_size: number
+  pages: number
   fts_count: number
   semantic_count: number
   both_count: number
+  semantic_available: boolean
   search_time_ms: number
+}
+
+export interface SpeakerOption {
+  id: string
+  name: string
 }
 
 // ── Input schemas ────────────────────────────────────────────

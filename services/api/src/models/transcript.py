@@ -5,7 +5,7 @@ from datetime import datetime
 from typing import Optional, List
 
 from sqlalchemy import Boolean, String, Integer, Text, Numeric, ForeignKey, TIMESTAMP, Index, Enum as SAEnum
-from sqlalchemy.dialects.postgresql import UUID as PG_UUID, TSVECTOR
+from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
 
@@ -60,11 +60,6 @@ class Transcript(Base):
     alignment_sec: Mapped[Optional[float]] = mapped_column(Numeric(8, 1))
     diarization_sec: Mapped[Optional[float]] = mapped_column(Numeric(8, 1))
     diarization_parallel: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
-
-    # ── Full-text search ───────────────────────────────────
-    # TSVECTOR = format special PostgreSQL pentru căutare rapidă în text
-    # Actualizat automat de trigger-ul din init.sql când se adaugă segmente
-    search_vector: Mapped[Optional[str]] = mapped_column(TSVECTOR, nullable=True)
 
     # ── Timestamps ─────────────────────────────────────────
     created_at: Mapped[datetime] = mapped_column(

@@ -18,6 +18,13 @@ CREATE EXTENSION IF NOT EXISTS "unaccent";  -- elimină diacritice la search (ș
 -- Necesită imaginea pgvector/pgvector:pg15 în docker-compose
 CREATE EXTENSION IF NOT EXISTS vector;
 
+-- Full-text search în română, insensibil la diacritice: „sedinta” găsește „ședința”
+-- (și invers — Whisper omite uneori diacriticele). unaccent înaintea stemmer-ului.
+CREATE TEXT SEARCH CONFIGURATION romanian_unaccent (COPY = romanian);
+ALTER TEXT SEARCH CONFIGURATION romanian_unaccent
+    ALTER MAPPING FOR word, hword, hword_part, asciiword, asciihword, hword_asciipart
+    WITH unaccent, romanian_stem;
+
 -- ============================================================
 -- TIPURI CUSTOM (ENUM) — Valori predefinite
 -- ============================================================
@@ -175,9 +182,6 @@ CREATE TABLE transcripts (
     diarization_sec      NUMERIC(8,1),
     diarization_parallel BOOLEAN NOT NULL DEFAULT FALSE,
 
-    -- Full-text search vector (generat automat din segmente prin trigger)
-    search_vector   TSVECTOR,
-
     created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     started_at      TIMESTAMPTZ,
     completed_at    TIMESTAMPTZ,
@@ -189,7 +193,6 @@ CREATE TABLE transcripts (
 
 CREATE INDEX idx_transcripts_recording_id ON transcripts(recording_id);
 CREATE INDEX idx_transcripts_status ON transcripts(status);
-CREATE INDEX idx_transcripts_search ON transcripts USING GIN(search_vector);
 
 -- ============================================================
 -- TABELUL: transcript_segments
@@ -209,11 +212,13 @@ CREATE TABLE transcript_segments (
 
     -- Coloană generată automat pentru full-text search pe segment
     search_vector   TSVECTOR GENERATED ALWAYS AS (
-                        to_tsvector('romanian', coalesce(text, ''))
+                        to_tsvector('romanian_unaccent', coalesce(text, ''))
                     ) STORED,
 
-    -- Embedding semantic (generat de search-indexer)
+    -- Embedding semantic (generat de search-indexer) și modelul care l-a produs:
+    -- vectorii de la modele / setări diferite nu sunt comparabili
     embedding       vector(384),
+    embedding_model VARCHAR(150),
 
     CONSTRAINT unique_segment_index UNIQUE (transcript_id, segment_index)
 );
@@ -329,30 +334,6 @@ CREATE TRIGGER update_recordings_updated_at
     BEFORE UPDATE ON recordings
     FOR EACH ROW
     EXECUTE FUNCTION update_updated_at_column();
-
--- ============================================================
--- TRIGGER: actualizează search_vector în transcripts
--- ============================================================
--- Când se inserează un segment nou, agregăm textul tuturor segmentelor
--- și actualizăm search_vector din transcripts (pentru căutare la nivel de transcript).
-CREATE OR REPLACE FUNCTION fn_update_search_vector()
-RETURNS TRIGGER AS $$
-BEGIN
-    UPDATE transcripts
-    SET search_vector = (
-        SELECT to_tsvector('romanian', string_agg(text, ' '))
-        FROM transcript_segments
-        WHERE transcript_id = NEW.transcript_id
-    )
-    WHERE id = NEW.transcript_id;
-    RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
-
-CREATE TRIGGER update_search_vector_on_segment
-    AFTER INSERT ON transcript_segments
-    FOR EACH ROW
-    EXECUTE FUNCTION fn_update_search_vector();
 
 -- ============================================================
 -- TRIGGER: NOTIFY când transcrierea e completă

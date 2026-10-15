@@ -213,6 +213,8 @@ async def test_system_status(http, monkeypatch):
                                                error_message="OOM", updated_at=None)]
     db.execute.side_effect = [counts, failed]
     worker = {"worker_id": "stt-worker-1", "whisper_model": "large-v3-turbo"}
+    monkeypatch.setattr(admin_router, "_search_index_status", AsyncMock(return_value={
+        "available": True, "model": "m|ctx1", "pending_segments": 0}))
     monkeypatch.setattr(admin_router, "_redis_status", AsyncMock(return_value={
         "available": True, "queued": 2, "processing": 1, "workers": [worker]}))
     monkeypatch.setenv("MEETREC_VERSION", "1.0.0")

@@ -19,9 +19,11 @@
 # ============================================================
 
 import time
+import uuid
 from datetime import date
-from typing import Optional
+from typing import List, Optional
 from fastapi import APIRouter, Depends, Query, Request
+from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.database import get_db
@@ -99,21 +101,22 @@ async def semantic_search_transcripts(
     start = time.time()
 
     service = SearchService(db)
-    results, total = await service.semantic_search(query=q, limit=limit, current_user=current_user)
+    results, available = await service.semantic_search(query=q, limit=limit, current_user=current_user)
 
     elapsed_ms = int((time.time() - start) * 1000)
 
     await log_audit(
         request, db, action="SEMANTIC_SEARCH",
-        details={"query": q, "total": total, "ms": elapsed_ms}
+        details={"query": q, "total": len(results), "ms": elapsed_ms}
     )
 
     return SemanticSearchResponse(
         query=q,
         results=results,
-        total_results=total,
+        total_results=len(results),
         limit=limit,
         search_time_ms=elapsed_ms,
+        semantic_available=available,
     )
 
 
@@ -122,41 +125,66 @@ async def semantic_search_transcripts(
     response_model=CombinedSearchResponse,
     summary="Căutare combinată FTS + semantic",
 )
+@limiter.limit("30/minute")
 async def combined_search_transcripts(
     request: Request,
-    q: str = Query(min_length=2, description="Termen sau frază de căutat"),
-    limit: int = Query(default=20, ge=1, le=100),
+    q: str = Query(min_length=2, max_length=500, description='Termeni, "frază exactă", OR, -exclus'),
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=10, ge=1, le=50, description="Ședințe pe pagină"),
     date_from: Optional[date] = Query(default=None, description="Data minimă ședință (YYYY-MM-DD)"),
     date_to:   Optional[date] = Query(default=None, description="Data maximă ședință (YYYY-MM-DD)"),
     location:  Optional[str]  = Query(default=None, description="Filtrează după locație"),
     min_duration: Optional[int] = Query(default=None, ge=0, description="Durată minimă în secunde"),
+    speaker: Optional[uuid.UUID] = Query(default=None, description="Doar fragmentele acestei persoane"),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     start = time.time()
 
     service = SearchService(db)
-    results, stats = await service.combined_search(
-        query=q, limit=limit, current_user=current_user,
-        date_from=str(date_from) if date_from else None,
-        date_to=str(date_to)     if date_to   else None,
-        location=location,
-        min_duration=min_duration,
+    outcome = await service.combined_search(
+        query=q, page=page, page_size=page_size, current_user=current_user,
+        date_from=date_from, date_to=date_to, location=location,
+        min_duration=min_duration, speaker=speaker,
     )
 
     elapsed_ms = int((time.time() - start) * 1000)
 
-    await log_audit(
-        request, db, action="SEARCH",
-        details={"query": q, "mode": "combined", "total": len(results), "ms": elapsed_ms, **stats}
-    )
+    # Doar prima pagină: paginarea aceleiași căutări nu e o căutare nouă
+    if page == 1:
+        await log_audit(
+            request, db, action="SEARCH",
+            details={"query": q, "mode": "combined", "total": outcome.total_hits,
+                     "recordings": outcome.total_groups, "ms": elapsed_ms,
+                     **({"speaker": str(speaker)} if speaker else {})},
+        )
 
     return CombinedSearchResponse(
         query=q,
-        results=results,
-        total_results=len(results),
-        fts_count=stats["fts_count"],
-        semantic_count=stats["semantic_count"],
-        both_count=stats["both_count"],
+        groups=outcome.groups,
+        recordings=outcome.recordings,
+        total_groups=outcome.total_groups,
+        total_hits=outcome.total_hits,
+        page=page,
+        page_size=page_size,
+        pages=outcome.pages,
+        fts_count=outcome.fts_count,
+        semantic_count=outcome.semantic_count,
+        both_count=outcome.both_count,
+        semantic_available=outcome.semantic_available,
         search_time_ms=elapsed_ms,
     )
+
+
+class SpeakerOption(BaseModel):
+    id: uuid.UUID
+    name: str
+
+
+@router.get("/speakers", response_model=List[SpeakerOption], summary="Persoanele pentru filtrul „Vorbitor”")
+async def search_speakers(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Persoanele asociate cu vorbitori (Asociere vorbitori) în ședințele vizibile utilizatorului."""
+    return await SearchService(db).speakers(current_user)

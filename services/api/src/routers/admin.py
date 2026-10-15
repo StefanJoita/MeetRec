@@ -17,6 +17,7 @@ import shutil
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
+import httpx
 import redis.asyncio as aioredis
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
@@ -222,6 +223,19 @@ async def _redis_status() -> Dict[str, Any]:
         await r.aclose()
 
 
+async def _search_index_status() -> Dict[str, Any]:
+    """Starea search-indexer: modelul și câte segmente așteaptă indexarea."""
+    try:
+        async with httpx.AsyncClient(timeout=3.0) as client:
+            resp = await client.get(f"{settings.search_indexer_url}/health")
+            resp.raise_for_status()
+            body = resp.json()
+        return {"available": True, "model": body.get("model"), "pending_segments": body.get("pending_segments")}
+    except Exception as e:
+        logger.warning("admin_system_search_indexer_error", error=str(e))
+        return {"available": False, "model": None, "pending_segments": None}
+
+
 def _disk() -> Optional[Dict[str, int]]:
     try:
         usage = shutil.disk_usage(settings.audio_storage_path)
@@ -249,6 +263,7 @@ async def system_status(
         "version": os.environ.get("MEETREC_VERSION") or None,
         "whisper_model_configured": os.environ.get("WHISPER_MODEL") or None,
         "queue": await _redis_status(),
+        "search_index": await _search_index_status(),
         "disk": _disk(),
         "recordings_by_status": {str(k.value if hasattr(k, "value") else k): v for k, v in counts.items()},
         "recent_failures": [
