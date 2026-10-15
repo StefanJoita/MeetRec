@@ -347,7 +347,7 @@ class TestLinkedParticipantOlderRecording:
         with patch.object(SearchService, "_get_query_embedding",
                           AsyncMock(return_value=([0.0] * 384, "model|ctx1"))):
             async with make_client(fake_db, participant) as client:
-                resp = await client.get("/api/v1/search/semantic?q=buget")
+                resp = await client.get("/api/v1/search/semantic?q=bugetul+local+aprobat")
 
         assert resp.status_code == 200
         assert {r["recording_id"] for r in resp.json()["results"]} == {str(OLD_LINKED_ID)}
