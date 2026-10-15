@@ -197,3 +197,91 @@ async def test_export_fara_autentificare_primeste_401(export_client):
     # Fără override pe get_current_user → middleware-ul respinge
     resp = await export_client.get(f"/api/v1/export/recording/{recording_id}?format=txt")
     assert resp.status_code == 401
+
+
+# ── Diarizare în export ───────────────────────────────────────
+
+def make_segment(start: float, text: str, speaker_id):
+    seg = MagicMock()
+    seg.start_time = start
+    seg.text = text
+    seg.speaker_id = speaker_id
+    return seg
+
+
+def make_diarized_transcript() -> MagicMock:
+    transcript = make_transcript_mock()
+    transcript.segments = [
+        make_segment(0.0, "Bună ziua, deschidem ședința.", "SPEAKER_00"),
+        make_segment(4.0, "Mulțumesc, încep eu.", "SPEAKER_01"),
+        make_segment(9.0, "Fără vorbitor.", None),
+    ]
+    return transcript
+
+
+async def export_with_speakers(export_client, mock_db, fmt: str, speaker_mapping: dict, users=()):
+    recording_id = uuid.uuid4()
+    recording = make_recording_mock(recording_id)
+    recording.speaker_mapping = speaker_mapping
+    app.dependency_overrides[get_current_user] = lambda: make_user("operator")
+
+    users_result = MagicMock()                       # SELECT users pentru speaker_mapping
+    users_result.scalars.return_value.all.return_value = list(users)
+    mock_db.execute = AsyncMock(return_value=users_result)
+    with patch(
+        "src.routers.export._get_transcript_and_recording",
+        new_callable=AsyncMock,
+        return_value=(recording, make_diarized_transcript()),
+    ), patch(
+        "src.routers.export.check_recording_access", new_callable=AsyncMock, return_value=True,
+    ), patch(
+        "src.routers.export.log_audit", new_callable=AsyncMock,
+    ):
+        return await export_client.get(f"/api/v1/export/recording/{recording_id}?format={fmt}")
+
+
+def docx_text(content: bytes) -> str:
+    import io
+    from docx import Document
+    return "\n".join(p.text for p in Document(io.BytesIO(content)).paragraphs)
+
+
+@pytest.mark.asyncio
+async def test_export_txt_shows_unmapped_speakers(export_client, mock_db):
+    """Vorbitorii neasociați cu un utilizator apar ca „Vorbitor N”."""
+    resp = await export_with_speakers(export_client, mock_db, "txt", {})
+
+    text = resp.content.decode("utf-8")
+    assert resp.status_code == 200
+    assert "[00:00] Vorbitor 1: Bună ziua, deschidem ședința." in text
+    assert "[00:04] Vorbitor 2: Mulțumesc, încep eu." in text
+    assert "[00:09]  Fără vorbitor." in text
+
+
+@pytest.mark.asyncio
+async def test_export_docx_mixes_mapped_and_unmapped_speakers(export_client, mock_db):
+    user_id = uuid.uuid4()
+    user = MagicMock(id=user_id, full_name="Ion Popescu", username="ipopescu")
+
+    resp = await export_with_speakers(export_client, mock_db, "docx", {"SPEAKER_00": str(user_id)}, [user])
+
+    text = docx_text(resp.content)
+    assert resp.status_code == 200
+    assert "[00:00] Ion Popescu" in text
+    assert "[00:04] Vorbitor 2" in text
+
+
+@pytest.mark.asyncio
+async def test_export_speaker_mapped_to_deleted_user(export_client, mock_db):
+    """Utilizatorul asociat a fost șters → eticheta implicită, nu dispare vorbitorul."""
+    resp = await export_with_speakers(export_client, mock_db, "txt", {"SPEAKER_01": str(uuid.uuid4())})
+
+    assert "Vorbitor 2: Mulțumesc, încep eu." in resp.content.decode("utf-8")
+
+
+@pytest.mark.asyncio
+async def test_export_pdf_with_speakers(export_client, mock_db):
+    resp = await export_with_speakers(export_client, mock_db, "pdf", {})
+
+    assert resp.status_code == 200
+    assert resp.content.startswith(b"%PDF")

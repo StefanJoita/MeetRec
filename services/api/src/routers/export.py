@@ -48,6 +48,12 @@ def _format_time(seconds: float) -> str:
     return f"{m:02d}:{s:02d}"
 
 
+def _default_speaker_label(speaker_id: str) -> str:
+    """„SPEAKER_00” → „Vorbitor 1” (aceeași etichetă ca în interfață); altceva → necunoscut."""
+    match = re.fullmatch(r"SPEAKER_(\d+)", speaker_id)
+    return f"Vorbitor {int(match.group(1)) + 1}" if match else "Vorbitor necunoscut"
+
+
 async def _build_speaker_display_map(
     segments, speaker_mapping: dict, db: AsyncSession
 ) -> dict[str, str]:
@@ -57,6 +63,7 @@ async def _build_speaker_display_map(
     Rezolvă două cazuri:
       1. speaker_id este deja un UUID de user (post-rezolvare directă)
       2. speaker_id este "SPEAKER_XX" → speaker_mapping["SPEAKER_XX"] = user_uuid → nume user
+    Vorbitorii neasociați (sau asociați cu un user șters) apar ca „Vorbitor N”.
     """
     speaker_ids = {seg.speaker_id for seg in segments if seg.speaker_id}
     if not speaker_ids:
@@ -89,6 +96,9 @@ async def _build_speaker_display_map(
             name = user_names.get(str(uid))
             if name:
                 display_map[sid] = name
+
+    for sid in speaker_ids - display_map.keys():
+        display_map[sid] = _default_speaker_label(sid)
 
     return display_map
 
