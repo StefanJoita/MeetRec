@@ -1,10 +1,11 @@
 import { FormEvent, useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { Link } from 'react-router-dom'
 import { ShieldCheck, Activity, AlertTriangle, List, Users, UserPlus, UserX, Download, Search, X } from 'lucide-react'
 import { SkeletonTable } from '@/components/ui/Skeleton'
 import { Pagination } from '@/components/ui/Pagination'
 import type { AuditLog, PaginatedAuditLogs, PaginatedUsers, User, UserCreate, UserRole } from '@/api/types'
-import { getAuditLogs, downloadAuditLogsCsv } from '@/api/auditLogs'
+import { getAuditLogs, downloadAuditLogsCsv, type AuditResourceGroup } from '@/api/auditLogs'
 import { createUser, deleteUser, getUsers, updateUser, resetUserPassword } from '@/api/users'
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
 import { useToast } from '@/contexts/ToastContext'
@@ -45,11 +46,24 @@ const SECTION_LABELS = { settings: 'Setări', system: 'Stare sistem', processing
 
 const RESOURCE_LABELS: Record<string, string> = {
   recording: 'Înregistrare',
+  recording_participant: 'Participant la înregistrare',
+  recording_speaker_mapping: 'Asociere vorbitori',
+  recordings_list: 'Lista înregistrărilor',
   transcript: 'Transcriere',
   user: 'Utilizator',
+  users_list: 'Lista utilizatorilor',
   search: 'Căutare',
   app_setting: 'Setare',
+  audit_logs: 'Jurnal de audit',
 }
+
+const RESOURCE_FILTERS: { value: AuditResourceGroup | ''; label: string }[] = [
+  { value: '', label: 'Toate resursele' },
+  { value: 'recording', label: 'Înregistrări' },
+  { value: 'user', label: 'Utilizatori' },
+  { value: 'app_setting', label: 'Setări' },
+  { value: 'audit_logs', label: 'Jurnal de audit' },
+]
 
 function formatRelativeTime(timestamp: string): { relative: string; absolute: string } {
   const date = new Date(timestamp)
@@ -74,20 +88,6 @@ function formatRelativeTime(timestamp: string): { relative: string; absolute: st
   return { relative, absolute }
 }
 
-function getLogDescription(log: AuditLog): string | null {
-  const details = log.details
-  if (!details) return null
-  if (log.action === 'SEARCH' || log.action === 'SEMANTIC_SEARCH') {
-    const q = details.query as string | undefined
-    if (q) return `"${q}"`
-  }
-  if (log.resource_type === 'app_setting' && details.key) {
-    const show = (v: unknown) => (v === null || v === undefined ? 'automat' : String(v))
-    return `${details.key}: ${show(details.old)} → ${show(details.new)}${details.reset ? ' (implicit)' : ''}`
-  }
-  return null
-}
-
 export default function AdminPage() {
   const { user: currentUser } = useAuth()
   const toast = useToast()
@@ -97,6 +97,7 @@ export default function AdminPage() {
 
   const [page, setPage] = useState(1)
   const [actionFilter, setActionFilter] = useState('')
+  const [resourceFilter, setResourceFilter] = useState<AuditResourceGroup | ''>('')
   const [auditSearch, setAuditSearch] = useState('')
   const [auditSearchInput, setAuditSearchInput] = useState('')
   const pageSize = 20
@@ -119,8 +120,8 @@ export default function AdminPage() {
   })
 
   const { data, isLoading, isError } = useQuery<PaginatedAuditLogs>({
-    queryKey: ['audit-logs', page, auditSearch, actionFilter],
-    queryFn: () => getAuditLogs(page, pageSize, auditSearch || undefined, actionFilter || undefined),
+    queryKey: ['audit-logs', page, auditSearch, actionFilter, resourceFilter],
+    queryFn: () => getAuditLogs(page, pageSize, { search: auditSearch, action: actionFilter, resource: resourceFilter }),
     retry: false,
   })
 
@@ -328,7 +329,7 @@ export default function AdminPage() {
               <input
                 value={auditSearchInput}
                 onChange={e => setAuditSearchInput(e.target.value)}
-                placeholder="Caută după utilizator sau IP…"
+                placeholder="Caută după utilizator, IP sau nume resursă…"
                 className="w-full pl-8 pr-8 py-1.5 text-sm border border-gray-300 rounded-full bg-white focus:outline-none focus:ring-2 focus:ring-blue-400 focus:border-transparent"
               />
               {auditSearchInput && (
@@ -341,8 +342,16 @@ export default function AdminPage() {
                 </button>
               )}
             </form>
+            <select
+              value={resourceFilter}
+              onChange={e => { setResourceFilter(e.target.value as AuditResourceGroup | ''); setPage(1) }}
+              aria-label="Filtru resursă"
+              className="py-1.5 pl-3 pr-8 text-sm border border-gray-300 rounded-full bg-white focus:outline-none focus:ring-2 focus:ring-blue-400"
+            >
+              {RESOURCE_FILTERS.map(f => <option key={f.value} value={f.value}>{f.label}</option>)}
+            </select>
             <button
-              onClick={() => downloadAuditLogsCsv(actionFilter || undefined)}
+              onClick={() => downloadAuditLogsCsv({ search: auditSearch, action: actionFilter, resource: resourceFilter })}
               className="ml-auto inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-300 bg-white text-xs font-medium text-slate-600 hover:bg-slate-50 transition-colors"
             >
               <Download className="h-3.5 w-3.5" />
@@ -408,7 +417,7 @@ export default function AdminPage() {
                 )}
                 {data.items.map((log: AuditLog) => {
                   const { relative, absolute } = formatRelativeTime(log.timestamp)
-                  const desc = getLogDescription(log)
+                  const desc = log.description
                   const resourceLabel = log.resource_type
                     ? (RESOURCE_LABELS[log.resource_type.toLowerCase()] ?? log.resource_type)
                     : null
@@ -423,13 +432,31 @@ export default function AdminPage() {
                           {ACTION_LABELS[log.action] ?? log.action}
                         </span>
                         {desc && (
-                          <div className="text-xs text-gray-400 mt-1 max-w-[180px] truncate" title={desc}>{desc}</div>
+                          <div className="text-xs text-gray-500 mt-1 max-w-xs line-clamp-2" title={desc}>{desc}</div>
                         )}
                       </td>
                       <td className="px-4 py-3 text-xs text-gray-500 hidden md:table-cell">
-                        {resourceLabel ?? '—'}
-                        {log.resource_id && (
-                          <span className="ml-1 text-gray-300" title={log.resource_id}>#{log.resource_id.slice(0, 6)}</span>
+                        <div>
+                          {resourceLabel ?? '—'}
+                          {log.resource_id && (
+                            <span className="ml-1 text-gray-300" title={log.resource_id}>#{log.resource_id.slice(0, 6)}</span>
+                          )}
+                        </div>
+                        {log.resource_name && (
+                          <div className="mt-0.5 max-w-xs truncate" title={log.resource_name}>
+                            {log.recording_id ? (
+                              <Link to={`/recordings/${log.recording_id}`} className="font-medium text-blue-600 hover:underline">
+                                {log.resource_name}
+                              </Link>
+                            ) : (
+                              <span className="font-medium text-gray-700">{log.resource_name}</span>
+                            )}
+                          </div>
+                        )}
+                        {log.resource_deleted && (
+                          <span className="inline-block mt-0.5 px-1.5 py-0.5 rounded bg-gray-100 text-[10px] text-gray-500">
+                            nu mai există
+                          </span>
                         )}
                       </td>
                       <td className="px-4 py-3 hidden lg:table-cell">

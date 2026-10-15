@@ -227,7 +227,7 @@ class TestUsernameLockout:
         assert resp.json() == {"detail": "Nume de utilizator sau parolă incorectă."}
         # Al 6-lea request nu mai verifică parola
         assert auth_backend.call_count == 5
-        assert audit_events(mock_db) == ["account_locked", "login_rejected_locked"]
+        assert audit_events(mock_db) == ["login_failed"] * 4 + ["account_locked", "login_rejected_locked"]
 
     @pytest.mark.asyncio
     async def test_lock_event_is_audited_and_committed(self, auth_backend, mock_db):
@@ -235,7 +235,8 @@ class TestUsernameLockout:
             for i in range(5):
                 await login(client, "ion", "gresit", forwarded_for=f"10.0.3.{i}")
 
-        entry = next(c.args[0] for c in mock_db.add.call_args_list if isinstance(c.args[0], AuditLog))
+        entry = next(c.args[0] for c in mock_db.add.call_args_list
+                     if isinstance(c.args[0], AuditLog) and c.args[0].details["event"] == "account_locked")
         assert entry.success is False
         assert entry.user_ip == "10.0.3.4"
         assert entry.details == {
@@ -245,6 +246,28 @@ class TestUsernameLockout:
             "lockout_minutes": 15,
         }
         mock_db.commit.assert_awaited()
+
+    @pytest.mark.asyncio
+    async def test_successful_login_is_audited_with_user(self, auth_backend, mock_db, fake_user):
+        fake_user.full_name, fake_user.role = "Ion Popescu", "operator"
+        async with make_client(NGINX_IP) as client:
+            resp = await login(client, "ion", PASSWORD, forwarded_for="10.0.5.2")
+
+        assert resp.status_code == 200
+        entry = next(c.args[0] for c in mock_db.add.call_args_list if isinstance(c.args[0], AuditLog))
+        assert (entry.action, entry.success, entry.user_id, entry.resource_id) ==             ("LOGIN", True, fake_user.id, fake_user.id)
+        assert entry.details == {"resource_name": "Ion Popescu (ion)", "username": "ion",
+                                 "role": "operator", "event": "login_success"}
+
+    @pytest.mark.asyncio
+    async def test_every_failed_attempt_is_audited(self, auth_backend, mock_db):
+        async with make_client(NGINX_IP) as client:
+            await login(client, "nu_exista", "x", forwarded_for="10.0.5.1")
+
+        entry = next(c.args[0] for c in mock_db.add.call_args_list if isinstance(c.args[0], AuditLog))
+        assert (entry.action, entry.success) == ("LOGIN", False)
+        assert entry.details == {"event": "login_failed", "username": "nu_exista"}
+        mock_db.commit.assert_awaited()          # răspunsul e 401: fără commit explicit s-ar pierde
 
     @pytest.mark.asyncio
     async def test_same_response_for_unknown_and_locked_username(self, auth_backend):

@@ -154,7 +154,7 @@ async def export_transcript(
         action="EXPORT",
         resource_type="recording",
         resource_id=recording_id,
-        details={"format": format},
+        details={"resource_name": recording.title, "format": format},
     )
 
     filename_base = _safe_filename(recording.title)

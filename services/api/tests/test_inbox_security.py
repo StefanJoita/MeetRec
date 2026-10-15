@@ -126,8 +126,9 @@ async def test_upload_filename_cannot_escape_inbox(http, tmp_path, monkeypatch, 
 
     assert resp.status_code == 202
     assert resp.json()["filename"] == expected
-    written = [p for p in tmp_path.rglob("*") if p.is_file()]
-    assert written == [inbox / expected]
+    written = sorted(p for p in tmp_path.rglob("*") if p.is_file())
+    # fișierul audio + sidecar-ul lui, ambele direct în inbox
+    assert written == sorted([inbox / expected, inbox / f"{expected}.meetrec-meta.json"])
 
 
 @pytest.mark.parametrize("bad", ["..", ".", "/", "../", "...", "   "])

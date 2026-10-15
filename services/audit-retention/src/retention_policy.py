@@ -125,12 +125,17 @@ async def delete_recording(
     return True
 
 
+# Trigger-ul audit_logs_protect din baza de date refuză ștergerea intrărilor mai noi de atât
+AUDIT_LOG_MIN_RETENTION_DAYS = 365
+
+
 async def delete_expired_audit_logs(pool: asyncpg.Pool) -> int:
     """
-    Șterge audit logs mai vechi decât AUDIT_LOG_RETENTION_DAYS.
+    Șterge audit logs mai vechi decât AUDIT_LOG_RETENTION_DAYS (minimum un an).
     Returnează numărul de rânduri șterse.
     """
-    cutoff = datetime.now(timezone.utc) - timedelta(days=settings.audit_log_retention_days)
+    days = max(settings.audit_log_retention_days, AUDIT_LOG_MIN_RETENTION_DAYS)
+    cutoff = datetime.now(timezone.utc) - timedelta(days=days)
 
     async with pool.acquire() as conn:
         result = await conn.execute(

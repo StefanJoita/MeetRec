@@ -24,13 +24,14 @@ from pathlib import Path
 from typing import Optional
 
 import redis as redis_sync
-from fastapi import APIRouter, Depends, Form, HTTPException, UploadFile, File, status
+from fastapi import APIRouter, Depends, Form, HTTPException, Request, UploadFile, File, status
 from pydantic import BaseModel
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.config import settings
 from src.database import get_db
+from src.middleware.audit import log_audit
 from src.middleware.auth import get_current_operator_or_above
 from src.models.recording import Recording, RecordingAudioSegment, RecordingStatus
 from src.models.transcript import Transcript
@@ -115,6 +116,7 @@ class SessionCompleteResponse(BaseModel):
 )
 async def create_session(
     body: SessionCreateRequest,
+    request: Request,
     db: AsyncSession = Depends(get_db),
 ) -> SessionCreateResponse:
     session_id = uuid_lib.uuid4()
@@ -159,6 +161,8 @@ async def create_session(
     )
     db.add(transcript)
 
+    await log_audit(request, db, action="UPLOAD", resource_type="recording", resource_id=session_id,
+                    details={"resource_name": body.title, "event": "session_started"})
     await db.commit()
 
     return SessionCreateResponse(
@@ -180,6 +184,7 @@ async def create_session(
     ),
 )
 async def upload_to_inbox(
+    request: Request,
     file: UploadFile = File(description="Fișierul audio (MP3, WAV, M4A, OGG, FLAC, WEBM)"),
     session_id: Optional[str] = Form(default=None),
     segment_index: Optional[str] = Form(default=None),
@@ -309,7 +314,8 @@ async def upload_to_inbox(
             )
 
     # ── Sidecar JSON ──────────────────────────────────────────
-    meta: dict = {}
+    # uploaded_via: Ingest jurnalizează singur doar fișierele copiate direct în inbox
+    meta: dict = {"uploaded_via": "api"}
     if title:
         meta["title"] = title.strip()
     if meeting_date:
@@ -334,13 +340,23 @@ async def upload_to_inbox(
     if existing_recording_id is not None:
         meta["existing_recording_id"] = existing_recording_id
 
-    if meta:
-        sidecar_path = dest.with_suffix(dest.suffix + ".meetrec-meta.json")
-        try:
-            sidecar_path.write_text(json.dumps(meta, ensure_ascii=False), encoding="utf-8")
-        except OSError as e:
-            import logging
-            logging.getLogger(__name__).warning("sidecar_write_failed: %s", e)
+    sidecar_path = dest.with_suffix(dest.suffix + ".meetrec-meta.json")
+    try:
+        sidecar_path.write_text(json.dumps(meta, ensure_ascii=False), encoding="utf-8")
+    except OSError as e:
+        import logging
+        logging.getLogger(__name__).warning("sidecar_write_failed: %s", e)
+
+    # ── Jurnal: fișier simplu sau începutul unei sesiuni nepre-înregistrate ──
+    # Segmentele următoare ale sesiunii nu se jurnalizează (zeci pe ședință):
+    # sesiunea apare la pornire și la /complete.
+    if parsed_session_id is None or (is_new_session and not parsed_segment_index):
+        details = {"resource_name": meta.get("title") or file.filename, "filename": file.filename,
+                   "size_bytes": size, "sha256": sha256.hexdigest()}
+        if parsed_session_id is not None:
+            # Ingest creează înregistrarea cu alt id; legătura se face prin sha256
+            details.update(event="session_started", session_id=parsed_session_id)
+        await log_audit(request, db, action="UPLOAD", resource_type="recording", details=details)
 
     if existing_recording_id:
         message = "Segment atașat sesiunii existente. Va fi procesat și adăugat la transcriptul înregistrării."
@@ -372,6 +388,7 @@ async def upload_to_inbox(
 async def complete_session(
     session_id: str,
     body: SessionCompleteRequest,
+    request: Request,
     db: AsyncSession = Depends(get_db),
 ) -> SessionCompleteResponse:
     try:
@@ -483,6 +500,9 @@ async def complete_session(
 
     recording.status = RecordingStatus.TRANSCRIBING
     recording.last_segment_at = None
+    await log_audit(request, db, action="UPLOAD", resource_type="recording", resource_id=recording.id,
+                    details={"resource_name": recording.title, "event": "session_completed",
+                             "total_segments": body.total_segments})
     await db.commit()
 
     return SessionCompleteResponse(status="dispatched", recording_id=recording_id)

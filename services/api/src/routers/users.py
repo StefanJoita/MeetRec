@@ -6,7 +6,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.database import get_db
-from src.middleware.audit import log_audit
+from src.middleware.audit import diff, log_audit, snapshot, user_details
 from src.middleware.auth import get_current_admin, get_current_operator_or_above
 from src.models.audit_log import User
 from src.schemas.user import PaginatedUsers, UserResponse, UserCreate, UserUpdate, UserSuggest, ResetPasswordRequest
@@ -54,7 +54,8 @@ async def create_user(
     except UserConflictError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 
-    await log_audit(request, db, action="CREATE", resource_type="user", resource_id=user.id)
+    await log_audit(request, db, action="CREATE", resource_type="user", resource_id=user.id,
+                    details={**user_details(user), "email": user.email})
     return user
 
 
@@ -114,6 +115,8 @@ async def update_user(
     if not target_user:
         raise HTTPException(status_code=404, detail="Utilizatorul nu există.")
 
+    fields = ("email", "full_name", "is_active", "role")
+    before = snapshot(target_user, fields)
     try:
         updated = await service.update_user(target_user, data, actor_user=current_admin)
     except UserActionForbiddenError as exc:
@@ -121,7 +124,8 @@ async def update_user(
     except UserConflictError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 
-    await log_audit(request, db, action="UPDATE", resource_type="user", resource_id=updated.id)
+    await log_audit(request, db, action="UPDATE", resource_type="user", resource_id=updated.id,
+                    details={**user_details(updated), "changes": diff(before, snapshot(updated, fields))})
     return updated
 
 
@@ -139,7 +143,8 @@ async def reset_user_password(
         raise HTTPException(status_code=404, detail="Utilizatorul nu există.")
 
     await service.reset_password(target_user, data.new_password)
-    await log_audit(request, db, action="UPDATE", resource_type="user", resource_id=user_id)
+    await log_audit(request, db, action="UPDATE", resource_type="user", resource_id=user_id,
+                    details={**user_details(target_user), "event": "password_reset"})
 
 
 @router.delete("/{user_id}", status_code=status.HTTP_204_NO_CONTENT, summary="Șterge definitiv utilizator")
@@ -154,9 +159,11 @@ async def delete_user(
     if not target_user:
         raise HTTPException(status_code=404, detail="Utilizatorul nu există.")
 
+    details = {**user_details(target_user), "email": target_user.email}   # înainte de ștergere
     try:
         await service.delete_user(target_user, actor_user=current_admin)
     except UserActionForbiddenError as exc:
         raise HTTPException(status_code=403, detail=str(exc)) from exc
 
-    await log_audit(request, db, action="DELETE", resource_type="user", resource_id=target_user.id)
+    await log_audit(request, db, action="DELETE", resource_type="user", resource_id=user_id,
+                    details=details)

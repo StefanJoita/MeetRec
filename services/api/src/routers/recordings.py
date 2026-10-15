@@ -27,7 +27,7 @@ from src.schemas.recording import (
     PaginatedRecordings, ParticipantUserInfo, SpeakerMappingUpdate,
 )
 from src.services.recording_service import RecordingService, RecordingDeletionError
-from src.middleware.audit import log_audit
+from src.middleware.audit import diff, log_audit, recording_details, snapshot, user_display_name
 from pydantic import BaseModel
 
 router = APIRouter(
@@ -146,7 +146,8 @@ async def get_recording(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Înregistrarea cu ID {recording_id} nu există sau nu aveți acces."
         )
-    await log_audit(request, db, action="VIEW", resource_type="recording", resource_id=recording_id)
+    await log_audit(request, db, action="VIEW", resource_type="recording", resource_id=recording_id,
+                    details=recording_details(recording))
     return await service.to_recording_response(recording)
 
 
@@ -162,10 +163,21 @@ async def update_recording(
     request: Request,
     current_user: User = Depends(get_current_operator_or_above),
     service: RecordingService = Depends(get_recording_service),
+    db: AsyncSession = Depends(get_db),
 ):
+    existing = await service.get_by_id(recording_id, current_user=current_user)
+    if not existing:
+        raise HTTPException(status_code=404, detail="Înregistrarea nu există.")
+    fields = ("title", "description", "meeting_date", "location", "participants")
+    before = snapshot(existing, fields)
     recording = await service.update(recording_id, data, current_user=current_user)
     if not recording:
         raise HTTPException(status_code=404, detail="Înregistrarea nu există.")
+    changes = diff(before, snapshot(recording, fields))
+    if changes:
+        await log_audit(request, db, action="UPDATE", resource_type="recording",
+                        resource_id=recording_id,
+                        details={**recording_details(recording), "changes": changes})
     return await service.to_recording_response(recording)
 
 
@@ -182,6 +194,10 @@ async def delete_recording(
     service: RecordingService = Depends(get_recording_service),
     db: AsyncSession = Depends(get_db),
 ):
+    recording = await service.get_by_id(recording_id)
+    if not recording:
+        raise HTTPException(status_code=404, detail="Înregistrarea nu există.")
+    details = recording_details(recording)          # titlul, înainte de ștergere
     try:
         success = await service.delete(recording_id)
     except RecordingDeletionError as exc:
@@ -189,7 +205,8 @@ async def delete_recording(
 
     if not success:
         raise HTTPException(status_code=404, detail="Înregistrarea nu există.")
-    await log_audit(request, db, action="DELETE", resource_type="recording", resource_id=recording_id)
+    await log_audit(request, db, action="DELETE", resource_type="recording", resource_id=recording_id,
+                    details=details)
 
 
 # ── GET /recordings/{id}/audio-token ─────────────────────────
@@ -395,6 +412,7 @@ async def add_participant(
         action="UPDATE",
         resource_type="recording_participant",
         resource_id=recording_id,
+        details={**recording_details(recording), "participant": user_display_name(target_user)},
     )
     return {"recording_id": str(recording_id), "user_id": str(data.user_id)}
 
@@ -421,15 +439,38 @@ async def remove_participant(
     if not removed:
         raise HTTPException(status_code=404, detail="Legătura participant-înregistrare nu există.")
 
+    participant = await db.get(User, user_id)
     await log_audit(
         request, db,
         action="DELETE",
         resource_type="recording_participant",
         resource_id=recording_id,
+        details={**recording_details(recording),
+                 "participant": user_display_name(participant) if participant else str(user_id)},
     )
 
 
 # ── PATCH /recordings/{id}/speaker-mapping ───────────────────
+async def _speaker_changes(db: AsyncSession, old: dict, new: dict) -> list:
+    """[{speaker, from, to}] cu numele utilizatorilor, pentru vorbitorii schimbați."""
+    changed = sorted(s for s in old.keys() | new.keys() if old.get(s) != new.get(s))
+    ids = set()
+    for value in [old.get(s) for s in changed] + [new.get(s) for s in changed]:
+        try:
+            ids.add(uuid.UUID(value))
+        except (TypeError, ValueError):
+            pass
+    names = {}
+    if ids:
+        rows = await db.execute(select(User).where(User.id.in_(ids)))
+        names = {str(u.id): user_display_name(u) for u in rows.scalars().all()}
+
+    def name(value):
+        return names.get(value, value) if value else None
+
+    return [{"speaker": s, "from": name(old.get(s)), "to": name(new.get(s))} for s in changed]
+
+
 @router.patch(
     "/{recording_id}/speaker-mapping",
     response_model=RecordingResponse,
@@ -443,6 +484,9 @@ async def update_speaker_mapping(
     service: RecordingService = Depends(get_recording_service),
     db: AsyncSession = Depends(get_db),
 ):
+    old_mapping = (await db.execute(
+        select(Recording.speaker_mapping).where(Recording.id == recording_id)
+    )).scalar_one_or_none() or {}
     recording = await service.update_speaker_mapping(
         recording_id=str(recording_id),
         mapping=body.mapping,
@@ -455,5 +499,7 @@ async def update_speaker_mapping(
         action="UPDATE",
         resource_type="recording_speaker_mapping",
         resource_id=recording_id,
+        details={**recording_details(recording),
+                 "speakers": await _speaker_changes(db, old_mapping, body.mapping)},
     )
     return await service.to_recording_response(recording)

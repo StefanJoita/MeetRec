@@ -20,7 +20,7 @@
 
 import asyncio
 import json
-from typing import List, Set
+from typing import List, Optional, Set
 
 import asyncpg
 import redis.asyncio as aioredis
@@ -79,8 +79,11 @@ async def recording_ids_in_redis(redis: aioredis.Redis, queue: str) -> Set[str]:
     return ids
 
 
-async def mark_stuck_failed(pool: asyncpg.Pool, recording_id: str, message: str) -> bool:
-    """Marchează 'failed' doar dacă înregistrarea e încă în 'transcribing'."""
+async def mark_stuck_failed(pool: asyncpg.Pool, recording_id: str, message: str) -> Optional[str]:
+    """
+    Marchează 'failed' doar dacă înregistrarea e încă în 'transcribing'.
+    Returnează titlul înregistrării (pentru jurnal) sau None dacă nu a fost marcată.
+    """
     async with pool.acquire() as conn:
         async with conn.transaction():
             updated = await conn.fetchval(
@@ -88,13 +91,13 @@ async def mark_stuck_failed(pool: asyncpg.Pool, recording_id: str, message: str)
                 UPDATE recordings
                 SET status = 'failed', error_message = $2, updated_at = NOW()
                 WHERE id = $1 AND status = 'transcribing'
-                RETURNING id
+                RETURNING title
                 """,
                 recording_id,
                 message,
             )
             if updated is None:
-                return False
+                return None
             await conn.execute(
                 """
                 UPDATE transcripts
@@ -104,7 +107,7 @@ async def mark_stuck_failed(pool: asyncpg.Pool, recording_id: str, message: str)
                 recording_id,
                 message,
             )
-    return True
+    return updated
 
 
 async def reap_stuck_transcriptions(
@@ -128,8 +131,9 @@ async def reap_stuck_transcriptions(
             # Încă în coadă sau în lucru (ex. transcriere foarte lungă) — nu e pierdut
             logger.info("stuck_recording_still_queued", recording_id=recording_id)
             continue
-        if await mark_stuck_failed(pool, recording_id, message):
-            await log_stuck_transcription_failed(pool, recording_id, hours)
+        title = await mark_stuck_failed(pool, recording_id, message)
+        if title is not None:
+            await log_stuck_transcription_failed(pool, recording_id, title, hours)
             logger.warning("stuck_transcription_marked_failed", recording_id=recording_id, hours=hours)
             reaped += 1
     return reaped

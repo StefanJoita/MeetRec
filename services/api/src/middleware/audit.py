@@ -1,6 +1,7 @@
 # services/api/src/middleware/audit.py
 import uuid
-from typing import Optional
+from datetime import date, datetime
+from typing import Any, Dict, Iterable, Optional
 from fastapi import Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -45,6 +46,7 @@ async def log_audit(
     resource_id: Optional[uuid.UUID] = None,
     details: Optional[dict] = None,
     success: bool = True,
+    user_id: Optional[uuid.UUID] = None,
 ) -> None:
     """
     Loghează o acțiune în tabela audit_logs.
@@ -62,7 +64,7 @@ async def log_audit(
     )
 
     log_entry = AuditLog(
-        user_id=_extract_user_id(request),
+        user_id=user_id or _extract_user_id(request),   # explicit la login (încă fără token)
         user_ip=ip,
         user_agent=request.headers.get("User-Agent"),
         action=action,
@@ -74,3 +76,39 @@ async def log_audit(
 
     db.add(log_entry)
     # commit-ul e gestionat de get_db() după yield — nu facem commit aici
+
+
+# ── Detalii pentru jurnal ────────────────────────────────────
+# Numele resursei se salvează în momentul acțiunii (details.resource_name):
+# după ștergere resursa nu mai există, iar numele se pot schimba între timp.
+
+def user_display_name(user) -> str:
+    return f"{user.full_name} ({user.username})" if user.full_name else user.username
+
+
+def user_details(user) -> Dict[str, Any]:
+    return {"resource_name": user_display_name(user), "username": user.username, "role": user.role}
+
+
+def recording_details(recording) -> Dict[str, Any]:
+    return {"resource_name": recording.title}
+
+
+def _jsonable(value: Any) -> Any:
+    if isinstance(value, (date, datetime)):
+        return value.isoformat()
+    if isinstance(value, uuid.UUID):
+        return str(value)
+    if isinstance(value, (list, tuple)):
+        return [_jsonable(v) for v in value]
+    return value
+
+
+def snapshot(obj, fields: Iterable[str]) -> Dict[str, Any]:
+    """Valorile câmpurilor (serializabile JSON), ca să fie comparate după modificare."""
+    return {f: _jsonable(getattr(obj, f)) for f in fields}
+
+
+def diff(before: Dict[str, Any], after: Dict[str, Any]) -> Dict[str, list]:
+    """{câmp: [vechi, nou]} pentru câmpurile schimbate."""
+    return {f: [before[f], after[f]] for f in before if before[f] != after.get(f)}
