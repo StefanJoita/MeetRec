@@ -56,7 +56,7 @@ După instalare, **nicio componentă nu mai face cereri în afara serverului**: 
 
 `systemd`, `libsystemd0`, `libc6`, `coreutils`, `gzip` și `tar` fac parte din orice instalare Ubuntu/Debian și nu sunt incluse. Pe un sistem fără `.deb`-uri în pachet, installerul se oprește cu un mesaj clar dacă lipsește ceva (vezi §11.1).
 
-**Durata transcrierii pe CPU**: cu `large-v3`, 1 oră de audio durează aproximativ 1–2 ore pe un server cu 8 nuclee. Joburile sunt procesate pe rând, în ordinea sosirii.
+**Durata transcrierii pe CPU**: cu `large-v3`, 1 oră de audio durează aproximativ 1–2 ore pe un server cu 8 nuclee. `large-v3-turbo` e de câteva ori mai rapid, cu o calitate apropiată. Măsurătoare de referință (`large-v3-turbo`, diarizare în paralel): 3 min 42 s de audio procesate în 4 min 36 s, din care transcrierea 2 min 34 s și diarizarea 4 min 25 s. Joburile sunt procesate pe rând, în ordinea sosirii. Durata reală a fiecărei transcrieri apare în **Administrare → Procesări** (§8).
 
 ### 1.2 Mașina de pregătire (cu internet)
 
@@ -93,12 +93,13 @@ Tot ce e listat aici este inclus în pachet. Versiunile exacte ale pachetului ge
 
 | Model | Folosit pentru | Dimensiune | Licență | Locație în imagine |
 |-------|----------------|-----------:|---------|--------------------|
-| `Systran/faster-whisper-large-v3` | transcriere | ~2.9 GB | MIT | `stt-worker:/app/models/whisper` |
+| `Systran/faster-whisper-large-v3` | transcriere (implicit) | ~2.9 GB | MIT | `stt-worker:/app/models/whisper` |
+| `mobiuslabsgmbh/faster-whisper-large-v3-turbo` | transcriere, varianta rapidă (alternativă la large-v3) | ~1.6 GB | MIT | `stt-worker:/app/models/whisper` |
 | `gigant/romanian-wav2vec2` | aliniere la nivel de cuvânt (română) | ~1.2 GB | Apache-2.0 | `stt-worker:/app/models/huggingface/hub` |
 | `pyannote/speaker-diarization-community-1` | diarizare (identificare vorbitori) — **opțional** | ~30 MB | CC-BY-4.0 (acces cu acceptarea termenilor) | `stt-worker:/app/models/huggingface/hub` |
 | Model VAD pyannote (inclus în pachetul `whisperx`) | detecția vorbirii | ~17 MB | inclus în whisperx | `site-packages/whisperx/assets` |
 | NLTK `punkt_tab` | segmentare în propoziții la aliniere | ~15 MB | vezi <https://www.nltk.org/nltk_data/> | `stt-worker:/app/models/nltk_data` |
-| `sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2` | căutare semantică | ~470 MB | Apache-2.0 | `search-indexer:/app/models` |
+| `sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2` | căutare după sens | ~470 MB | Apache-2.0 | `search-indexer:/app/models` |
 
 ### 2.3 Docker Engine pentru server (în `packages/docker/`)
 
@@ -158,7 +159,7 @@ cp .env.example .env
 
 Celelalte valori (parole etc.) se generează pe serverul offline. Nu copia acest `.env` pe server.
 
-**Modelul Whisper al pachetului** e `large-v3`, indiferent de `WHISPER_MODEL` din `.env`. Pe mașina de pregătire, `.env` poate folosi un model mic pentru dezvoltare (ex. `small`), fără să afecteze pachetul. Alt model pentru pachet se cere explicit: `WHISPER_MODEL=medium bash install/offline/build-bundle.sh`. În imaginea `stt-worker` intră doar modelul ales, iar tag-ul imaginii îl conține (`meetrec/stt-worker:<versiune>-<model>`), deci imaginea de dezvoltare și cea a pachetului nu se suprascriu.
+**Modelul Whisper al pachetului** e `large-v3`, indiferent de `WHISPER_MODEL` din `.env`. Pe mașina de pregătire, `.env` poate folosi un model mic pentru dezvoltare (ex. `small`), fără să afecteze pachetul. Alt model pentru pachet se cere explicit, de exemplu varianta rapidă, recomandată pe CPU: `WHISPER_MODEL=large-v3-turbo bash install/offline/build-bundle.sh`. În imaginea `stt-worker` intră doar modelul ales, iar tag-ul imaginii îl conține (`meetrec/stt-worker:<versiune>-<model>`), deci imaginea de dezvoltare și cea a pachetului nu se suprascriu.
 
 ### 3.2 (Opțional) Diarizare — token HuggingFace
 
@@ -206,7 +207,7 @@ python install/models/download-models.py                     # necesită: pip in
 bash install/models/download-models-docker.sh
 ```
 
-Opțiuni: `--whisper-model medium`, `--skip-diarization`. Modelele Whisper descărcate se adună în `services/stt-worker/models/whisper/` (ex. `small` și `large-v3`); fiecare build folosește doar unul.
+Opțiuni: `--whisper-model large-v3-turbo` (sau `medium`, `small`), `--skip-diarization`. Modelele Whisper descărcate se adună în `services/stt-worker/models/whisper/` (ex. `small` și `large-v3`); fiecare build folosește doar unul.
 
 ### 3.4 Structura pachetului
 
@@ -428,9 +429,10 @@ curl -I https://meetrec.firma.local          # fără -k dacă CA-ul e importat
 1. Deschide `https://<server>` și autentifică-te cu administratorul.
 2. *Înregistrări → Adaugă*: încarcă un fișier audio scurt (30–60 de secunde, în română).
 3. Statusul trebuie să treacă prin `queued`, `transcribing` și `completed`.
-4. Deschide transcrierea: textul are timestamps, iar dacă diarizarea e activă, are și vorbitori (`SPEAKER_00`…).
-5. *Căutare*: caută un cuvânt din transcriere (full-text și semantic).
-6. Exportă transcrierea în PDF și DOCX și verifică diacriticele.
+4. Deschide transcrierea: textul are timestamps, iar dacă diarizarea e activă, are și vorbitori (V1, V2…). Asociază un vorbitor cu un participant din pagina înregistrării.
+5. *Căutare*: caută un cuvânt din transcriere, o dată cu diacritice și o dată fără, și apasă Enter. Rezultatele apar grupate pe ședință; click pe un fragment pornește audio-ul la momentul lui.
+6. Exportă transcrierea în PDF și DOCX și verifică diacriticele și vorbitorii.
+7. *Administrare → Stare sistem*: la „Căutare după sens” trebuie să apară „Toate transcrierile sunt indexate”. *Administrare → Procesări*: transcrierea de test apare cu durata și etapele ei. *Jurnal audit*: autentificarea și încărcarea apar cu numele tău și al fișierului.
 
 ---
 
@@ -444,13 +446,18 @@ Fișierul `/opt/meetrec/.env`. După orice modificare: `docker compose up -d`.
 - Celelalte se aplică la următoarea transcriere, la următoarea verificare (cel mult 15 minute) sau la următoarea rulare a retenției (zilnic).
 - Nu se pot schimba din interfață: secretele, rețeaua, căile, versiunea și modelul Whisper (fiecare imagine `stt-worker` conține un singur model).
 
-**Administrare → Stare sistem** arată versiunea, worker-ul de transcriere (model, fire, ce transcrie acum), lungimea cozii, spațiul liber pentru înregistrări, înregistrările pe stări și ultimele eșecuri.
+**Administrare → Stare sistem** arată versiunea, worker-ul de transcriere (model, fire, ce transcrie acum), lungimea cozii, spațiul liber pentru înregistrări, starea indexului de căutare după sens, înregistrările pe stări și ultimele eșecuri.
+
+**Administrare → Procesări** arată, pentru fiecare înregistrare, cât a durat transcrierea, raportul față de durata audio (sub 1× = mai repede decât timpul real) și durata etapelor: transcriere, aliniere, diarizare. Când diarizarea rulează în paralel, etapele se suprapun și nu se adună.
+
+**Administrare → Jurnal audit** arată cine a făcut ce, de pe ce IP: autentificări (reușite și eșuate), încărcări, vizualizări, căutări, exporturi, modificări și ștergeri. Fiecare intrare păstrează numele resursei de la momentul acțiunii (vizibil și după ștergere) și ce s-a schimbat (ex. „rol: operator → administrator”). Se poate căuta după utilizator, IP sau numele resursei, filtra după acțiune și tipul resursei, și exporta CSV (cu filtrele aplicate).
 
 | Variabilă | Implicit | Descriere |
 |-----------|----------|-----------|
 | `SERVER_NAME` | IP-ul serverului | numele afișat (certificatele se generează separat, §6) |
 | `WHISPER_MODEL` | `large-v3` | **trebuie** să fie modelul inclus în imagine; alt model cere un pachet nou |
 | `WHISPER_COMPUTE_TYPE` | `int8` | `int8` (rapid, CPU) sau `float32` |
+| `WHISPER_THREADS` | `0` (toate nucleele) | fire pentru transcriere; cu diarizarea în paralel, jumătate din nuclee |
 | `DIARIZATION_ENABLED` ✱ | `true`/`false` | funcționează doar dacă `MANIFEST.txt` are `Diarizare: da` |
 | `DIARIZATION_PARALLEL` ✱ | `true` | diarizarea rulează în paralel cu transcrierea (jumătate din nuclee fiecare); `false` = una după alta |
 | `MIN_SPEAKERS` / `MAX_SPEAKERS` ✱ | gol | indicații pentru diarizare |
@@ -460,6 +467,7 @@ Fișierul `/opt/meetrec/.env`. După orice modificare: `docker compose up -d`.
 | `MAX_FILE_SIZE_BYTES` ✱ | `524288000` | dimensiunea maximă a unui fișier audio (500 MB); în interfață se setează în MB, maxim 600 (limita nginx) |
 | `RETENTION_DAYS` ✱ | `1095` | după câte zile de la încărcare se șterg înregistrările (audio + transcriere) |
 | `AUDIT_LOG_RETENTION_DAYS` ✱ | `2190` | retenția jurnalului de audit |
+| `EMBEDDING_CONTEXT_SEGMENTS` | `1` | câte segmente vecine intră în vectorul fiecărui segment la căutarea după sens; la schimbare, toți vectorii se recalculează automat, în fundal |
 | `JWT_EXPIRE_MINUTES` | `480` | durata sesiunii |
 | `NGINX_HTTPS_PORT` | `443` | portul HTTPS |
 | `FRONTEND_SUBNET` | `172.30.10.0/24` | subnetul rețelei Docker `frontend-network` (nginx, frontend, API); schimbă-l doar dacă se suprapune cu o rețea a organizației |
@@ -470,7 +478,8 @@ Fișierul `/opt/meetrec/.env`. După orice modificare: `docker compose up -d`.
 
 | Endpoint | Limită |
 |----------|--------|
-| `POST /api/v1/auth/login` | 5 încercări / minut per IP; în plus, după **5 eșecuri consecutive** pentru același username, contul e blocat **15 minute** (contor în Redis; resetat la un login reușit). Răspunsul e identic cu cel pentru parolă greșită. Blocarea apare în jurnalul de audit (`LOGIN`, eșuat, `event: account_locked`). |
+| `POST /api/v1/auth/login` | 5 încercări / minut per IP; în plus, după **5 eșecuri consecutive** pentru același username, contul e blocat **15 minute** (contor în Redis; resetat la un login reușit). Răspunsul e identic cu cel pentru parolă greșită. Fiecare încercare apare în jurnalul de audit: reușită, eșuată (cu username-ul încercat) sau blocată. |
+| `GET /api/v1/search/combined` (pagina de căutare) | 30 / minut per IP |
 | `GET /api/v1/search/` | 60 / minut per IP |
 | `GET /api/v1/search/semantic` | 30 / minut per IP |
 | `GET /api/v1/export/recording/{id}` | 20 / oră per IP |
@@ -571,6 +580,7 @@ sudo ln -sfn /opt/meetrec-offline-<nouă> /opt/meetrec
 
 - Volumele de date se păstrează: proiectul Compose are nume fix (`name: meetrec`), indiferent de director.
 - Migrațiile bazei de date (Alembic) rulează automat la pornirea API-ului.
+- Dacă versiunea nouă schimbă modelul de căutare după sens sau contextul (ex. de la 1.0.2 la 1.0.3), search-indexer recalculează în fundal vectorii tuturor transcrierilor. Între timp, căutarea exactă funcționează normal; progresul apare în *Administrare → Stare sistem*.
 - Dacă rețeaua Docker `mt-frontend` existentă are alt subnet decât `FRONTEND_SUBNET` (instalări anterioare, fără subnet fix), installerul oprește containerele și o recreează. Volumele de date nu sunt afectate.
 - **Revenire la versiunea anterioară:** `cd /opt/meetrec-offline-<veche>`, setează `MEETREC_VERSION=<veche>` în `.env`, apoi `docker compose up -d`. Imaginile vechi rămân încărcate până la `docker image prune`. Restaurează și backup-ul bazei de date dacă versiunea nouă a aplicat migrații.
 
@@ -671,7 +681,19 @@ sudo chown 1000:1000 /opt/meetrec/data/inbox
 docker compose down -v && docker compose up -d
 ```
 
-### 11.7 Verificare că nu există trafic spre internet
+### 11.7 „Căutarea după sens nu este disponibilă acum”
+
+Pagina de căutare afișează mesajul când API-ul nu primește răspuns de la `search-indexer`; rezultatele exacte apar în continuare.
+
+```bash
+docker compose ps search-indexer
+docker compose logs --tail=50 search-indexer     # caută embedding_model_loaded / erori
+docker compose restart search-indexer            # modelul se încarcă în câteva secunde
+```
+
+Dacă *Stare sistem* arată multe fragmente „în curs de indexare” mult timp după o actualizare, urmărește progresul în loguri (`bulk_reindex_started`, `transcript_indexed`). Indexarea folosește procesorul, deci durează mai mult cât timp rulează transcrieri.
+
+### 11.8 Verificare că nu există trafic spre internet
 
 ```bash
 # niciun container nu trebuie să încerce conexiuni externe

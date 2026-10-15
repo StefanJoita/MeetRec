@@ -26,11 +26,10 @@ A self-hosted automatic meeting transcription platform. All audio processing run
 | Component | Minimum | Recommended |
 |-----------|---------|-------------|
 | CPU | 4 cores | 8+ cores |
-| RAM | 8 GB | 16+ GB |
+| RAM | 16 GB | 32 GB |
 | Storage | 50 GB SSD | 200+ GB SSD |
-| GPU | — | NVIDIA (4 GB+ VRAM) |
 
-> **Whisper note:** The `medium` model (default) processes ~1h of audio in 30–60 min on CPU or 3–5 min on an NVIDIA GPU. If transcription speed matters, consider a GPU or the `small` model.
+> **Transcription time:** MeetRec runs on the CPU (the images ship the CPU build of PyTorch; a GPU is not used). With `large-v3` (default), 1 hour of audio takes roughly 1–2 hours on 8 cores. `large-v3-turbo` is several times faster with close accuracy: 3 min 42 s of audio processed in 4 min 36 s, with diarization in parallel. Real timings for every recording are shown in **Admin → Processing times**.
 
 ### Audio Capture Hardware (desktop client)
 
@@ -206,7 +205,7 @@ SERVER_NAME=192.168.1.100     # or meetrec.company.com
 | `JWT_SECRET_KEY` | *(generate)* | JWT secret key — minimum 32 characters |
 | `POSTGRES_PASSWORD` | `change_me_in_production` | Database password |
 | `SERVER_NAME` | `meeting-transcriber.local` | Server domain or IP |
-| `WHISPER_MODEL` | `large-v3` | Transcription model baked into the image: `tiny`/`base`/`small`/`medium`/`large-v3` (changing it requires a rebuild) |
+| `WHISPER_MODEL` | `large-v3` | Transcription model baked into the image: `small`/`medium`/`large-v3`/`large-v3-turbo` (changing it requires a rebuild) |
 | `REDIS_PASSWORD` | *(generate)* | Redis password (URL-safe characters, e.g. `openssl rand -hex 24`) |
 | `APP_ENV` | `development` | `production` disables the `/docs` OpenAPI UI |
 | `WHISPER_PRIMARY_LANGUAGE` | `ro` | Primary language for transcriptions |
@@ -288,33 +287,11 @@ mt-search-indexer   running
 make create-admin
 ```
 
-Or manually:
+Or directly:
 ```bash
-docker compose exec api python3 -c "
-import asyncio, uuid, sys
-sys.path.insert(0, '/app')
-from src.database import AsyncSessionLocal
-from src.models.audit_log import User
-from passlib.context import CryptContext
-from sqlalchemy import select
-
-async def run():
-    async with AsyncSessionLocal() as db:
-        pwd = CryptContext(schemes=['bcrypt']).hash('YOUR_PASSWORD')
-        db.add(User(
-            id=uuid.uuid4(),
-            username='admin',
-            email='admin@company.com',
-            hashed_password=pwd,
-            role='admin',
-            is_active=True,
-            force_password_change=True,
-        ))
-        await db.commit()
-        print('Administrator created.')
-
-asyncio.run(run())
-"
+docker compose exec api python -m src.cli.create_admin \
+    --username admin --email admin@company.com --update-existing --disable-default-operator
+# the password is prompted interactively
 ```
 
 ---
@@ -384,6 +361,12 @@ From the **Admin → Users** panel:
 3. The system automatically detects the file and begins transcription
 4. Status updates in real time: `queued` → `transcribing` → `completed`
 
+### What's in the application
+
+- **Recording page:** transcript synchronized with the audio, speakers (when diarization is on) and their mapping to participants, PDF / DOCX / TXT export.
+- **Search:** type keywords or a question and press Enter. Diacritics are optional; `"exact phrase"`, `budget OR funds`, `-excluded` are supported. Results are grouped by meeting and clicking a fragment plays that moment. Titles, descriptions and participants are searched too. Filters: date, location, duration, speaker.
+- **Admin** (admin only): users, **Settings** (diarization, retention, limits — override `.env`), **System status**, **Processing times** (duration of every transcription, per stage) and the **Audit log** (who did what, with the resource name and what changed; cannot be modified).
+
 ### ML models (Whisper, alignment, diarization, embeddings)
 
 Models are downloaded **before the build** (`install/models/download-models.py`, run automatically by the installer)
@@ -395,6 +378,7 @@ and **baked into** the `stt-worker` and `search-indexer` Docker images. No inter
 | `small` | ~460 MB | ~2 GB |
 | `medium` | ~1.5 GB | ~5 GB |
 | `large-v3` (default) | ~3 GB | ~8–10 GB |
+| `large-v3-turbo` (fast, recommended on CPU) | ~1.6 GB | ~6–8 GB |
 
 On start, the STT Worker loads the model from disk (1–3 minutes):
 ```bash
@@ -406,38 +390,6 @@ For air-gapped servers see [INSTALL-OFFLINE.md](INSTALL-OFFLINE.md) (Romanian).
 ---
 
 ## 6. Advanced Configuration
-
-### NVIDIA GPU (much faster transcription)
-
-1. Install the [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html):
-```bash
-curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey | sudo gpg --dearmor -o /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg
-curl -s -L https://nvidia.github.io/libnvidia-container/stable/deb/nvidia-container-toolkit.list | \
-    sed 's#deb https://#deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg] https://#g' | \
-    sudo tee /etc/apt/sources.list.d/nvidia-container-toolkit.list
-sudo apt-get update && sudo apt-get install -y nvidia-container-toolkit
-sudo nvidia-ctk runtime configure --runtime=docker
-sudo systemctl restart docker
-```
-
-2. Uncomment the GPU block in `docker-compose.yml`:
-```yaml
-stt-worker:
-  # ...
-  deploy:
-    resources:
-      reservations:
-        devices:
-          - driver: nvidia
-            count: 1
-            capabilities: [gpu]
-```
-
-3. Rebuild and restart:
-```bash
-docker compose build stt-worker
-docker compose up -d stt-worker
-```
 
 ### Changing the HTTPS port
 
@@ -453,10 +405,12 @@ docker compose up -d nginx
 
 The application will be accessible at `https://server:8443`.
 
-### Semantic search (AI)
+### Semantic search
 
 The embeddings model (`paraphrase-multilingual-MiniLM-L12-v2`, ~470 MB) is baked into the `search-indexer`
-image. No configuration or internet access is required.
+image. No configuration or internet access is required. New transcripts are indexed automatically within
+seconds; progress is shown in **Admin → System status**. `EMBEDDING_CONTEXT_SEGMENTS` (default `1`) sets how
+many neighbouring segments go into each segment's embedding; changing it re-embeds everything in the background.
 
 ### Data backup
 
@@ -514,7 +468,7 @@ DATABASE_URL=postgresql+asyncpg://mt_user:PASSWORD@postgres:5432/meeting_transcr
 The STT worker may still be initializing (downloading the Whisper model). Monitor with:
 ```bash
 docker compose logs -f stt-worker
-# Wait for: "Whisper model loaded, waiting for jobs..."
+# Wait for the "models_loaded" and "waiting_for_jobs" messages
 ```
 
 ### Browser shows "Connection refused" on port 443

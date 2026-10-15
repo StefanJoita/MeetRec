@@ -27,7 +27,7 @@ Everything runs on your infrastructure — no cloud, no subscriptions, no data l
 
 Every major transcription service — Otter.ai, Fireflies, Zoom AI — sends your recordings to someone else's cloud. For legal teams, medical staff, government agencies, and any organization that handles sensitive conversations, that is a non-starter.
 
-MeetRec runs **entirely on your own server**. Transcription is powered by [OpenAI Whisper](https://github.com/openai/whisper) executing locally. No audio, no text, no metadata ever leaves your infrastructure.
+MeetRec runs **entirely on your own server**, including on air-gapped networks with no internet access. Transcription is powered by [WhisperX](https://github.com/m-bain/whisperX) (faster-whisper / CTranslate2) running locally on the CPU, with word-level alignment and optional speaker identification. No audio, no text, no metadata ever leaves your infrastructure.
 
 | | MeetRec | Cloud services |
 |---|---|---|
@@ -37,7 +37,7 @@ MeetRec runs **entirely on your own server**. Transcription is powered by [OpenA
 | **Air-gapped deployment** | ✅ Yes | ❌ No |
 | **Custom retention policies** | ✅ Yes | Limited |
 | **Semantic search** | ✅ Built-in | Usually paid add-on |
-| **Audit log** | ✅ Complete | Varies |
+| **Tamper-proof audit log** | ✅ Built-in | Varies |
 
 ---
 
@@ -45,7 +45,8 @@ MeetRec runs **entirely on your own server**. Transcription is powered by [OpenA
 
 ### Core
 
-- **Automatic transcription** — drop a file in `/data/inbox` and transcription starts immediately, no manual step required
+- **Automatic transcription** — WhisperX with the Whisper `large-v3` or `large-v3-turbo` model, Romanian word-level alignment (wav2vec2), all CPU cores; drop a file in `/data/inbox` and transcription starts immediately
+- **Reliable job queue** — a transcription interrupted by a crash or restart is resumed automatically; a file that repeatedly crashes the worker is marked failed instead of blocking the queue
 - **Web upload** — drag-and-drop interface with real-time progress; supports MP3, MP4, WAV, M4A, OGG, FLAC, WEBM
 - **Synchronized audio player** — click any transcript segment to jump to that exact moment in the recording
 - **Virtual scrolling** — renders thousands of transcript segments without lag using `@tanstack/react-virtual`
@@ -55,21 +56,26 @@ MeetRec runs **entirely on your own server**. Transcription is powered by [OpenA
 
 ### Speaker Diarization (optional)
 
-- **WhisperX + pyannote.audio** — when `DIARIZATION_ENABLED=true`, the STT Worker replaces standard Whisper with WhisperX for word-level alignment and uses pyannote speaker diarization to tag each segment with a speaker label (`SPEAKER_00`, `SPEAKER_01`, …)
-- **Speaker-to-participant mapping** — after transcription, an admin or operator can assign speaker labels to known participants directly from the recording detail page; mappings are persisted and reflected across the full transcript
-- Requires a HuggingFace token (`HF_TOKEN`) and acceptance of the pyannote model terms **only on the build machine**, to download the model before it is baked into the image; disabled by default
+- **pyannote.audio** — tags each segment with a speaker (shown as *Speaker 1*, *Speaker 2*, …); runs **in parallel** with transcription by default, splitting the CPU cores between the two
+- **Speaker-to-participant mapping** — after transcription, an admin or operator assigns speakers to known participants from the recording page; names appear across the transcript, in search results and in exports
+- Switched on/off (and min/max speakers) from **Admin → Settings** without editing `.env`; the worker reloads its models by itself when idle
+- Requires a HuggingFace token (`HF_TOKEN`) and acceptance of the pyannote model terms **only on the build machine**, to download the model before it is baked into the image
 
 ### Search
 
-- **Full-text search** — PostgreSQL `TSVECTOR` + GIN index with highlighted snippets and ranked results; Romanian language support built-in
-- **Semantic search** — Sentence Transformers + pgvector HNSW index; finds conceptually related content even when exact words differ
-- Both search modes available simultaneously from a single query box
+- **One search box, two engines** — exact (full-text) and semantic results are merged with Reciprocal Rank Fusion and grouped by meeting, with pagination
+- **Full-text** — PostgreSQL `TSVECTOR` + GIN with a Romanian stemmer, **diacritics optional** (`sedinta` finds `ședința`, and vice versa); syntax: `"exact phrase"`, `budget OR funds`, `-excluded`; natural-language questions match any of their terms
+- **Semantic** — multilingual Sentence Transformers embeddings + pgvector HNSW; each segment is embedded together with its neighbours for context; finds related content even when the words differ
+- **Meeting metadata** — titles, descriptions, locations and participant lists are searched too
+- **Filters** — date range, location, minimum duration, speaker
+- **Jump to the moment** — clicking a result opens the recording and starts the audio at that fragment
+- If the semantic engine is unavailable, the page says so and still shows exact matches
 
 ### Export & Integration
 
-- **PDF** — professionally formatted document with title, metadata, timestamps, and full transcript
-- **DOCX** — Word-compatible file with proper heading styles and paragraph structure
-- **TXT** — plain text with timestamps; easy to pipe into other tools
+- **PDF** — formatted document with title, metadata, timestamps, speakers and full transcript (Romanian diacritics included)
+- **DOCX** — Word-compatible file with headings, timestamps and speakers
+- **TXT** — plain text with timestamps and speakers; easy to pipe into other tools
 - **REST API** — full OpenAPI 3.0 spec; every feature available programmatically
 
 ### Security & Compliance
@@ -78,12 +84,21 @@ MeetRec runs **entirely on your own server**. Transcription is powered by [OpenA
 - **Role-based access control** — `admin`, `operator`, `participant` roles with granular permissions
 - **Participant linking** — explicitly grant access to individual recordings per user
 - **bcrypt** password hashing at cost factor 12
-- **Rate limiting** — 5 req/min on login (brute-force protection), 20 req/hour on export
-- **Complete audit log** — every action (upload, view, search, export, delete) recorded with user ID, IP, and timestamp; GDPR-compliant evidence trail
-- **Auto-retention** — configurable automatic deletion after N days; scheduled nightly via APScheduler
+- **Brute-force protection** — 5 login attempts/min per IP, and an account is locked for 15 minutes after 5 consecutive failures
+- **Rate limiting** — search 30–60 req/min, export 20 req/hour, per client IP (taken from nginx only from trusted proxies)
+- **Detailed audit log** — logins (successful and failed), uploads, views, searches, exports, edits and deletions, with user, IP and timestamp; stores the **resource name at the time of the action** (still readable after deletion) and **what changed** (e.g. *role: operator → administrator*); searchable, filterable, CSV export
+- **Tamper-proof audit trail** — a database trigger rejects any `UPDATE`, `DELETE` or `TRUNCATE` on the audit log, except retention purges of entries older than one year
+- **Auto-retention** — recordings are deleted automatically N days after upload, audit entries after M days; checked daily
 - **Path traversal protection** — all file operations validated with `pathlib.Path.resolve()`
 - **File validation** — type verified by magic bytes, not just extension; SHA-256 deduplication prevents duplicate uploads
 - **CORS** restricted to explicit origins in production
+
+### Administration
+
+- **Settings** — operational settings (diarization, retention, file size limit, job attempts, stuck-job timeouts) changed from the UI; the UI value overrides `.env`, every change is audited
+- **System status** — version, transcription worker (model, threads, current job), queue length, free disk space, semantic index progress, recordings by status, recent failures
+- **Processing times** — how long each transcription took, its ratio to the audio duration, and the time per stage (transcription, alignment, diarization); sortable by newest or slowest
+- **Users** — create, edit, deactivate, reset passwords, roles
 
 ---
 
@@ -127,17 +142,17 @@ Browser / Desktop Client    Drop folder
 │  (format · size ·        │     + Session Watcher: assembles multi-segment sessions
 │   duration · SHA-256)    │     → dispatches on timeout or /complete signal
 └──────┬───────────────────┘
-       │ RPUSH job
+       │ LPUSH job
        ▼
 ┌──────────────────────────┐
-│         Redis            │  ← Job queue
+│         Redis            │  ← Reliable job queue (processing list per worker)
 └──────┬───────────────────┘
-       │ BLPOP job
+       │ BLMOVE job
        ▼
 ┌──────────────────────────┐     ┌───────────────────────┐
 │      STT Worker          │────►│   Search Indexer      │
-│  (OpenAI Whisper local)  │     │  (Sentence Transformers│
-│  assembles segments,     │     │   + pgvector HNSW)    │
+│  (WhisperX: transcribe · │     │  (Sentence Transformers│
+│   align · diarize)       │     │   + pgvector HNSW)    │
 │  stores merged WAV       │     └──────────┬────────────┘
 └──────┬───────────────────┘
        │                                    │
@@ -149,7 +164,7 @@ Browser / Desktop Client    Drop folder
            └─────────────────────┘
                       ▲
            ┌─────────────────────┐
-           │  Audit Retention    │  ← Nightly cleanup · GDPR delete
+           │  Audit Retention    │  ← Retention · stuck jobs · GDPR delete
            └─────────────────────┘
 ```
 
@@ -163,9 +178,9 @@ Browser / Desktop Client    Drop folder
 |---|---|---|
 | **API** | FastAPI + SQLAlchemy async | REST endpoints, JWT auth, business logic |
 | **Ingest** | Python watchdog + asyncpg | File detection, validation, SHA-256 dedup, queuing; Session Watcher for multi-segment sessions |
-| **STT Worker** | OpenAI Whisper + asyncpg | Audio assembly, speech-to-text, segment extraction, merged WAV storage |
-| **Search Indexer** | Sentence Transformers + pgvector | Semantic embedding generation via LISTEN/NOTIFY |
-| **Audit Retention** | APScheduler | Nightly GDPR-compliant auto-delete |
+| **STT Worker** | WhisperX (faster-whisper) + pyannote + asyncpg | Audio assembly, speech-to-text, word alignment, speaker diarization, per-stage timings, merged WAV storage |
+| **Search Indexer** | Sentence Transformers + pgvector | Semantic embeddings via LISTEN/NOTIFY plus a periodic sweep; re-embeds automatically when the model or context changes |
+| **Audit Retention** | asyncio scheduler | Daily retention deletes, stuck-transcription and abandoned-session cleanup |
 | **Frontend** | React 18 + Vite + TailwindCSS | SPA: upload, browse, search, export, admin |
 | **PostgreSQL** | pgvector/pgvector:pg15 | Relational storage, TSVECTOR FTS, vector search |
 | **Redis** | redis:7-alpine | Async job queue between Ingest and STT Worker |
@@ -242,7 +257,7 @@ docker compose exec api curl -s http://localhost:8080/health
 # → {"status": "healthy", ...}
 ```
 
-> **Models are baked into the images** (Whisper `large-v3`, Romanian alignment, optional pyannote diarization, embeddings): no download at first start and no internet access at runtime.
+> **Models are baked into the images** (Whisper `large-v3` or `large-v3-turbo`, Romanian alignment, optional pyannote diarization, embeddings): no download at first start and no internet access at runtime.
 
 | Endpoint | URL |
 |---|---|
@@ -276,8 +291,10 @@ Ingest validates the file (format, size, duration, SHA-256 dedup), adds it to th
 2. **New Recording** — drag-and-drop or click to upload; optionally add title, description, location, participants
 3. Transcription progress updates in real time on the recording page
 4. Click any segment in the transcript to seek the audio player to that moment
-5. **Search** — full-text or semantic queries across all recordings, with highlighted snippets
-6. **Export** — download as PDF, DOCX, or TXT from the recording detail page
+5. **Speakers** — assign the detected speakers to participants from the recording page
+6. **Search** — type a question or keywords and press Enter; results are grouped by meeting, click one to play that moment
+7. **Export** — download as PDF, DOCX, or TXT from the recording detail page
+8. **Admin** — users, settings, system status, processing times and the audit log
 
 ### REST API
 
@@ -296,19 +313,23 @@ curl -X POST http://localhost:8080/api/v1/inbox/upload \
   -F "file=@meeting.mp3" \
   -F "title=Board Meeting Q1" \
   -F "meeting_date=2026-03-22"
-# → 202 Accepted {"id": "...", "status": "queued"}
+# → 202 Accepted {"message": "...", "filename": "meeting.mp3", ...}  (processed asynchronously by Ingest)
 
 # List recordings
 curl -H "Authorization: Bearer $TOKEN" \
   "http://localhost:8080/api/v1/recordings?page=1&page_size=20"
 
-# Full-text search
+# Combined search (exact + semantic, grouped by meeting) — what the UI uses
 curl -H "Authorization: Bearer $TOKEN" \
-  "http://localhost:8080/api/v1/search?q=budget+2026&mode=fulltext"
+  "http://localhost:8080/api/v1/search/combined?q=budget+2026&page=1"
 
-# Semantic search
+# Exact (full-text) only — supports "phrases", OR, -exclusion
 curl -H "Authorization: Bearer $TOKEN" \
-  "http://localhost:8080/api/v1/search?q=cost+reduction+strategy&mode=semantic"
+  "http://localhost:8080/api/v1/search/?q=%22vot+de+investitura%22"
+
+# Semantic only
+curl -H "Authorization: Bearer $TOKEN" \
+  "http://localhost:8080/api/v1/search/semantic?q=cost+reduction+strategy"
 
 # Export as PDF
 curl -H "Authorization: Bearer $TOKEN" \
@@ -330,7 +351,8 @@ All settings are read from `.env`. Copy `.env.example` to get started.
 |---|---|
 | `JWT_SECRET_KEY` | Signing key — **minimum 32 characters, cryptographically random** |
 | `POSTGRES_PASSWORD` | PostgreSQL password |
-| `DATABASE_URL` | `postgresql+asyncpg://meetrec:<password>@postgres:5432/meetrec_db` |
+| `DATABASE_URL` | `postgresql+asyncpg://mt_user:<password>@postgres:5432/meeting_transcriber` |
+| `REDIS_PASSWORD` | Redis password (URL-safe, e.g. `openssl rand -hex 24`) |
 
 ### Whisper model sizes
 
@@ -340,56 +362,45 @@ All settings are read from `.env`. Copy `.env.example` to get started.
 | `base` | 145 MB | Fast | Good |
 | `small` | 465 MB | Moderate | Better |
 | `medium` | 1.5 GB | Moderate | Good balance |
-| `large-v3` | 2.9 GB | Slow | **Default** — best for Romanian |
+| `large-v3` | 2.9 GB | Slow | **Default** — best accuracy |
+| `large-v3-turbo` | 1.6 GB | Several times faster than `large-v3` on CPU | Close to `large-v3`; recommended for CPU servers |
 
 Set with `WHISPER_MODEL=large-v3` in `.env`. Only that model is baked into the `stt-worker` image (tagged
 `meetrec/stt-worker:<version>-<model>`), so changing it requires `install/models/download-models.py --whisper-model <name>`
 and rebuilding `stt-worker`. Several models can sit side by side in `services/stt-worker/models/whisper/` — e.g. `small`
-for development on a laptop and `large-v3` for production. The offline bundle always uses `large-v3` unless
-`WHISPER_MODEL` is set explicitly when running `build-bundle.sh`.
+for development on a laptop and `large-v3` for production. The offline bundle uses `large-v3` unless
+`WHISPER_MODEL` is set explicitly when running `build-bundle.sh` (e.g. `WHISPER_MODEL=large-v3-turbo`).
+
+Reference measurement (CPU, `large-v3-turbo`, diarization in parallel): 3 min 42 s of audio processed in 4 min 36 s — transcription 2 min 34 s, diarization 4 min 25 s. Real timings for every recording are shown in **Admin → Processing times**.
 
 ### Key optional settings
+
+Settings marked ✱ can also be changed from **Admin → Settings**; the UI value overrides `.env`.
 
 | Variable | Default | Description |
 |---|---|---|
 | `WHISPER_MODEL` | `large-v3` | Whisper model (must match the model baked into the image) |
-| `RETENTION_DAYS` | `1095` | Auto-delete after N days (3 years) |
-| `APP_ENV` | `production` | `development` enables `/docs` |
-| `MAX_FILE_SIZE_BYTES` | `524288000` | Max upload size (500 MB) |
-| `SEARCH_INDEXER_ENABLED` | `true` | Enable semantic search embeddings |
+| `WHISPER_THREADS` | `0` (all cores) | CPU threads for transcription; halved automatically while diarization runs in parallel |
+| `DIARIZATION_ENABLED` ✱ | `false` | Speaker identification (requires the pyannote model in the image) |
+| `DIARIZATION_PARALLEL` ✱ | `true` | Run diarization in parallel with transcription |
+| `MIN_SPEAKERS` / `MAX_SPEAKERS` ✱ | _(empty)_ | Hints for diarization |
+| `MAX_JOB_ATTEMPTS` ✱ | `2` | Crashes allowed on the same file before it is marked failed |
+| `RETENTION_DAYS` ✱ | `1095` | Delete recordings N days after upload (3 years) |
+| `AUDIT_LOG_RETENTION_DAYS` ✱ | `2190` | Audit log retention (6 years, minimum 1 year) |
+| `MAX_FILE_SIZE_BYTES` ✱ | `524288000` | Max upload size (500 MB) |
+| `EMBEDDING_CONTEXT_SEGMENTS` | `1` | Neighbouring segments included in each semantic embedding; changing it re-embeds everything in the background |
 | `SESSION_TIMEOUT_SECONDS` | `1800` | Inactivity timeout before an open multi-segment session is auto-dispatched |
-| `DIARIZATION_ENABLED` | `false` | Enable speaker identification (requires `HF_TOKEN` and pyannote models) |
 | `HF_TOKEN` | _(empty)_ | HuggingFace token — build machine only, for downloading the pyannote diarization model |
-| `REDIS_PASSWORD` | _(required)_ | Redis password (URL-safe) |
 | `MEETREC_VERSION` | `1.0.0` | Tag of the `meetrec/*` images |
-| `STT_WORKER_CONCURRENCY` | `1` | Number of parallel Whisper jobs |
-| `AUDIT_LOG_RETENTION_DAYS` | `2190` | Audit log retention period in days (default 6 years) |
+| `APP_ENV` | `production` | `development` enables `/docs` |
 
 ---
 
-## GPU Acceleration
+## Hardware
 
-By default the STT Worker runs Whisper on CPU. For organizations with a GPU server, enabling CUDA reduces transcription time dramatically:
+MeetRec is built and tested for **CPU-only** servers: the images ship the CPU build of PyTorch and the worker runs on the CPU. GPU acceleration is not supported out of the box (it would require a CUDA image and code changes).
 
-| Hardware | Whisper `medium`, 1 hour of audio |
-|---|---|
-| CPU (8-core) | 30–60 min |
-| GPU (NVIDIA, any modern card) | 3–5 min |
-
-To enable GPU support, uncomment the `deploy.resources` block in `docker-compose.yml` under the `stt-worker` service and install the [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html):
-
-```yaml
-# docker-compose.yml — stt-worker
-deploy:
-  resources:
-    reservations:
-      devices:
-        - driver: nvidia
-          count: 1
-          capabilities: [gpu]
-```
-
-No code changes are required — Whisper auto-detects CUDA at runtime.
+Recommended: 8+ cores, 32 GB RAM (16 GB minimum with `large-v3` and diarization). See the [offline guide](docs/INSTALL-OFFLINE.md#1-cerințe) for details.
 
 ---
 
@@ -407,6 +418,11 @@ make test
 docker compose exec api pytest tests/ -v
 docker compose exec ingest pytest tests/ -v
 docker compose exec stt-worker pytest tests/ -v
+docker compose exec audit-retention pytest tests/ -v
+
+# search-indexer: tests are not copied into the image — mount the sources
+docker run --rm -v "$PWD/services/search-indexer:/app" -w /app --entrypoint python \
+  meetrec/search-indexer:<version> -m pytest
 
 # Single file or test
 docker compose exec api pytest tests/test_recordings.py -v
@@ -438,7 +454,8 @@ MeetRec is built for organizations where data privacy is non-negotiable.
 - All API endpoints require a valid JWT; tokens expire and can be revoked
 - Role-based access control with three tiers: `admin`, `operator`, `participant`
 - Participant-level access allows granting specific users access to individual recordings only
-- Every user action is audit-logged with IP, timestamp, and user identity — suitable for legal and compliance evidence
+- Every user action is audit-logged with IP, timestamp, user identity, resource name and what changed — suitable for legal and compliance evidence; the database refuses to modify or delete audit entries (except retention purges older than one year)
+- Failed logins are logged and accounts are locked after repeated failures
 - Configurable retention: recordings are automatically and permanently deleted after your specified period
 - Content-Security-Policy headers set by Nginx in production
 - File uploads validated by magic bytes before any processing occurs
@@ -454,20 +471,20 @@ MeetRec/
 ├── services/
 │   ├── api/                    # FastAPI application
 │   │   ├── src/
-│   │   │   ├── routers/        # auth · recordings · search · export · users · inbox
-│   │   │   ├── services/       # recording_service · transcript_service · user_service
+│   │   │   ├── routers/        # auth · recordings · transcript · search · export · users · inbox · admin · audit
+│   │   │   ├── services/       # recording · transcript · search · user · app_settings · audit_describe
 │   │   │   ├── models/         # SQLAlchemy ORM models
 │   │   │   ├── schemas/        # Pydantic request/response schemas
 │   │   │   └── middleware/     # JWT auth · audit logging · rate limiting
-│   │   └── alembic/            # Database migrations (001–007)
+│   │   └── alembic/            # Database migrations (001–013)
 │   ├── ingest/                 # File watcher, validator, queue producer
-│   ├── stt-worker/             # Whisper transcription worker
+│   ├── stt-worker/             # WhisperX transcription + diarization worker
 │   ├── search-indexer/         # Sentence Transformers + pgvector indexer
 │   └── audit-retention/        # Scheduled cleanup service
 ├── frontend/
 │   └── src/
-│       ├── pages/              # RecordingsList · Detail · Search · Admin · Login
-│       ├── components/         # AudioPlayer · TranscriptViewer · ParticipantLinker
+│       ├── pages/              # RecordingsList · Detail · NewRecording · Search · Admin · Login
+│       ├── components/         # AudioPlayer · TranscriptViewer · ParticipantLinker · SpeakerMappingEditor · admin/
 │       ├── api/                # Typed axios client with JWT interceptors
 │       └── contexts/           # AuthContext · ToastContext
 ├── install/                    # see install/README.md
@@ -493,26 +510,28 @@ MeetRec/
 | Component | Status |
 |---|---|
 | Ingest Service (format · size · duration · SHA-256 dedup) | ✅ Complete |
-| STT Worker (Whisper, retry logic, async) | ✅ Complete |
+| STT Worker (WhisperX, reliable queue, crash recovery) | ✅ Complete |
 | API — auth, CRUD, search, export, audit | ✅ Complete |
 | Role-based access control (admin / operator / participant) | ✅ Complete |
 | Participant-level recording access | ✅ Complete |
 | Frontend — upload, list, detail, search, admin | ✅ Complete |
 | Real-time transcription progress | ✅ Complete |
 | Synchronized audio + transcript player | ✅ Complete |
-| Full-text search (TSVECTOR + GIN, Romanian) | ✅ Complete |
-| Semantic search (Sentence Transformers + pgvector HNSW) | ✅ Complete |
-| Export — PDF, DOCX, TXT | ✅ Complete |
-| Audit log with human-readable user identity | ✅ Complete |
+| Full-text search (TSVECTOR + GIN, Romanian, diacritics-insensitive) | ✅ Complete |
+| Semantic search (Sentence Transformers + pgvector HNSW, context-aware) | ✅ Complete |
+| Combined search (rank fusion, grouped by meeting, metadata, speaker filter) | ✅ Complete |
+| Export — PDF, DOCX, TXT, with speakers | ✅ Complete |
+| Detailed, tamper-proof audit log (names, changes, logins, uploads) | ✅ Complete |
+| Admin — settings, system status, processing times | ✅ Complete |
 | Audit retention & GDPR auto-delete | ✅ Complete |
 | Virtual scrolling (1000+ segments) | ✅ Complete |
-| Database migrations (001–007) | ✅ Complete |
+| Database migrations (001–013) | ✅ Complete |
 | Multi-segment session recording (Session Watcher + audio assembly) | ✅ Complete |
 | Desktop client integration (Electron companion app) | ✅ Complete |
 | Full session audio playback (merged WAV stored post-transcription) | ✅ Complete |
 | Modern UI redesign (Inter font, indigo palette, dark sidebar, animated toasts) | ✅ Complete |
 | `POST /inbox/session/{id}/complete` explicit dispatch endpoint | ✅ Complete |
-| Speaker diarization (WhisperX + pyannote, optional, `DIARIZATION_ENABLED`) | ✅ Complete |
+| Speaker diarization (pyannote, optional, parallel with transcription) | ✅ Complete |
 | Speaker-to-participant label mapping UI | ✅ Complete |
 
 ---

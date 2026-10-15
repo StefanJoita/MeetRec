@@ -257,14 +257,8 @@ services:
       timeout: 10s
       retries: 3
       start_period: 300s   # încărcarea modelului large-v3 de pe disc poate dura câteva minute
-    # Dacă ai GPU NVIDIA, decomentează:
-    # deploy:
-    #   resources:
-    #     reservations:
-    #       devices:
-    #         - driver: nvidia
-    #           count: 1
-    #           capabilities: [gpu]
+    # Doar CPU: imaginea conține PyTorch pentru CPU, iar worker-ul rulează pe "cpu".
+    # Un GPU NVIDIA ar cere o imagine CUDA și modificări în cod (nu e suportat).
 
   # ---------------------------------------------------------
   # 🌐 NGINX — Reverse Proxy + HTTPS termination

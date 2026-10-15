@@ -1,6 +1,6 @@
 # MeetRec — Ghid de instalare online (server cu internet)
 
-Platformă self-hosted de transcriere automată a ședințelor. Tot procesarea audio se face local — datele nu părăsesc infrastructura organizației.
+Platformă self-hosted de transcriere automată a ședințelor, cu identificarea vorbitorilor, căutare (exactă și după sens), export și jurnal de audit. Toată procesarea se face local, pe procesor: datele nu părăsesc infrastructura organizației.
 
 > **Server fără acces la internet?** Folosește [INSTALL-OFFLINE.md](INSTALL-OFFLINE.md): pachet unic cu imagini, modele ML și Docker Engine.
 
@@ -26,11 +26,10 @@ Platformă self-hosted de transcriere automată a ședințelor. Tot procesarea a
 | Componentă | Minim | Recomandat |
 |------------|-------|------------|
 | CPU | 4 nuclee | 8+ nuclee |
-| RAM | 8 GB | 16+ GB |
+| RAM | 16 GB | 32 GB |
 | Stocare | 50 GB SSD | 200+ GB SSD |
-| GPU | — | NVIDIA (VRAM 4GB+) |
 
-> **Notă Whisper:** Modelul `medium` (implicit) procesează ~1h audio în 30–60 min pe CPU sau 3–5 min pe GPU NVIDIA. Dacă transcrierile sunt urgente, consideră un GPU sau modelul `small`.
+> **Durata transcrierii:** MeetRec rulează pe procesor (imaginile conțin PyTorch pentru CPU; placa video nu e folosită). Cu `large-v3` (implicit), 1 oră de audio durează aproximativ 1–2 ore pe 8 nuclee. `large-v3-turbo` e de câteva ori mai rapid, cu o calitate apropiată: 3 min 42 s de audio procesate în 4 min 36 s, cu diarizarea în paralel. Durata reală a fiecărei transcrieri apare în **Administrare → Procesări**.
 
 ### Hardware captură audio (client desktop)
 
@@ -172,7 +171,7 @@ SERVER_NAME=192.168.1.100     # sau meetrec.companie.ro
 | `JWT_SECRET_KEY` | *(de generat)* | Cheie secretă JWT — minim 32 caractere |
 | `POSTGRES_PASSWORD` | `change_me_in_production` | Parolă bază de date |
 | `SERVER_NAME` | `meeting-transcriber.local` | Domeniu sau IP server |
-| `WHISPER_MODEL` | `large-v3` | Model transcriere inclus în imagine: `tiny`/`base`/`small`/`medium`/`large-v3` (schimbarea cere rebuild) |
+| `WHISPER_MODEL` | `large-v3` | Model transcriere inclus în imagine: `small`/`medium`/`large-v3`/`large-v3-turbo` (schimbarea cere rebuild) |
 | `REDIS_PASSWORD` | *(de generat)* | Parolă Redis (caractere URL-safe, ex. `openssl rand -hex 24`) |
 | `APP_ENV` | `production` | `production` dezactivează `/docs` OpenAPI |
 | `WHISPER_PRIMARY_LANGUAGE` | `ro` | Limba principală pentru transcrieri |
@@ -254,33 +253,11 @@ mt-search-indexer   running
 make create-admin
 ```
 
-Sau manual:
+Sau direct:
 ```bash
-docker compose exec api python3 -c "
-import asyncio, uuid, sys
-sys.path.insert(0, '/app')
-from src.database import AsyncSessionLocal
-from src.models.audit_log import User
-from passlib.context import CryptContext
-from sqlalchemy import select
-
-async def run():
-    async with AsyncSessionLocal() as db:
-        pwd = CryptContext(schemes=['bcrypt']).hash('PAROLA_TA')
-        db.add(User(
-            id=uuid.uuid4(),
-            username='admin',
-            email='admin@companie.ro',
-            hashed_password=pwd,
-            role='admin',
-            is_active=True,
-            force_password_change=True,
-        ))
-        await db.commit()
-        print('Administrator creat.')
-
-asyncio.run(run())
-"
+docker compose exec api python -m src.cli.create_admin \
+    --username admin --email admin@companie.ro --update-existing --disable-default-operator
+# parola se cere interactiv
 ```
 
 ---
@@ -350,6 +327,12 @@ Din panoul **Admin → Utilizatori**:
 3. Sistemul detectează automat fișierul și începe transcrierea
 4. Statusul se actualizează în timp real: `queued` → `transcribing` → `completed`
 
+### Ce găsești în aplicație
+
+- **Înregistrare:** transcrierea sincronizată cu audio-ul, vorbitorii (dacă diarizarea e pornită) și asocierea lor cu participanții, export PDF / DOCX / TXT.
+- **Căutare:** scrie cuvinte sau o întrebare și apasă Enter. Diacriticele sunt opționale; merg `"frază exactă"`, `buget OR fonduri`, `-exclus`. Rezultatele sunt grupate pe ședință, iar click pe un fragment pornește audio-ul la momentul lui. Se caută și în titluri, descrieri și participanți. Filtre: dată, locație, durată, vorbitor.
+- **Administrare** (doar admin): utilizatori, **Setări** (diarizare, retenție, limite — au prioritate față de `.env`), **Stare sistem**, **Procesări** (durata fiecărei transcrieri, pe etape) și **Jurnal audit** (cine a făcut ce, cu numele resursei și ce s-a schimbat; nu poate fi modificat).
+
 ### Modelele ML (Whisper, aliniere, diarizare, embeddings)
 
 Modelele sunt **descărcate înainte de build** (`install/models/download-models.py`, rulat automat de installer)
@@ -361,6 +344,7 @@ Modelele sunt **descărcate înainte de build** (`install/models/download-models
 | `small` | ~460 MB | ~2 GB |
 | `medium` | ~1.5 GB | ~5 GB |
 | `large-v3` (implicit) | ~3 GB | ~8–10 GB |
+| `large-v3-turbo` (rapid, recomandat pe CPU) | ~1.6 GB | ~6–8 GB |
 
 La pornire, STT Worker încarcă modelul de pe disc (1–3 minute):
 ```bash
@@ -372,38 +356,6 @@ Pentru instalarea pe un server **fără internet**, vezi [INSTALL-OFFLINE.md](IN
 ---
 
 ## 6. Configurare avansată
-
-### GPU NVIDIA (transcrieri mult mai rapide)
-
-1. Instalează [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html):
-```bash
-curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey | sudo gpg --dearmor -o /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg
-curl -s -L https://nvidia.github.io/libnvidia-container/stable/deb/nvidia-container-toolkit.list | \
-    sed 's#deb https://#deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg] https://#g' | \
-    sudo tee /etc/apt/sources.list.d/nvidia-container-toolkit.list
-sudo apt-get update && sudo apt-get install -y nvidia-container-toolkit
-sudo nvidia-ctk runtime configure --runtime=docker
-sudo systemctl restart docker
-```
-
-2. Decomentează blocul GPU în `docker-compose.yml`:
-```yaml
-stt-worker:
-  # ...
-  deploy:
-    resources:
-      reservations:
-        devices:
-          - driver: nvidia
-            count: 1
-            capabilities: [gpu]
-```
-
-3. Rebuild și repornire:
-```bash
-docker compose build stt-worker
-docker compose up -d stt-worker
-```
 
 ### Schimbarea portului HTTPS
 
@@ -419,10 +371,13 @@ docker compose up -d nginx
 
 Aplicația va fi accesibilă la `https://server:8443`.
 
-### Căutare semantică (AI)
+### Căutare după sens
 
 Modelul de embeddings (`paraphrase-multilingual-MiniLM-L12-v2`, ~470 MB) este inclus în imaginea
-`search-indexer`. Nu e necesară nicio configurare și nicio conexiune la internet.
+`search-indexer`. Nu e necesară nicio configurare și nicio conexiune la internet. Transcrierile noi se
+indexează automat în câteva secunde; progresul apare în **Administrare → Stare sistem**.
+`EMBEDDING_CONTEXT_SEGMENTS` (implicit `1`) stabilește câte segmente vecine intră în vectorul fiecărui
+segment; la schimbare, vectorii se recalculează automat, în fundal.
 
 ### Backup date
 
@@ -480,7 +435,7 @@ DATABASE_URL=postgresql+asyncpg://mt_user:PAROLA@postgres:5432/meeting_transcrib
 STT worker-ul poate fi în curs de inițializare (descărcare model Whisper). Urmărești:
 ```bash
 docker compose logs -f stt-worker
-# Aștepți mesajul: "Whisper model loaded, waiting for jobs..."
+# Aștepți mesajele „models_loaded” și „waiting_for_jobs”
 ```
 
 ### Browserul afișează "Connection refused" pe port 443
