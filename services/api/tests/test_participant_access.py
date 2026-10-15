@@ -344,7 +344,8 @@ class TestLinkedParticipantOlderRecording:
 
     @pytest.mark.asyncio
     async def test_semantic_search_finds_recording(self, fake_db, participant):
-        with patch.object(SearchService, "_get_query_embedding", AsyncMock(return_value=[0.0] * 384)):
+        with patch.object(SearchService, "_get_query_embedding",
+                          AsyncMock(return_value=([0.0] * 384, "model|ctx1"))):
             async with make_client(fake_db, participant) as client:
                 resp = await client.get("/api/v1/search/semantic?q=buget")
 

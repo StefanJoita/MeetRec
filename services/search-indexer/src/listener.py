@@ -19,6 +19,9 @@
 #
 # IMPORTANT: LISTEN necesită o conexiune dedicată (nu din pool).
 # asyncpg.create_pool() nu suportă LISTEN pe conexiunile pooled.
+#
+# Conexiunea poate cădea (repornire PostgreSQL): ne reconectăm. Notificările
+# trimise cât timp eram deconectați se pierd — le recuperează sweep_forever.
 
 import asyncio
 from typing import Optional
@@ -41,11 +44,20 @@ class ChangeListener:
 
     async def start(self) -> None:
         """
-        Conectează o conexiune dedicată și ascultă notificările.
+        Ascultă notificările pe o conexiune dedicată, cu reconectare.
         Blochează până la stop().
         """
         self._running = True
+        while self._running:
+            try:
+                await self._listen()
+            except Exception as exc:
+                logger.error("listener_connection_failed", error=str(exc))
+            if self._running:
+                await asyncio.sleep(5)          # reîncercăm conexiunea
+        logger.info("listening_stopped")
 
+    async def _listen(self) -> None:
         # Conexiune dedicată — nu din pool
         self._conn = await asyncpg.connect(dsn=settings.database_url)
 
@@ -67,13 +79,16 @@ class ChangeListener:
         await self._conn.add_listener(settings.notify_channel, handle_notify)
         logger.info("listening_started", channel=settings.notify_channel)
 
-        # Așteptăm până la stop() — asyncpg procesează notificările automat
-        while self._running:
-            await asyncio.sleep(1)
-
-        await self._conn.remove_listener(settings.notify_channel, handle_notify)
-        await self._conn.close()
-        logger.info("listening_stopped")
+        try:
+            # Așteptăm până la stop() sau până cade conexiunea — asyncpg procesează notificările automat
+            while self._running and not self._conn.is_closed():
+                await asyncio.sleep(1)
+            if self._running:
+                logger.warning("listener_connection_lost")
+        finally:
+            if not self._conn.is_closed():
+                await self._conn.remove_listener(settings.notify_channel, handle_notify)
+                await self._conn.close()
 
     def stop(self) -> None:
         """Oprește listener-ul după iterația curentă."""

@@ -1,5 +1,5 @@
 import client from './client'
-import type { SearchResponse, CombinedSearchResponse } from './types'
+import type { SearchResponse, CombinedSearchResponse, SpeakerOption } from './types'
 
 interface SearchParams {
   limit?: number
@@ -12,6 +12,7 @@ export interface SearchFilters {
   date_to?: string        // YYYY-MM-DD
   location?: string
   min_duration?: number   // secunde
+  speaker?: string        // id-ul persoanei asociate vorbitorului
 }
 
 export async function search(q: string, params: SearchParams = {}): Promise<SearchResponse> {
@@ -23,18 +24,24 @@ export async function search(q: string, params: SearchParams = {}): Promise<Sear
 
 export async function searchCombined(
   q: string,
-  limit = 20,
+  page = 1,
   filters: SearchFilters = {},
 ): Promise<CombinedSearchResponse> {
   const { data } = await client.get<CombinedSearchResponse>('/search/combined', {
     params: {
       q,
-      limit,
+      page,
       ...(filters.date_from    ? { date_from:    filters.date_from }    : {}),
       ...(filters.date_to      ? { date_to:      filters.date_to }      : {}),
       ...(filters.location     ? { location:     filters.location }     : {}),
       ...(filters.min_duration ? { min_duration: filters.min_duration } : {}),
+      ...(filters.speaker      ? { speaker:      filters.speaker }      : {}),
     },
   })
+  return data
+}
+
+export async function getSearchSpeakers(): Promise<SpeakerOption[]> {
+  const { data } = await client.get<SpeakerOption[]>('/search/speakers')
   return data
 }

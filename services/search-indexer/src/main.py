@@ -5,7 +5,10 @@
 # Pornește 3 componente în paralel (asyncio.gather):
 #   1. Listener  — LISTEN/NOTIFY pentru transcrieri noi
 #   2. HTTP Server — /embed și /reindex endpoints
-#   3. Bulk re-index la startup — indexează transcriptele existente
+#   3. Verificare periodică — transcrieri neindexate (la pornire și apoi la fiecare minut)
+#
+# Serverul HTTP pornește imediat: căutarea semantică merge și cât timp
+# se indexează transcrierile vechi (după o schimbare de model poate dura).
 #
 # Pattern lifecycle identic cu ceilalți workers.
 
@@ -20,7 +23,7 @@ from src.config import settings
 from src.database import DatabaseClient
 from src.embedder import Embedder
 from src.indexer import TranscriptIndexer
-from src.bulk_reindexer import bulk_reindex
+from src.bulk_reindexer import sweep_forever
 from src.listener import ChangeListener
 from src import http_server
 
@@ -59,6 +62,7 @@ async def main() -> None:
 
     # ── 5. Listener NOTIFY ────────────────────────────────
     listener = ChangeListener(indexer)
+    stop = asyncio.Event()
 
     # ── Signal handlers ───────────────────────────────────
     loop = asyncio.get_running_loop()
@@ -66,15 +70,12 @@ async def main() -> None:
     def handle_signal(sig: signal.Signals) -> None:
         logger.info("signal_received", signal=sig.name)
         listener.stop()
+        stop.set()
 
     for sig in (signal.SIGTERM, signal.SIGINT):
         loop.add_signal_handler(sig, lambda s=sig: handle_signal(s))
 
-    # ── 6. Bulk re-index la startup ───────────────────────
-    logger.info("bulk_reindex_on_startup")
-    await bulk_reindex(db.pool, indexer)
-
-    # ── 7. Pornim HTTP server + listener în paralel ───────
+    # ── 6. Pornim HTTP server + listener + verificarea periodică în paralel ──
     # uvicorn.Server folosit programatic (nu subprocess)
     uvi_config = uvicorn.Config(
         app=http_server.app,
@@ -89,6 +90,7 @@ async def main() -> None:
         await asyncio.gather(
             uvi_server.serve(),
             listener.start(),
+            sweep_forever(db.pool, indexer, stop),
         )
     finally:
         await db.disconnect()

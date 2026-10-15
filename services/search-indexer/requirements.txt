@@ -13,3 +13,7 @@ uvicorn[standard]==0.29.0
 --extra-index-url https://download.pytorch.org/whl/cpu
 sentence-transformers==3.0.1
 torch==2.4.0+cpu
+
+# Teste
+pytest==7.4.3
+pytest-asyncio==0.23.2

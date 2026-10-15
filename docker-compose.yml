@@ -362,6 +362,8 @@ services:
       EMBEDDING_MODEL: ${EMBEDDING_MODEL:-paraphrase-multilingual-MiniLM-L12-v2}
       EMBEDDING_MODEL_PATH: /app/models   # modelul e inclus în imagine (HF_HUB_OFFLINE=1)
       EMBEDDING_BATCH_SIZE: ${EMBEDDING_BATCH_SIZE:-32}
+      # Segmente vecine incluse în vectorul fiecărui segment; schimbarea recalculează vectorii
+      EMBEDDING_CONTEXT_SEGMENTS: ${EMBEDDING_CONTEXT_SEGMENTS:-1}
       LOG_LEVEL: ${LOG_LEVEL}
       TZ: Europe/Bucharest
     # Fără "ports:" — /embed și /reindex sunt interne (dev: docker-compose.dev.yml expune 8001)

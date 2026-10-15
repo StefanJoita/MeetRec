@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useMemo } from 'react'
-import { useParams, useNavigate, Link } from 'react-router-dom'
+import { useParams, useNavigate, useSearchParams, Link } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient, type Query } from '@tanstack/react-query'
 import axios from 'axios'
 import {
@@ -42,6 +42,10 @@ export default function RecordingDetailPage() {
   const [copied, setCopied] = useState(false)
   const exportRef = useRef<HTMLDivElement>(null)
   const prevStatusRef = useRef<string | null>(null)
+  // ?t=123.4 (din pagina de căutare): pornește audio-ul la fragmentul găsit
+  const [searchParams] = useSearchParams()
+  const startAt = Number(searchParams.get('t')) || 0
+  const startedAtRef = useRef(false)
 
   // Închide dropdown export la click în afară
   useEffect(() => {
@@ -153,6 +157,13 @@ export default function RecordingDetailPage() {
         }
       })
   }
+
+  useEffect(() => {
+    if (startAt > 0 && recording?.status === 'completed' && !startedAtRef.current) {
+      startedAtRef.current = true
+      audioPlayerRef.current?.seek(startAt)
+    }
+  }, [startAt, recording?.status])
 
   if (recLoading) {
     return <SkeletonCard />

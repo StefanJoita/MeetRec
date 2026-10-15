@@ -39,6 +39,7 @@ export interface SystemStatus {
     processing: number | null
     workers: WorkerStatus[]
   }
+  search_index: { available: boolean; model: string | null; pending_segments: number | null }
   disk: { total_bytes: number; used_bytes: number; free_bytes: number } | null
   recordings_by_status: Record<string, number>
   recent_failures: { id: string; title: string; error_message: string | null; updated_at: string | null }[]

@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
-import { AlertTriangle, Cpu, HardDrive, ListOrdered, Server } from 'lucide-react'
+import { AlertTriangle, Cpu, HardDrive, ListOrdered, Search, Server } from 'lucide-react'
 import { getSystemStatus, type SystemStatus } from '@/api/admin'
 import { SkeletonTable } from '@/components/ui/Skeleton'
 import { StatusBadge } from '@/components/ui/StatusBadge'
@@ -102,6 +102,23 @@ export default function SystemStatusPanel() {
               </li>
             ))}
           </ul>
+        )}
+      </Card>
+
+      <Card icon={<Search className="h-4 w-4 text-sky-600" />} title="Căutare după sens">
+        {data.search_index.available ? (
+          <>
+            <p className="text-sm text-gray-900">
+              {data.search_index.pending_segments === 0
+                ? 'Toate transcrierile sunt indexate.'
+                : `${data.search_index.pending_segments ?? '?'} fragmente în curs de indexare.`}
+            </p>
+            <p className="text-xs text-gray-500 mt-1">Model: {data.search_index.model ?? '—'}</p>
+          </>
+        ) : (
+          <p className="text-sm text-red-600">
+            Serviciul de indexare nu răspunde — căutarea funcționează doar cu potriviri exacte.
+          </p>
         )}
       </Card>
 

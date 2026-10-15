@@ -1,11 +1,13 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import { Link } from 'react-router-dom'
-import { Search, Clock, Loader2, Sparkles, SlidersHorizontal, X } from 'lucide-react'
+import { useQuery } from '@tanstack/react-query'
+import { Search, Clock, Loader2, Sparkles, SlidersHorizontal, X, FileText, AlertTriangle, User } from 'lucide-react'
 import DOMPurify from 'dompurify'
-import { searchCombined, type SearchFilters } from '@/api/search'
+import { getSearchSpeakers, searchCombined, type SearchFilters } from '@/api/search'
 import { EmptyState } from '@/components/ui/EmptyState'
+import { Pagination } from '@/components/ui/Pagination'
 import { cn } from '@/lib/cn'
-import type { CombinedSearchResult, CombinedSearchResponse } from '@/api/types'
+import type { CombinedSearchResult, CombinedSearchResponse, RecordingMatch, SearchGroup } from '@/api/types'
 
 const DURATION_OPTIONS = [
   { label: 'Orice durată', value: 0 },
@@ -15,30 +17,41 @@ const DURATION_OPTIONS = [
   { label: '> 1 oră',      value: 3600 },
 ]
 
+const MARK = '<mark class="bg-amber-100 text-amber-900 rounded px-0.5 font-medium">'
+
 export default function SearchPage() {
   const [query, setQuery]       = useState('')
+  const [submitted, setSubmitted] = useState('')        // căutarea afișată (Enter / buton)
+  const [page, setPage]         = useState(1)
   const [response, setResponse] = useState<CombinedSearchResponse | null>(null)
   const [loading, setLoading]   = useState(false)
   const [error, setError]       = useState('')
   const [filtersOpen, setFiltersOpen] = useState(false)
   const [filters, setFilters]   = useState<SearchFilters>({})
-  const inputRef    = useRef<HTMLInputElement>(null)
-  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const inputRef = useRef<HTMLInputElement>(null)
+
+  const { data: speakers = [] } = useQuery({
+    queryKey: ['search-speakers'],
+    queryFn: getSearchSpeakers,
+    retry: false,
+    staleTime: 5 * 60_000,
+  })
 
   useEffect(() => { inputRef.current?.focus() }, [])
-  useEffect(() => {
-    return () => { if (debounceRef.current) clearTimeout(debounceRef.current) }
-  }, [])
 
-  const hasActiveFilters = !!(filters.date_from || filters.date_to || filters.location || filters.min_duration)
+  const hasActiveFilters = !!(filters.date_from || filters.date_to || filters.location || filters.min_duration || filters.speaker)
 
-  const runSearch = useCallback(async (q: string, activeFilters: SearchFilters = {}) => {
-    if (!q.trim()) { setResponse(null); return }
+  // Căutarea pornește la Enter / buton, nu la fiecare tastă: fiecare căutare
+  // ajunge în jurnalul de audit, iar căutarea după sens e costisitoare.
+  const runSearch = useCallback(async (q: string, activeFilters: SearchFilters, targetPage = 1) => {
+    if (q.trim().length < 2) { setResponse(null); setSubmitted(''); return }
     setLoading(true)
     setError('')
     try {
-      const data = await searchCombined(q.trim(), 20, activeFilters)
+      const data = await searchCombined(q.trim(), targetPage, activeFilters)
       setResponse(data)
+      setSubmitted(q.trim())
+      setPage(targetPage)
     } catch {
       setError('Nu am putut efectua căutarea. Încearcă din nou.')
     } finally {
@@ -46,36 +59,32 @@ export default function SearchPage() {
     }
   }, [])
 
-  function handleQueryChange(e: React.ChangeEvent<HTMLInputElement>) {
-    const val = e.target.value
-    setQuery(val)
-    if (debounceRef.current) clearTimeout(debounceRef.current)
-    if (!val.trim()) { setResponse(null); setLoading(false); return }
-    setLoading(true)
-    debounceRef.current = setTimeout(() => runSearch(val, filters), 300)
-  }
-
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
-    if (debounceRef.current) clearTimeout(debounceRef.current)
     runSearch(query, filters)
   }
 
   function handleFilterChange(patch: Partial<SearchFilters>) {
     const next = { ...filters, ...patch }
-    // Curăță valorile goale
     Object.keys(next).forEach(k => {
       const key = k as keyof SearchFilters
       if (!next[key]) delete next[key]
     })
     setFilters(next)
-    if (query.trim()) runSearch(query, next)
+    if (submitted) runSearch(submitted, next)
   }
 
   function clearFilters() {
     setFilters({})
-    if (query.trim()) runSearch(query, {})
+    if (submitted) runSearch(submitted, {})
   }
+
+  function changePage(p: number) {
+    runSearch(submitted, filters, p)
+    window.scrollTo({ top: 0, behavior: 'smooth' })
+  }
+
+  const nothingFound = response !== null && response.groups.length === 0 && response.recordings.length === 0
 
   return (
     <div className="p-6 max-w-3xl mx-auto">
@@ -85,16 +94,16 @@ export default function SearchPage() {
       </div>
 
       {/* Search bar */}
-      <form onSubmit={handleSubmit} className="mb-3">
+      <form onSubmit={handleSubmit} className="mb-2">
         <div className="relative">
           <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-slate-400 pointer-events-none" />
           <input
             ref={inputRef}
             value={query}
-            onChange={handleQueryChange}
-            placeholder="Caută în toate transcrierile..."
+            onChange={e => setQuery(e.target.value)}
+            placeholder="Caută în toate transcrierile și apasă Enter..."
             aria-label="Caută în transcrieri"
-            className="w-full pl-12 pr-28 py-3.5 border border-slate-300 rounded-xl text-sm bg-white
+            className="w-full pl-12 pr-44 py-3.5 border border-slate-300 rounded-xl text-sm bg-white
                        focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500
                        shadow-sm placeholder:text-slate-400 transition"
           />
@@ -112,68 +121,72 @@ export default function SearchPage() {
             >
               <SlidersHorizontal className="h-3.5 w-3.5" />
               Filtre
-              {hasActiveFilters && (
-                <span className="h-1.5 w-1.5 rounded-full bg-primary-500 inline-block" />
-              )}
+              {hasActiveFilters && <span className="h-1.5 w-1.5 rounded-full bg-primary-500 inline-block" />}
+            </button>
+            <button
+              type="submit"
+              disabled={query.trim().length < 2 || loading}
+              className="text-xs font-medium px-3 py-1.5 rounded-lg bg-primary-600 text-white hover:bg-primary-700 disabled:opacity-50"
+            >
+              Caută
             </button>
           </div>
         </div>
       </form>
+      <p className="text-xs text-slate-400 mb-4">
+        Diacriticele sunt opționale · <code className="text-slate-500">"frază exactă"</code> ·{' '}
+        <code className="text-slate-500">buget OR fonduri</code> · <code className="text-slate-500">-exclus</code>
+      </p>
 
       {/* Advanced filters panel */}
       {filtersOpen && (
         <div className="mb-5 p-4 bg-slate-50 border border-slate-200 rounded-xl animate-slide-up space-y-4">
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            {/* Date range */}
             <div>
-              <label className="block text-xs font-medium text-slate-600 mb-1">De la data</label>
-              <input
-                type="date"
-                value={filters.date_from ?? ''}
+              <label htmlFor="f-from" className="block text-xs font-medium text-slate-600 mb-1">De la data</label>
+              <input id="f-from" type="date" value={filters.date_from ?? ''}
                 onChange={e => handleFilterChange({ date_from: e.target.value || undefined })}
-                className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-primary-400"
-              />
+                className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-primary-400" />
             </div>
             <div>
-              <label className="block text-xs font-medium text-slate-600 mb-1">Până la data</label>
-              <input
-                type="date"
-                value={filters.date_to ?? ''}
+              <label htmlFor="f-to" className="block text-xs font-medium text-slate-600 mb-1">Până la data</label>
+              <input id="f-to" type="date" value={filters.date_to ?? ''}
                 onChange={e => handleFilterChange({ date_to: e.target.value || undefined })}
-                className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-primary-400"
-              />
+                className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-primary-400" />
             </div>
-            {/* Location */}
             <div>
-              <label className="block text-xs font-medium text-slate-600 mb-1">Locație</label>
-              <input
-                type="text"
-                value={filters.location ?? ''}
-                onChange={e => handleFilterChange({ location: e.target.value || undefined })}
+              <label htmlFor="f-location" className="block text-xs font-medium text-slate-600 mb-1">Locație</label>
+              <input id="f-location" type="text" value={filters.location ?? ''}
+                onChange={e => setFilters(f => ({ ...f, location: e.target.value || undefined }))}
+                onBlur={() => handleFilterChange({})}
                 placeholder="ex. Sala Mare"
-                className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-primary-400"
-              />
+                className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-primary-400" />
             </div>
-            {/* Min duration */}
             <div>
-              <label className="block text-xs font-medium text-slate-600 mb-1">Durată minimă</label>
-              <select
-                value={filters.min_duration ?? 0}
+              <label htmlFor="f-duration" className="block text-xs font-medium text-slate-600 mb-1">Durată minimă</label>
+              <select id="f-duration" value={filters.min_duration ?? 0}
                 onChange={e => handleFilterChange({ min_duration: Number(e.target.value) || undefined })}
-                className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-primary-400"
-              >
-                {DURATION_OPTIONS.map(opt => (
-                  <option key={opt.value} value={opt.value}>{opt.label}</option>
-                ))}
+                className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-primary-400">
+                {DURATION_OPTIONS.map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
               </select>
             </div>
+            {speakers.length > 0 && (
+              <div className="sm:col-span-2">
+                <label htmlFor="f-speaker" className="block text-xs font-medium text-slate-600 mb-1">Vorbitor</label>
+                <select id="f-speaker" value={filters.speaker ?? ''}
+                  onChange={e => handleFilterChange({ speaker: e.target.value || undefined })}
+                  className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-primary-400">
+                  <option value="">Oricine</option>
+                  {speakers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                </select>
+                <p className="text-xs text-slate-400 mt-1">Doar persoanele asociate cu vorbitori în pagina înregistrării.</p>
+              </div>
+            )}
           </div>
 
           {hasActiveFilters && (
-            <button
-              onClick={clearFilters}
-              className="inline-flex items-center gap-1.5 text-xs text-slate-500 hover:text-rose-600 transition-colors"
-            >
+            <button onClick={clearFilters}
+              className="inline-flex items-center gap-1.5 text-xs text-slate-500 hover:text-rose-600 transition-colors">
               <X className="h-3.5 w-3.5" />
               Resetează filtrele
             </button>
@@ -182,92 +195,133 @@ export default function SearchPage() {
       )}
 
       {error && (
-        <div className="card p-4 text-sm text-rose-600 bg-rose-50 border-rose-200 mb-4">
-          {error}
-        </div>
+        <div className="card p-4 text-sm text-rose-600 bg-rose-50 border-rose-200 mb-4">{error}</div>
       )}
 
       {response === null && !loading && (
         <EmptyState
           icon={Search}
           title="Caută în toate transcrierile"
-          description="Poți căuta după cuvinte cheie, subiecte discutate sau fraze exacte. Căutarea combină potrivirea exactă cu căutarea după sens."
+          description="Poți căuta după cuvinte cheie, subiecte discutate sau fraze exacte. Căutarea combină potrivirea exactă cu căutarea după sens și caută și în titlurile ședințelor."
         />
       )}
 
       {response !== null && (
         <div>
-          {/* Results summary */}
-          <div className="flex items-center gap-3 mb-4 flex-wrap">
-            <p className="text-sm text-slate-500 font-medium">
-              {response.results.length === 0
-                ? 'Niciun rezultat găsit.'
-                : `${response.results.length} rezultate`}
-            </p>
-            {response.results.length > 0 && (
-              <div className="flex gap-1.5">
-                {response.both_count > 0 && (
+          {!response.semantic_available && (
+            <div className="flex items-start gap-2 p-3 mb-4 text-xs rounded-lg bg-amber-50 border border-amber-200 text-amber-800">
+              <AlertTriangle className="h-4 w-4 shrink-0" />
+              Căutarea după sens nu este disponibilă acum. Rezultatele de mai jos sunt doar potriviri exacte.
+            </div>
+          )}
+
+          {nothingFound ? (
+            <p className="text-sm text-slate-500 font-medium mb-4">Niciun rezultat găsit.</p>
+          ) : (
+            <div className="flex items-center gap-3 mb-4 flex-wrap">
+              <p className="text-sm text-slate-500 font-medium">
+                {response.total_hits} fragmente în {response.total_groups} ședințe
+              </p>
+              {response.total_hits > 0 && (
+                <div className="flex gap-1.5">
                   <SourcePill source="both" count={response.both_count} />
-                )}
-                <SourcePill source="fts"      count={response.fts_count - response.both_count} />
-                <SourcePill source="semantic" count={response.semantic_count - response.both_count} />
+                  <SourcePill source="fts" count={response.fts_count - response.both_count} />
+                  <SourcePill source="semantic" count={response.semantic_count - response.both_count} />
+                </div>
+              )}
+            </div>
+          )}
+
+          {page === 1 && response.recordings.length > 0 && (
+            <section className="mb-5">
+              <h2 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">
+                Ședințe găsite după titlu sau detalii
+              </h2>
+              <div className="space-y-2">
+                {response.recordings.map(r => <RecordingMatchCard key={r.recording_id} match={r} />)}
               </div>
-            )}
+            </section>
+          )}
+
+          <div className="space-y-3 mb-4">
+            {response.groups.map(g => <GroupCard key={g.recording_id} group={g} query={submitted} />)}
           </div>
 
-          <div className="space-y-2.5">
-            {response.results.map((r) => (
-              <ResultCard key={`${r.recording_id}-${r.segment_id}`} result={r} query={query} />
-            ))}
-          </div>
+          {response.pages > 1 && (
+            <Pagination page={page} pages={response.pages} total={response.total_groups} onPageChange={changePage} />
+          )}
         </div>
       )}
     </div>
   )
 }
 
-function ResultCard({ result: r, query }: { result: CombinedSearchResult; query: string }) {
-  const rawHtml = r.headline
-    ? r.headline
-        .replace(/<b>/g,  '<mark class="bg-amber-100 text-amber-900 rounded px-0.5 font-medium">')
-        .replace(/<\/b>/g, '</mark>')
-    : highlight(r.text, query)
+function sanitize(html: string): string {
+  return DOMPurify.sanitize(html, { ALLOWED_TAGS: ['mark'], ALLOWED_ATTR: ['class'] })
+}
 
-  const displayHtml = DOMPurify.sanitize(rawHtml, {
-    ALLOWED_TAGS: ['mark'],
-    ALLOWED_ATTR: ['class'],
-  })
+function markHeadline(headline: string): string {
+  return headline.replace(/<b>/g, MARK).replace(/<\/b>/g, '</mark>')
+}
 
+function RecordingMatchCard({ match }: { match: RecordingMatch }) {
   return (
-    <Link
-      to={`/recordings/${r.recording_id}`}
-      className="block card p-4 hover:border-primary-200 hover:shadow-md transition-all"
-    >
-      <div className="flex items-start justify-between gap-3 mb-2">
-        <p className="text-sm font-semibold text-slate-900">{r.recording_title}</p>
-        <div className="flex items-center gap-2 shrink-0">
-          <SourceBadge source={r.source} />
-          <div className="flex items-center gap-1 text-xs text-slate-400">
-            <Clock className="h-3 w-3" />
-            {new Date(r.meeting_date).toLocaleDateString('ro-RO')}
-          </div>
-        </div>
-      </div>
-
-      <p
-        className="text-sm text-slate-600 leading-relaxed"
-        dangerouslySetInnerHTML={{ __html: displayHtml }}
-      />
-
-      <div className="flex items-center justify-between mt-2.5">
-        <p className="text-xs font-medium text-primary-600">
-          {formatTimestamp(r.start_time)} – {formatTimestamp(r.end_time)}
+    <Link to={`/recordings/${match.recording_id}`}
+      className="flex items-start gap-3 card p-3 hover:border-primary-200 hover:shadow-md transition-all">
+      <FileText className="h-4 w-4 text-primary-500 mt-0.5 shrink-0" />
+      <div className="min-w-0">
+        <p className="text-sm font-semibold text-slate-900">{match.title}</p>
+        {match.headline && (
+          <p className="text-xs text-slate-500 mt-0.5 line-clamp-2"
+            dangerouslySetInnerHTML={{ __html: sanitize(markHeadline(match.headline)) }} />
+        )}
+        <p className="text-xs text-slate-400 mt-0.5">
+          {new Date(match.meeting_date).toLocaleDateString('ro-RO')}
+          {match.location && ` · ${match.location}`}
         </p>
-        <div className="flex gap-3 text-xs text-slate-400">
-          {r.rank       != null && <span>Exactitate: {r.rank.toFixed(3)}</span>}
-          {r.similarity != null && <span>Sens: {(r.similarity * 100).toFixed(0)}%</span>}
+      </div>
+    </Link>
+  )
+}
+
+function GroupCard({ group, query }: { group: SearchGroup; query: string }) {
+  const more = group.total_hits - group.hits.length
+  return (
+    <section className="card p-4">
+      <div className="flex items-start justify-between gap-3 mb-2">
+        <Link to={`/recordings/${group.recording_id}`} className="text-sm font-semibold text-slate-900 hover:text-primary-700">
+          {group.recording_title}
+        </Link>
+        <div className="flex items-center gap-1 text-xs text-slate-400 shrink-0">
+          <Clock className="h-3 w-3" />
+          {new Date(group.meeting_date).toLocaleDateString('ro-RO')}
         </div>
       </div>
+      <div className="divide-y divide-slate-100">
+        {group.hits.map(h => <HitRow key={h.segment_id} hit={h} query={query} />)}
+      </div>
+      {more > 0 && (
+        <Link to={`/recordings/${group.recording_id}`} className="block mt-2 text-xs font-medium text-primary-600 hover:underline">
+          încă {more} {more === 1 ? 'fragment' : 'fragmente'} în această ședință
+        </Link>
+      )}
+    </section>
+  )
+}
+
+function HitRow({ hit: h, query }: { hit: CombinedSearchResult; query: string }) {
+  const html = sanitize(h.headline ? markHeadline(h.headline) : highlight(h.text, query))
+  return (
+    <Link to={`/recordings/${h.recording_id}?t=${h.start_time}`}
+      className="block py-2 -mx-2 px-2 rounded-lg hover:bg-slate-50 transition-colors">
+      <div className="flex items-center gap-2 mb-1 text-xs">
+        <span className="font-medium text-primary-600">{formatTimestamp(h.start_time)}</span>
+        {h.speaker_name && (
+          <span className="inline-flex items-center gap-1 text-slate-500"><User className="h-3 w-3" />{h.speaker_name}</span>
+        )}
+        <span className="ml-auto"><SourceBadge source={h.source} /></span>
+      </div>
+      <p className="text-sm text-slate-600 leading-relaxed" dangerouslySetInnerHTML={{ __html: html }} />
     </Link>
   )
 }
@@ -302,14 +356,12 @@ function SourcePill({ source, count }: { source: CombinedSearchResult['source'];
 function highlight(text: string, q: string): string {
   if (!q) return text
   const escaped = q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-  return text.replace(
-    new RegExp(`(${escaped})`, 'gi'),
-    '<mark class="bg-amber-100 text-amber-900 rounded px-0.5 font-medium">$1</mark>'
-  )
+  return text.replace(new RegExp(`(${escaped})`, 'gi'), `${MARK}$1</mark>`)
 }
 
 function formatTimestamp(sec: number): string {
-  const m = Math.floor(sec / 60)
-  const s = Math.floor(sec % 60)
-  return `${m}:${String(s).padStart(2, '0')}`
+  const h = Math.floor(sec / 3600)
+  const m = Math.floor((sec % 3600) / 60)
+  const s = String(Math.floor(sec % 60)).padStart(2, '0')
+  return h > 0 ? `${h}:${String(m).padStart(2, '0')}:${s}` : `${m}:${s}`
 }

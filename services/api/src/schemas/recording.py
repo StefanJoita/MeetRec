@@ -167,6 +167,7 @@ class SearchResult(BaseModel):
     text: str                   # fragmentul de text care conține cuvântul căutat
     headline: Optional[str] = None  # fragmentul cu cuvântul evidențiat (<b>cuvânt</b>)
     rank: float = 0.0           # scorul de relevanță (mai mare = mai relevant)
+    speaker_id: Optional[str] = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -191,6 +192,7 @@ class SemanticSearchResult(BaseModel):
     end_time: float
     text: str
     similarity: float   # 0.0 - 1.0 (1.0 = identic semantic)
+    speaker_id: Optional[str] = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -201,6 +203,7 @@ class SemanticSearchResponse(BaseModel):
     total_results: int
     limit: int
     search_time_ms: int
+    semantic_available: bool = True     # False: search-indexer indisponibil
 
 
 class CombinedSearchResult(BaseModel):
@@ -216,17 +219,45 @@ class CombinedSearchResult(BaseModel):
     rank: Optional[float] = None     # scor FTS
     similarity: Optional[float] = None  # scor semantic 0.0-1.0
     source: str                      # "fts", "semantic", "both"
+    score: float = 0.0               # Reciprocal Rank Fusion (pozițiile din ambele căutări)
+    speaker_id: Optional[str] = None
+    speaker_name: Optional[str] = None   # persoana asociată sau „Vorbitor N”
 
     model_config = ConfigDict(from_attributes=True)
 
 
+class SearchGroup(BaseModel):
+    """Rezultatele dintr-o ședință: cele mai relevante fragmente + câte sunt în total."""
+    recording_id: uuid.UUID
+    recording_title: str
+    meeting_date: date
+    score: float
+    total_hits: int
+    hits: List[CombinedSearchResult]
+
+
+class RecordingMatch(BaseModel):
+    """Ședință găsită după titlu, descriere, locație sau participanți."""
+    recording_id: uuid.UUID
+    title: str
+    meeting_date: date
+    location: Optional[str] = None
+    headline: Optional[str] = None
+
+
 class CombinedSearchResponse(BaseModel):
     query: str
-    results: List[CombinedSearchResult]
-    total_results: int
-    fts_count: int       # câte au venit din FTS
-    semantic_count: int  # câte au venit din semantic
-    both_count: int      # câte au apărut în ambele
+    groups: List[SearchGroup]            # pagina curentă, grupat pe ședință
+    recordings: List[RecordingMatch]     # potriviri în titlu / detalii
+    total_groups: int                    # câte ședințe au fragmente găsite
+    total_hits: int                      # câte fragmente în total
+    page: int
+    page_size: int
+    pages: int
+    fts_count: int       # fragmente găsite de căutarea exactă
+    semantic_count: int  # fragmente găsite după sens
+    both_count: int      # găsite de ambele
+    semantic_available: bool             # False: căutarea după sens nu a răspuns
     search_time_ms: int
 
 

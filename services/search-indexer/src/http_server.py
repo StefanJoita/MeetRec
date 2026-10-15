@@ -45,6 +45,7 @@ class EmbedRequest(BaseModel):
 class EmbedResponse(BaseModel):
     embedding: List[float]
     dimensions: int
+    model: str          # semnătura vectorilor din DB comparabili cu acesta
 
 class ReindexResponse(BaseModel):
     transcripts: int
@@ -62,9 +63,18 @@ app = FastAPI(
 
 @app.get("/health")
 async def health():
+    """Starea serviciului și câte segmente așteaptă indexarea (afișat în Administrare)."""
+    from src.bulk_reindexer import pending_segments
+    from src.config import settings
+    try:
+        pending = await pending_segments(_pool) if _pool is not None else None
+    except Exception:
+        pending = None
     return {
         "status": "healthy",
         "model_loaded": _embedder is not None and _embedder._model is not None,
+        "model": settings.model_signature,
+        "pending_segments": pending,
     }
 
 
@@ -78,8 +88,9 @@ async def embed(req: EmbedRequest):
         raise HTTPException(status_code=503, detail="Model not loaded yet")
 
     try:
+        from src.config import settings
         embedding = await _embedder.embed_one(req.text)
-        return EmbedResponse(embedding=embedding, dimensions=len(embedding))
+        return EmbedResponse(embedding=embedding, dimensions=len(embedding), model=settings.model_signature)
     except Exception as exc:
         logger.error("embed_failed", error=str(exc))
         raise HTTPException(status_code=500, detail=str(exc))
