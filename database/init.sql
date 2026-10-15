@@ -169,6 +169,11 @@ CREATE TABLE transcripts (
     word_count          INTEGER DEFAULT 0,
     confidence_avg      DECIMAL(4,3),
     processing_time_sec INTEGER,
+    -- Durata etapelor (secunde); diarizarea în paralel se suprapune cu transcrierea
+    transcription_sec    NUMERIC(8,1),
+    alignment_sec        NUMERIC(8,1),
+    diarization_sec      NUMERIC(8,1),
+    diarization_parallel BOOLEAN NOT NULL DEFAULT FALSE,
 
     -- Full-text search vector (generat automat din segmente prin trigger)
     search_vector   TSVECTOR,

@@ -30,6 +30,11 @@ class TranscriptMetadata:
     processing_time_sec: int   # cât a durat transcrierea (secunde)
     language: str              # "ro", "en", etc.
     model_used: str            # "whisper-medium", "whisper-large-v3"
+    # Durata etapelor (secunde) — afișate în Administrare → Procesări
+    transcription_sec: Optional[float] = None
+    alignment_sec: Optional[float] = None
+    diarization_sec: Optional[float] = None
+    diarization_parallel: bool = False
 
 
 # ── DatabaseUploader ─────────────────────────────────────────
@@ -346,7 +351,11 @@ class DatabaseUploader:
                             word_count = $2,
                             confidence_avg = $3,
                             processing_time_sec = $4,
-                            language = $5
+                            language = $5,
+                            transcription_sec = $6,
+                            alignment_sec = $7,
+                            diarization_sec = $8,
+                            diarization_parallel = $9
                         WHERE id = $1
                         """,
                         transcript_id,
@@ -354,6 +363,10 @@ class DatabaseUploader:
                         round(float(agg["confidence_avg"]), 3),
                         metadata.processing_time_sec,
                         metadata.language,
+                        metadata.transcription_sec,
+                        metadata.alignment_sec,
+                        metadata.diarization_sec,
+                        metadata.diarization_parallel,
                     )
                     await conn.execute(
                         """
@@ -535,7 +548,11 @@ class DatabaseUploader:
                         word_count = $2,
                         confidence_avg = $3,
                         processing_time_sec = $4,
-                        language = $5
+                        language = $5,
+                        transcription_sec = $6,
+                        alignment_sec = $7,
+                        diarization_sec = $8,
+                        diarization_parallel = $9
                     WHERE id = $1
                     """,
                     transcript_id,
@@ -543,6 +560,10 @@ class DatabaseUploader:
                     round(metadata.confidence_avg, 3),
                     metadata.processing_time_sec,
                     metadata.language,
+                    metadata.transcription_sec,
+                    metadata.alignment_sec,
+                    metadata.diarization_sec,
+                    metadata.diarization_parallel,
                 )
 
                 # ── 4. Marcăm recording ca 'completed', actualizăm durata și calea audio ──

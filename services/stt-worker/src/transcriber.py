@@ -78,9 +78,10 @@ def _progress_logger(file_path: str, stage: str, step: int = 10) -> Callable[[fl
     return report
 
 
-def _stage_done(file_path: str, stage: str, started: float) -> None:
-    logger.info("transcription_stage_done", file=file_path, stage=stage,
-                elapsed_sec=round(time.monotonic() - started, 1))
+def _stage_done(file_path: str, stage: str, started: float) -> float:
+    elapsed = round(time.monotonic() - started, 1)
+    logger.info("transcription_stage_done", file=file_path, stage=stage, elapsed_sec=elapsed)
+    return elapsed
 
 
 # ── Structura pentru un segment de transcript ────────────────
@@ -102,6 +103,15 @@ class TranscriptSegment:
     speaker_id: Optional[str] = None
 
 
+@dataclass
+class StageTimings:
+    """Durata etapelor ultimei transcrieri (secunde); None = etapa nu a rulat."""
+    transcription_sec: Optional[float] = None
+    alignment_sec: Optional[float] = None
+    diarization_sec: Optional[float] = None
+    diarization_parallel: bool = False   # diarizarea s-a suprapus cu transcrierea
+
+
 # ── WhisperTranscriber ────────────────────────────────────────
 
 class WhisperTranscriber:
@@ -119,6 +129,8 @@ class WhisperTranscriber:
         self._align_model = None
         self._align_metadata = None
         self._diarize_model = None
+        # Timpii ultimului transcribe() — worker-ul procesează un singur job odată
+        self.last_timings = StageTimings()
 
     async def load_model(self) -> None:
         """Încarcă toate modelele necesare. Rulat o singură dată la startup."""
@@ -217,6 +229,7 @@ class WhisperTranscriber:
         import whisperx
 
         lang = language_hint or settings.whisper_primary_language
+        self.last_timings = timings = StageTimings()
         audio = whisperx.load_audio(file_path)
 
         # ── 0. Diarizare în paralel (are nevoie doar de audio) ─
@@ -230,6 +243,7 @@ class WhisperTranscriber:
                             whisper_threads=_whisper_threads(), torch_threads=torch_threads)
                 executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="diarize")
                 diarize_future = executor.submit(self._diarize, audio, file_path, torch_threads)
+                timings.diarization_parallel = True
                 executor.shutdown(wait=False)
             else:
                 logger.info("diarization_sequential_long_audio", file=file_path,
@@ -243,7 +257,7 @@ class WhisperTranscriber:
                 audio, batch_size=8, language=lang,
                 progress_callback=_progress_logger(file_path, "transcriere"),
             )
-            _stage_done(file_path, "transcriere", started)
+            timings.transcription_sec = _stage_done(file_path, "transcriere", started)
             detected_language = result.get("language", lang)
 
             # ── 2. Aliniere forțată ───────────────────────────
@@ -259,7 +273,7 @@ class WhisperTranscriber:
                         return_char_alignments=False,
                         progress_callback=_progress_logger(file_path, "aliniere"),
                     )
-                    _stage_done(file_path, "aliniere", started)
+                    timings.alignment_sec = _stage_done(file_path, "aliniere", started)
                 except Exception as e:
                     logger.warning("alignment_failed", error=str(e))
         except BaseException:
@@ -308,7 +322,7 @@ class WhisperTranscriber:
         except Exception as e:
             logger.error("diarization_failed", error=str(e))
             return None
-        _stage_done(file_path, "diarizare", started)
+        self.last_timings.diarization_sec = _stage_done(file_path, "diarizare", started)
         return segments
 
     def _convert_segment(

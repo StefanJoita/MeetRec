@@ -26,7 +26,7 @@ import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from src.consumer import JobConsumer
-from src.transcriber import TranscriptSegment
+from src.transcriber import StageTimings, TranscriptSegment
 from src.uploader import DatabaseUploader, TranscriptMetadata
 
 
@@ -70,6 +70,7 @@ def make_mock_consumer() -> tuple[JobConsumer, dict]:
     transcriber = AsyncMock()
     transcriber._model_name = "medium"
     transcriber.transcribe = AsyncMock(return_value=[make_segment(0), make_segment(1)])
+    transcriber.last_timings = StageTimings()
 
     uploader = AsyncMock()
     uploader.get_transcript_id = AsyncMock(return_value=TRANSCRIPT_ID)
@@ -207,6 +208,21 @@ class TestProcessJob:
 
         call_kwargs = mocks["uploader"].save_results.call_args.kwargs
         assert call_kwargs["segments"] == processed_segs
+
+
+    @pytest.mark.asyncio
+    async def test_stage_timings_saved_with_results(self):
+        """Durata etapelor din transcriber ajunge în metadatele salvate."""
+        consumer, mocks = make_mock_consumer()
+        mocks["transcriber"].last_timings = StageTimings(
+            transcription_sec=154.0, alignment_sec=6.2, diarization_sec=264.7,
+            diarization_parallel=True)
+
+        await consumer._process_job(make_job())
+
+        meta = mocks["uploader"].save_results.call_args.kwargs["metadata"]
+        assert (meta.transcription_sec, meta.alignment_sec, meta.diarization_sec,
+                meta.diarization_parallel) == (154.0, 6.2, 264.7, True)
 
 
 # ============================================================

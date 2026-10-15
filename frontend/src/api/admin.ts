@@ -44,6 +44,31 @@ export interface SystemStatus {
   recent_failures: { id: string; title: string; error_message: string | null; updated_at: string | null }[]
 }
 
+export interface ProcessingItem {
+  recording_id: string
+  title: string
+  completed_at: string | null
+  model_used: string | null
+  audio_sec: number | null
+  processing_sec: number
+  ratio: number | null
+  transcription_sec: number | null
+  alignment_sec: number | null
+  diarization_sec: number | null
+  diarization_parallel: boolean
+}
+
+export type ProcessingSort = 'recent' | 'slowest'
+
+export interface ProcessingPage {
+  items: ProcessingItem[]
+  total: number
+  page: number
+  page_size: number
+  pages: number
+  summary: { count: number; audio_sec: number; processing_sec: number; ratio: number | null }
+}
+
 export async function getSettings(): Promise<AppSetting[]> {
   const { data } = await client.get<AppSetting[]>('/admin/settings')
   return data
@@ -66,5 +91,10 @@ export async function getSystemStatus(): Promise<SystemStatus> {
 
 export async function getUploadConfig(): Promise<{ max_file_size_bytes: number }> {
   const { data } = await client.get<{ max_file_size_bytes: number }>('/config/upload')
+  return data
+}
+
+export async function getProcessingTimes(page: number, sort: ProcessingSort): Promise<ProcessingPage> {
+  const { data } = await client.get<ProcessingPage>('/admin/processing', { params: { page, sort } })
   return data
 }
