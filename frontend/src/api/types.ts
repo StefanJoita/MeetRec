@@ -11,6 +11,7 @@ export type RecordingStatus =
   | 'completed'
   | 'failed'
   | 'archived'
+  | 'cancelled'
 
 export type TranscriptStatus =
   | 'pending'

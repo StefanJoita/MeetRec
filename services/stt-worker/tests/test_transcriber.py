@@ -16,12 +16,14 @@
 
 import math
 import sys
+import threading
 from unittest.mock import MagicMock, patch
 
 import numpy as np
 import pytest
 
 from src import transcriber
+from src.cancellation import JobCancelled
 from src.transcriber import TranscriptSegment, WhisperTranscriber
 
 
@@ -184,6 +186,84 @@ class TestTranscribe:
         result = await loaded_transcriber.transcribe("/fake/audio.mp3", "ro")
 
         assert [s.text for s in result] == ["Bună ziua.", "Azi discutăm bugetul."]
+
+
+# ============================================================
+# TEST: anulare și progres
+# ============================================================
+
+class TestCancelAndProgress:
+
+    def _transcribe_with_progress(self, t, percents):
+        """Modelul fals apelează callback-ul de progres, ca WhisperX după fiecare lot."""
+        def transcribe(audio, **kwargs):
+            for p in percents:
+                kwargs["progress_callback"](p)
+            return {"language": "ro", "segments": [make_segment()]}
+        t._model.transcribe.side_effect = transcribe
+
+    async def test_progress_recorded_per_stage(self, loaded_transcriber):
+        self._transcribe_with_progress(loaded_transcriber, [50.0, 100.0])
+
+        await loaded_transcriber.transcribe("/fake/a.mp3", "ro")
+
+        assert loaded_transcriber.progress == {"transcriere": 100}
+
+    async def test_cancel_stops_at_next_batch(self, loaded_transcriber):
+        cancel = threading.Event()
+        seen = []
+
+        def transcribe(audio, **kwargs):
+            for p in (25.0, 50.0, 75.0):
+                seen.append(p)
+                if p == 50.0:
+                    cancel.set()                      # anulare în timpul lotului 2
+                kwargs["progress_callback"](p)
+            return {"language": "ro", "segments": []}
+        loaded_transcriber._model.transcribe.side_effect = transcribe
+
+        with pytest.raises(JobCancelled):
+            await loaded_transcriber.transcribe("/fake/a.mp3", "ro", cancel=cancel)
+
+        assert seen == [25.0, 50.0]
+
+    async def test_cancel_before_alignment_skips_it(self, loaded_transcriber, whisperx_mock):
+        cancel = threading.Event()
+        loaded_transcriber._align_models["ro"] = (MagicMock(), {"language": "ro"})
+
+        def transcribe(audio, **kwargs):
+            cancel.set()                              # anulare după ultimul lot
+            return {"language": "ro", "segments": [make_segment()]}
+        loaded_transcriber._model.transcribe.side_effect = transcribe
+
+        with pytest.raises(JobCancelled):
+            await loaded_transcriber.transcribe("/fake/a.mp3", "ro", cancel=cancel)
+
+        whisperx_mock.align.assert_not_called()
+
+    async def test_cancel_during_alignment_is_not_swallowed(self, loaded_transcriber, whisperx_mock):
+        """O eroare de aliniere e ignorată; anularea nu."""
+        cancel = threading.Event()
+        loaded_transcriber._align_models["ro"] = (MagicMock(), {"language": "ro"})
+
+        def align(segments, *a, progress_callback=None, **kw):
+            cancel.set()
+            progress_callback(10.0)
+        whisperx_mock.align.side_effect = align
+
+        with pytest.raises(JobCancelled):
+            await loaded_transcriber.transcribe("/fake/a.mp3", "ro", cancel=cancel)
+
+    async def test_cancel_during_diarization_is_not_swallowed(self, loaded_transcriber):
+        cancel = threading.Event()
+
+        def diarize(audio, progress_callback=None, **kw):
+            cancel.set()
+            progress_callback(10.0)
+        loaded_transcriber._diarize_model = MagicMock(side_effect=diarize)
+
+        with pytest.raises(JobCancelled):
+            await loaded_transcriber.transcribe("/fake/a.mp3", "ro", cancel=cancel)
 
 
 # ============================================================

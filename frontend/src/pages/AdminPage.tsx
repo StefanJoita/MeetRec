@@ -13,6 +13,7 @@ import { useAuth } from '@/contexts/AuthContext'
 import SettingsPanel from '@/components/admin/SettingsPanel'
 import SystemStatusPanel from '@/components/admin/SystemStatusPanel'
 import ProcessingPanel from '@/components/admin/ProcessingPanel'
+import QueuePanel from '@/components/admin/QueuePanel'
 
 const ACTION_COLORS: Record<string, string> = {
   UPLOAD: 'bg-blue-100 text-blue-700',
@@ -42,7 +43,7 @@ const ACTION_LABELS: Record<string, string> = {
   UPDATE: 'Modificare',
 }
 
-const SECTION_LABELS = { settings: 'Setări', system: 'Stare sistem', processing: 'Procesări' } as const
+const SECTION_LABELS = { settings: 'Setări', system: 'Stare sistem', queue: 'Coadă', processing: 'Procesări' } as const
 
 const RESOURCE_LABELS: Record<string, string> = {
   recording: 'Înregistrare',
@@ -93,7 +94,7 @@ export default function AdminPage() {
   const toast = useToast()
   const queryClient = useQueryClient()
 
-  const [activeSection, setActiveSection] = useState<'audit' | 'users' | 'settings' | 'system' | 'processing'>('audit')
+  const [activeSection, setActiveSection] = useState<'audit' | 'users' | keyof typeof SECTION_LABELS>('audit')
 
   const [page, setPage] = useState(1)
   const [actionFilter, setActionFilter] = useState('')
@@ -263,7 +264,7 @@ export default function AdminPage() {
         >
           Utilizatori
         </button>
-        {(['settings', 'system', 'processing'] as const).map(section => (
+        {(['settings', 'system', 'queue', 'processing'] as const).map(section => (
           <button
             key={section}
             onClick={() => setActiveSection(section)}
@@ -280,6 +281,7 @@ export default function AdminPage() {
 
       {activeSection === 'settings' && <SettingsPanel />}
       {activeSection === 'system' && <SystemStatusPanel />}
+      {activeSection === 'queue' && <QueuePanel />}
       {activeSection === 'processing' && <ProcessingPanel />}
 
       {activeSection === 'audit' && stats && (

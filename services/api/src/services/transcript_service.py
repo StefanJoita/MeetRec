@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.config import settings
 from src.models.transcript import Transcript, TranscriptStatus
 from src.models.recording import Recording, RecordingStatus
+from src.services.queue_service import cancel_key
 
 
 class TranscriptService:
@@ -33,8 +34,8 @@ class TranscriptService:
 
     async def retry(self, recording_id: uuid.UUID) -> bool:
         """
-        Retrimite un job de transcriere eșuat în Redis.
-        Condiție: înregistrarea există și transcriptul are status 'failed'.
+        Retrimite în Redis un job de transcriere eșuat sau anulat.
+        Condiție: înregistrarea există și transcriptul are status 'failed' sau 'cancelled'.
 
         Returns:
             True dacă jobul a fost retrimes, False altfel.
@@ -47,9 +48,10 @@ class TranscriptService:
         if not recording:
             return False
 
-        # Verificăm că transcriptul e în stare 'failed'
+        # Verificăm că transcriptul e în stare 'failed' sau 'cancelled'
         transcript = await self.get_by_recording_id(recording_id)
-        if not transcript or transcript.status != TranscriptStatus.FAILED.value:
+        retryable = (TranscriptStatus.FAILED.value, TranscriptStatus.CANCELLED.value)
+        if not transcript or transcript.status not in retryable:
             return False
 
         # Resetăm statusurile
@@ -83,4 +85,6 @@ class TranscriptService:
                 "language_hint": "ro",
             }
         async with aioredis.from_url(settings.redis_url, decode_responses=True) as r:
+            # O anulare anterioară încă neconsumată ar opri imediat noul job
+            await r.delete(cancel_key(str(recording.id)))
             await r.lpush(settings.redis_transcription_queue, json.dumps(job))

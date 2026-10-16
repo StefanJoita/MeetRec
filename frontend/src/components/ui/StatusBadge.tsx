@@ -8,6 +8,7 @@ const statusConfig: Record<string, { label: string; className: string; dot?: str
   completed:   { label: 'Finalizat',     className: 'bg-emerald-50 text-emerald-700 ring-emerald-600/20' },
   failed:      { label: 'Eșuat',         className: 'bg-rose-50 text-rose-700 ring-rose-600/20' },
   archived:    { label: 'Arhivat',       className: 'bg-slate-100 text-slate-600 ring-slate-500/20' },
+  cancelled:   { label: 'Anulat',        className: 'bg-slate-100 text-slate-600 ring-slate-500/20' },
   pending:     { label: 'În așteptare',  className: 'bg-amber-50 text-amber-700 ring-amber-600/20',     dot: 'bg-amber-500' },
   processing:  { label: 'Procesare',     className: 'bg-blue-50 text-blue-700 ring-blue-600/20',        dot: 'bg-blue-500' },
 }

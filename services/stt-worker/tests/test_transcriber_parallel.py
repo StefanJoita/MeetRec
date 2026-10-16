@@ -14,6 +14,7 @@ import numpy as np
 import pytest
 
 from src import transcriber
+from src.cancellation import JobCancelled
 from src.transcriber import WhisperTranscriber, _whisper_threads
 
 SR = 16000
@@ -118,6 +119,35 @@ class TestParallelDiarization:
             t._run_sync("/data/a.wav", "ro")
 
         assert "diarizare_gata" in dict(events)           # diarizarea s-a terminat înainte de eroare
+        assert whisperx_mock.torch_threads.call_args.args[0] == 20
+
+    def test_cancel_stops_parallel_diarization_too(self, whisperx_mock):
+        """La anulare, firul de diarizare se oprește și el (același `cancel`), iar firele se refac."""
+        cancel = threading.Event()
+        diarize_started = threading.Event()
+        diarize_steps = []
+        t = make_transcriber([])
+
+        def diarize(audio, progress_callback=None, **kwargs):
+            diarize_started.set()
+            for step in range(1000):                      # „lungă”: se oprește doar la anulare
+                diarize_steps.append(step)
+                progress_callback(step / 10)
+                threading.Event().wait(0.001)
+            return "DIARIZE_DF"
+
+        def transcribe(audio, progress_callback=None, **kwargs):
+            assert diarize_started.wait(timeout=5)
+            cancel.set()
+            progress_callback(10.0)
+
+        t._diarize_model = MagicMock(side_effect=diarize)
+        t._model = MagicMock(transcribe=MagicMock(side_effect=transcribe))
+
+        with pytest.raises(JobCancelled):
+            t._run_sync("/data/a.wav", "ro", cancel)
+
+        assert len(diarize_steps) < 1000
         assert whisperx_mock.torch_threads.call_args.args[0] == 20
 
     def test_long_audio_runs_sequentially(self, whisperx_mock):

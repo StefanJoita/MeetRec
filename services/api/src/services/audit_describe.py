@@ -38,6 +38,13 @@ LOGIN_EVENTS = {
     "login_rejected_locked": "autentificare respinsă, cont blocat",
 }
 
+# Acțiuni TRANSCRIBE: reîncercare și administrarea cozii
+QUEUE_EVENTS = {
+    "retry": "retrimisă la transcriere",
+    "cancel": "transcriere anulată",
+    "prioritize": "mutată prima în coada de transcriere",
+}
+
 
 def speaker_label(speaker_id: str) -> str:
     """„SPEAKER_00” → „Vorbitor 1” (aceeași etichetă ca în interfață)."""
@@ -100,8 +107,8 @@ def describe(action: str, resource_type: Optional[str], details: Optional[dict])
         return _upload(d)
     if d.get("event") == "password_reset":
         return "parolă resetată (schimbare obligatorie la autentificare)"
-    if d.get("event") == "retry":
-        return "retrimisă la transcriere"
+    if d.get("event") in QUEUE_EVENTS:
+        return QUEUE_EVENTS[d["event"]]
     if "changes" in d:
         return _changes(d["changes"]) if d["changes"] else "fără modificări"
     if "speakers" in d:

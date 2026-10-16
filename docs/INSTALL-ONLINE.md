@@ -331,7 +331,7 @@ Din panoul **Admin → Utilizatori**:
 
 - **Înregistrare:** transcrierea sincronizată cu audio-ul, vorbitorii (dacă diarizarea e pornită) și asocierea lor cu participanții, export PDF / DOCX / TXT.
 - **Căutare:** scrie cuvinte sau o întrebare și apasă Enter. Diacriticele sunt opționale; merg `"frază exactă"`, `buget OR fonduri`, `-exclus`. Rezultatele sunt grupate pe ședință, iar click pe un fragment pornește audio-ul la momentul lui. Se caută și în titluri, descrieri și participanți. Filtre: dată, locație, durată, vorbitor.
-- **Administrare** (doar admin): utilizatori, **Setări** (diarizare, retenție, limite — au prioritate față de `.env`), **Stare sistem**, **Procesări** (durata fiecărei transcrieri, pe etape) și **Jurnal audit** (cine a făcut ce, cu numele resursei și ce s-a schimbat; nu poate fi modificat).
+- **Administrare** (doar admin): utilizatori, **Setări** (diarizare, retenție, limite — au prioritate față de `.env`), **Stare sistem**, **Coadă** (transcrierea în curs, ordinea de așteptare; oprire, scoatere din coadă, mutare în față), **Procesări** (durata fiecărei transcrieri, pe etape) și **Jurnal audit** (cine a făcut ce, cu numele resursei și ce s-a schimbat; nu poate fi modificat).
 
 ### Modelele ML (Whisper, aliniere, diarizare, embeddings)
 
