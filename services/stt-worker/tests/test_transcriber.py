@@ -77,6 +77,15 @@ class TestLoadModel:
         assert kwargs["compute_type"] == transcriber.settings.whisper_compute_type
         assert kwargs["language"] == transcriber.settings.whisper_primary_language
 
+    async def test_load_model_blocks_repetition_loops(self, whisperx_mock):
+        """Modelul primește no_repeat_ngram_size (oprește frazele repetate în buclă)."""
+        await WhisperTranscriber().load_model()
+
+        kwargs = whisperx_mock.load_model.call_args.kwargs
+        assert kwargs["asr_options"] == {
+            "no_repeat_ngram_size": transcriber.settings.whisper_no_repeat_ngram_size}
+        assert transcriber.settings.whisper_no_repeat_ngram_size == 10
+
     async def test_load_model_stores_model_reference(self, whisperx_mock):
         """_model trebuie setat după load_model()."""
         t = WhisperTranscriber()

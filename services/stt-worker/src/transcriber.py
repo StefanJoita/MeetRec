@@ -157,8 +157,10 @@ class WhisperTranscriber:
             download_root=str(settings.whisper_model_path / "whisper"),
             language=settings.whisper_primary_language,
             threads=_whisper_threads(),
+            asr_options={"no_repeat_ngram_size": settings.whisper_no_repeat_ngram_size},
         )
-        logger.info("whisper_model_ready", model=settings.whisper_model)
+        logger.info("whisper_model_ready", model=settings.whisper_model,
+                    no_repeat_ngram_size=settings.whisper_no_repeat_ngram_size)
 
         # ── 2. Modelul de aliniere (wav2vec2) ─────────────────
         # Timestamps la nivel de cuvânt (~0.1-0.3s precizie).

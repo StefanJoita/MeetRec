@@ -81,6 +81,13 @@ class Settings(BaseSettings):
     # containerului. Implicitul WhisperX e 4, indiferent câte nuclee are serverul.
     whisper_threads: int = 0
 
+    # Blochează repetarea oricărei secvențe de N tokeni în același fragment (~30 s).
+    # WhisperX transcrie în loturi și sare peste reîncercarea la text repetitiv, așa
+    # că un model (mai ales large-v3-turbo) poate intra în buclă: repetă o frază de
+    # mai multe ori și pierde restul vorbirii. Testat pe un interviu real: bucla
+    # dispare, iar textul pierdut e recuperat. 0 = dezactivat.
+    whisper_no_repeat_ngram_size: int = 10
+
     # --- Diarizare vorbitori ---
     diarization_enabled: bool = False
     hf_token: str = ""
