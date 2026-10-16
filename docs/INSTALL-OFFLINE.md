@@ -96,6 +96,7 @@ Tot ce e listat aici este inclus în pachet. Versiunile exacte ale pachetului ge
 | `Systran/faster-whisper-large-v3` | transcriere (implicit) | ~2.9 GB | MIT | `stt-worker:/app/models/whisper` |
 | `mobiuslabsgmbh/faster-whisper-large-v3-turbo` | transcriere, varianta rapidă (alternativă la large-v3) | ~1.6 GB | MIT | `stt-worker:/app/models/whisper` |
 | `gigant/romanian-wav2vec2` | aliniere la nivel de cuvânt (română) | ~1.2 GB | Apache-2.0 | `stt-worker:/app/models/huggingface/hub` |
+| torchaudio `WAV2VEC2_ASR_BASE_960H` | aliniere la nivel de cuvânt (engleză), încărcat la prima înregistrare în engleză | ~360 MB | MIT (fairseq) | `stt-worker:/app/models/torch/hub/checkpoints` |
 | `pyannote/speaker-diarization-community-1` | diarizare (identificare vorbitori) — **opțional** | ~30 MB | CC-BY-4.0 (acces cu acceptarea termenilor) | `stt-worker:/app/models/huggingface/hub` |
 | Model VAD pyannote (inclus în pachetul `whisperx`) | detecția vorbirii | ~17 MB | inclus în whisperx | `site-packages/whisperx/assets` |
 | NLTK `punkt_tab` | segmentare în propoziții la aliniere | ~15 MB | vezi <https://www.nltk.org/nltk_data/> | `stt-worker:/app/models/nltk_data` |

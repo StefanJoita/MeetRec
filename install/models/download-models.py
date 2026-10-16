@@ -18,6 +18,7 @@
 # Structura rezultată (layout cache HuggingFace, folosit cu HF_HUB_OFFLINE=1):
 #   services/stt-worker/models/whisper/models--<org>--faster-whisper-<model>/   (Systran; mobiuslabsgmbh pentru turbo)
 #   services/stt-worker/models/huggingface/hub/models--gigant--romanian-wav2vec2/
+#   services/stt-worker/models/torch/hub/checkpoints/wav2vec2_fairseq_base_ls960_asr_ls960.pth   (aliniere engleză)
 #   services/stt-worker/models/huggingface/hub/models--pyannote--speaker-diarization-community-1/
 #   services/stt-worker/models/nltk_data/tokenizers/punkt_tab/
 #   services/search-indexer/models/models--sentence-transformers--paraphrase-multilingual-MiniLM-L12-v2/
@@ -47,6 +48,10 @@ WHISPER_REPOS = {
 
 # Model de aliniere wav2vec2 pentru română (whisperx 3.8.6, alignment.py)
 ALIGN_REPO = "gigant/romanian-wav2vec2"
+
+# Model de aliniere pentru engleză (whisperx 3.8.6: torchaudio WAV2VEC2_ASR_BASE_960H).
+# torchaudio îl caută în $TORCH_HOME/hub/checkpoints/ (TORCH_HOME=/app/models/torch în imagine).
+ALIGN_EN_URL = "https://download.pytorch.org/torchaudio/models/wav2vec2_fairseq_base_ls960_asr_ls960.pth"
 
 # Model de diarizare implicit în whisperx 3.8.6 (pyannote-audio 4.x) — GATED
 DIARIZATION_REPO = "pyannote/speaker-diarization-community-1"
@@ -86,6 +91,29 @@ def download(repo_id: str, cache_dir: Path, token: str | None = None, **kwargs) 
     return Path(path)
 
 
+def download_url(url: str, target_dir: Path) -> Path:
+    import urllib.request
+
+    target = target_dir / url.rsplit("/", 1)[1]
+    print(f"→ {url}  →  {target.relative_to(REPO_ROOT)}", flush=True)
+    with urllib.request.urlopen(url, timeout=60) as response:
+        expected = int(response.headers.get("Content-Length") or 0)
+        if target.exists() and target.stat().st_size == expected:
+            print("  ✓ există deja", flush=True)
+            return target
+        target_dir.mkdir(parents=True, exist_ok=True)
+        partial = target.with_suffix(target.suffix + ".part")
+        with open(partial, "wb") as f:
+            while chunk := response.read(1024 * 1024):
+                f.write(chunk)
+    if expected and partial.stat().st_size != expected:
+        partial.unlink()
+        raise RuntimeError(f"Descărcare incompletă: {url}")
+    partial.replace(target)
+    print(f"  ✓ {target.stat().st_size / 1024**2:,.0f} MB", flush=True)
+    return target
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--whisper-model", default=os.environ.get("WHISPER_MODEL", "large-v3"),
@@ -114,6 +142,10 @@ def main() -> int:
                         "vocab.json", "special_tokens_map.json", "added_tokens.json",
                         "model.safetensors"],
     )
+
+    # ── 2b. Aliniere wav2vec2 (engleză) ───────────────────────
+    # Încărcat de worker doar la prima înregistrare detectată ca engleză
+    download_url(ALIGN_EN_URL, STT_MODELS / "torch" / "hub" / "checkpoints")
 
     # ── 3. Diarizare pyannote (gated) ─────────────────────────
     if args.skip_diarization:

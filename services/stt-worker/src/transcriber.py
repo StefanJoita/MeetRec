@@ -119,15 +119,18 @@ class WhisperTranscriber:
     Încarcă modelele WhisperX și transcrie fișiere audio.
 
     Modele încărcate la startup (load_model):
-      - faster-whisper model (transcriere)
-      - wav2vec2 alignment model (timestamps cuvânt)
+      - faster-whisper model (transcriere, multilingv)
+      - wav2vec2 alignment model pentru limba principală (timestamps cuvânt)
       - pyannote DiarizationPipeline (dacă diarization_enabled=True)
+
+    Modelul de aliniere e specific limbii: pentru altă limbă detectată (ex. engleză)
+    e încărcat la prima înregistrare în acea limbă și păstrat în memorie.
     """
 
     def __init__(self):
         self._model = None
-        self._align_model = None
-        self._align_metadata = None
+        # limbă → (model, metadata) sau None (nu există / nu s-a putut încărca)
+        self._align_models: dict = {}
         self._diarize_model = None
         # Timpii ultimului transcribe() — worker-ul procesează un singur job odată
         self.last_timings = StageTimings()
@@ -162,19 +165,8 @@ class WhisperTranscriber:
         logger.info("whisper_model_ready", model=settings.whisper_model,
                     no_repeat_ngram_size=settings.whisper_no_repeat_ngram_size)
 
-        # ── 2. Modelul de aliniere (wav2vec2) ─────────────────
-        # Timestamps la nivel de cuvânt (~0.1-0.3s precizie).
-        # Dacă nu e disponibil pentru limbă → continuăm fără.
-        try:
-            self._align_model, self._align_metadata = whisperx.load_align_model(
-                language_code=settings.whisper_primary_language,
-                device="cpu",
-            )
-            logger.info("align_model_ready", language=settings.whisper_primary_language)
-        except Exception as e:
-            logger.warning("align_model_unavailable", error=str(e))
-            self._align_model = None
-            self._align_metadata = None
+        # ── 2. Modelul de aliniere (wav2vec2) — limba principală ─
+        self._align_model_for(settings.whisper_primary_language)
 
         # ── 3. Modelul de diarizare (pyannote) ────────────────
         # Activat prin DIARIZATION_ENABLED=true în .env.
@@ -190,6 +182,31 @@ class WhisperTranscriber:
             except Exception as e:
                 logger.error("diarization_model_failed", error=str(e))
                 self._diarize_model = None
+
+    def _align_model_for(self, language: str) -> Optional[tuple]:
+        """
+        Modelul de aliniere (model, metadata) pentru limbă, încărcat la prima cerere.
+
+        Timestamps la nivel de cuvânt (~0.1-0.3s precizie). Dacă nu e disponibil
+        pentru limbă (lipsește din imagine, limbă fără model) → None, iar
+        transcrierea continuă fără aliniere. Eșecul e ținut minte: nu reîncercăm
+        la fiecare job.
+        """
+        if language not in self._align_models:
+            import whisperx
+
+            try:
+                started = time.monotonic()
+                self._align_models[language] = whisperx.load_align_model(
+                    language_code=language,
+                    device="cpu",
+                )
+                logger.info("align_model_ready", language=language,
+                            elapsed_sec=round(time.monotonic() - started, 1))
+            except Exception as e:
+                logger.warning("align_model_unavailable", language=language, error=str(e))
+                self._align_models[language] = None
+        return self._align_models[language]
 
     async def transcribe(
         self,
@@ -263,13 +280,15 @@ class WhisperTranscriber:
             detected_language = result.get("language", lang)
 
             # ── 2. Aliniere forțată ───────────────────────────
-            if self._align_model is not None and result.get("segments"):
+            align = self._align_model_for(detected_language) if result.get("segments") else None
+            if align is not None:
+                align_model, align_metadata = align
                 started = time.monotonic()
                 try:
                     result = whisperx.align(
                         result["segments"],
-                        self._align_model,
-                        self._align_metadata,
+                        align_model,
+                        align_metadata,
                         audio,
                         device="cpu",
                         return_char_alignments=False,

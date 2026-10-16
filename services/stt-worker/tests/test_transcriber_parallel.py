@@ -44,6 +44,7 @@ def make_transcriber(events, *, transcribe_error=None, diarize_error=None, diari
 
     t._model = MagicMock(transcribe=MagicMock(side_effect=transcribe))
     t._diarize_model = MagicMock(side_effect=diarize)
+    t._align_models = {"ro": None}   # fără model de aliniere
     return t
 
 

@@ -48,6 +48,7 @@ def loaded_transcriber(whisperx_mock):
     """WhisperTranscriber cu model mock deja setat, fără aliniere și diarizare."""
     t = WhisperTranscriber()
     t._model = MagicMock()
+    t._align_models = {"ro": None, "en": None}   # aliniere oprită
     t._model.transcribe.return_value = {
         "language": "ro",
         "segments": [make_segment(0.0, 5.2, " Bună ziua."), make_segment(5.2, 10.4, " Azi discutăm bugetul.")],
@@ -99,7 +100,14 @@ class TestLoadModel:
         t = WhisperTranscriber()
         await t.load_model()
         assert t._model is not None
-        assert t._align_model is None
+        assert t._align_models == {"ro": None}
+
+    async def test_load_model_loads_only_primary_align_model(self, whisperx_mock):
+        """La startup se încarcă doar alinierea pentru limba principală."""
+        await WhisperTranscriber().load_model()
+
+        whisperx_mock.load_align_model.assert_called_once_with(
+            language_code=transcriber.settings.whisper_primary_language, device="cpu")
 
     async def test_transcribe_without_load_raises(self):
         """transcribe() fără load_model() trebuie să ridice RuntimeError."""
@@ -171,11 +179,57 @@ class TestTranscribe:
 
     async def test_alignment_failure_keeps_unaligned_segments(self, loaded_transcriber, whisperx_mock):
         """O eroare la aliniere nu pierde transcrierea."""
-        loaded_transcriber._align_model = MagicMock()
+        loaded_transcriber._align_models["ro"] = (MagicMock(), {"language": "ro"})
         whisperx_mock.align.side_effect = RuntimeError("wav2vec2")
         result = await loaded_transcriber.transcribe("/fake/audio.mp3", "ro")
 
         assert [s.text for s in result] == ["Bună ziua.", "Azi discutăm bugetul."]
+
+
+# ============================================================
+# TEST: modelul de aliniere pe limbă
+# ============================================================
+
+class TestAlignModelPerLanguage:
+
+    async def test_other_language_loads_its_align_model_once(self, loaded_transcriber, whisperx_mock):
+        """Prima înregistrare în engleză încarcă alinierea engleză; următoarele o refolosesc."""
+        del loaded_transcriber._align_models["en"]
+        en_model = (MagicMock(), {"language": "en"})
+        whisperx_mock.load_align_model.return_value = en_model
+        whisperx_mock.align.side_effect = lambda segments, *a, **kw: {"segments": segments}
+        returns(loaded_transcriber, make_segment(text=" Good morning."), language="en")
+
+        await loaded_transcriber.transcribe("/fake/a.mp3", "en")
+        await loaded_transcriber.transcribe("/fake/b.mp3", "en")
+
+        whisperx_mock.load_align_model.assert_called_once_with(language_code="en", device="cpu")
+        assert whisperx_mock.align.call_count == 2
+        assert whisperx_mock.align.call_args.args[1:3] == en_model
+
+    async def test_primary_language_keeps_its_align_model(self, loaded_transcriber, whisperx_mock):
+        """O înregistrare în română folosește în continuare modelul românesc."""
+        ro_model = (MagicMock(), {"language": "ro"})
+        loaded_transcriber._align_models["ro"] = ro_model
+        whisperx_mock.align.side_effect = lambda segments, *a, **kw: {"segments": segments}
+
+        await loaded_transcriber.transcribe("/fake/a.mp3", "ro")
+
+        whisperx_mock.load_align_model.assert_not_called()
+        assert whisperx_mock.align.call_args.args[1:3] == ro_model
+
+    async def test_unavailable_align_model_is_not_retried(self, loaded_transcriber, whisperx_mock):
+        """Model lipsă (ex. imagine offline fără el) → transcriere fără aliniere, fără reîncercări."""
+        del loaded_transcriber._align_models["en"]
+        whisperx_mock.load_align_model.side_effect = OSError("offline")
+        returns(loaded_transcriber, make_segment(text=" Good morning."), language="en")
+
+        first = await loaded_transcriber.transcribe("/fake/a.mp3", "en")
+        await loaded_transcriber.transcribe("/fake/b.mp3", "en")
+
+        assert [s.text for s in first] == ["Good morning."]
+        whisperx_mock.load_align_model.assert_called_once()
+        whisperx_mock.align.assert_not_called()
 
 
 # ============================================================
