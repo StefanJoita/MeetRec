@@ -86,6 +86,13 @@ export default function RecordingDetailPage() {
       ) {
         toast('Transcrierea nu a putut fi finalizată.', 'error')
       }
+      if (
+        prevStatusRef.current &&
+        (prevStatusRef.current === 'queued' || prevStatusRef.current === 'transcribing') &&
+        data.status === 'cancelled'
+      ) {
+        toast('Transcrierea a fost anulată.', 'info')
+      }
       prevStatusRef.current = data.status
       return data
     },
@@ -222,7 +229,7 @@ export default function RecordingDetailPage() {
 
         {/* Acțiuni */}
         <div className="flex items-center gap-2 shrink-0">
-          {recording.status === 'failed' && user?.role !== 'participant' && (
+          {(recording.status === 'failed' || recording.status === 'cancelled') && user?.role !== 'participant' && (
             <button
               onClick={() => retryMutation.mutate()}
               disabled={retryMutation.isPending}
@@ -395,6 +402,15 @@ export default function RecordingDetailPage() {
             <TranscriptionProgress
               status={recording.status as 'queued' | 'transcribing'}
             />
+          )}
+
+          {recording.status === 'cancelled' && (
+            <div className="py-8 text-center">
+              <p className="text-slate-500 text-sm font-medium">Transcrierea a fost anulată.</p>
+              {user?.role !== 'participant' && (
+                <p className="text-slate-400 text-xs mt-1.5">Poate fi pornită din nou cu „Reîncearcă”.</p>
+              )}
+            </div>
           )}
 
           {recording.status === 'failed' && (

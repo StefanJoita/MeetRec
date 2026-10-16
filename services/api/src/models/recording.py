@@ -34,6 +34,7 @@ class RecordingStatus(str, enum.Enum):
     TRANSCRIBING = "transcribing"
     COMPLETED = "completed"
     FAILED= "failed"
+    CANCELLED = "cancelled"   # transcriere anulată din interfață (poate fi repornită)
     ARCHIVED = "archived"
 
 class AudioFormat(str, enum.Enum):

@@ -56,7 +56,7 @@ După instalare, **nicio componentă nu mai face cereri în afara serverului**: 
 
 `systemd`, `libsystemd0`, `libc6`, `coreutils`, `gzip` și `tar` fac parte din orice instalare Ubuntu/Debian și nu sunt incluse. Pe un sistem fără `.deb`-uri în pachet, installerul se oprește cu un mesaj clar dacă lipsește ceva (vezi §11.1).
 
-**Durata transcrierii pe CPU**: cu `large-v3`, 1 oră de audio durează aproximativ 1–2 ore pe un server cu 8 nuclee. `large-v3-turbo` e de câteva ori mai rapid, cu o calitate apropiată. Măsurătoare de referință (`large-v3-turbo`, diarizare în paralel): 3 min 42 s de audio procesate în 4 min 36 s, din care transcrierea 2 min 34 s și diarizarea 4 min 25 s. Joburile sunt procesate pe rând, în ordinea sosirii. Durata reală a fiecărei transcrieri apare în **Administrare → Procesări** (§8).
+**Durata transcrierii pe CPU**: cu `large-v3`, 1 oră de audio durează aproximativ 1–2 ore pe un server cu 8 nuclee. `large-v3-turbo` e de câteva ori mai rapid, cu o calitate apropiată. Măsurătoare de referință (`large-v3-turbo`, diarizare în paralel): 3 min 42 s de audio procesate în 4 min 36 s, din care transcrierea 2 min 34 s și diarizarea 4 min 25 s. Joburile sunt procesate pe rând, în ordinea sosirii; ordinea se poate schimba din **Administrare → Coadă**. Durata reală a fiecărei transcrieri apare în **Administrare → Procesări** (§8).
 
 ### 1.2 Mașina de pregătire (cu internet)
 
@@ -448,6 +448,8 @@ Fișierul `/opt/meetrec/.env`. După orice modificare: `docker compose up -d`.
 - Nu se pot schimba din interfață: secretele, rețeaua, căile, versiunea și modelul Whisper (fiecare imagine `stt-worker` conține un singur model).
 
 **Administrare → Stare sistem** arată versiunea, worker-ul de transcriere (model, fire, ce transcrie acum), lungimea cozii, spațiul liber pentru înregistrări, starea indexului de căutare după sens, înregistrările pe stări și ultimele eșecuri.
+
+**Administrare → Coadă** arată transcrierea în curs (cu progresul fiecărei etape) și înregistrările care așteaptă, în ordinea în care vor fi transcrise. De aici o înregistrare poate fi mutată prima în coadă, scoasă din coadă sau oprită în timpul transcrierii: worker-ul se oprește în câteva secunde, fără repornire, și trece la următorul fișier. Înregistrarea rămâne cu starea „Anulat” și poate fi pornită din nou cu „Reîncearcă”. Ștergerea unei înregistrări aflate în transcriere o oprește la fel.
 
 **Administrare → Procesări** arată, pentru fiecare înregistrare, cât a durat transcrierea, raportul față de durata audio (sub 1× = mai repede decât timpul real) și durata etapelor: transcriere, aliniere, diarizare. Când diarizarea rulează în paralel, etapele se suprapun și nu se adună.
 

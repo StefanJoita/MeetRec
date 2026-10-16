@@ -34,6 +34,7 @@ import os
 import shutil
 import socket
 import sys
+import threading
 import time
 from typing import Optional
 
@@ -42,6 +43,7 @@ import structlog
 
 from src import runtime_settings
 from src.audio_assembler import AudioAssembler, AssemblyError
+from src.cancellation import JobCancelled, cancel_key, raise_if_cancelled
 from src.config import settings
 from src.language_detector import LanguageDetector
 from src.postprocessor import PostProcessor
@@ -51,7 +53,7 @@ from src.uploader import DatabaseUploader, TranscriptMetadata
 logger = structlog.get_logger(__name__)
 
 # Starea fiecărui worker, citită de API (Administrare → Stare sistem).
-# Reîmprospătată la cel mult 30 s (BLMOVE / verificarea ștergerii); expiră dacă procesul moare.
+# Reîmprospătată la cel mult 30 s (BLMOVE) sau la câteva secunde în timpul unui job; expiră dacă procesul moare.
 STATUS_PREFIX = "stt_worker:status:"
 STATUS_TTL_SECONDS = 120
 
@@ -90,6 +92,7 @@ class JobConsumer:
         self._processing_list = f"{self._queue}:processing:{self._worker_id}"
         self._status_key = f"{STATUS_PREFIX}{self._worker_id}"
         self._started_at = time.time()
+        self._cancelling = False   # anulare cerută pentru jobul curent, încă neterminată
 
     # ── Lifecycle ─────────────────────────────────────────────
 
@@ -247,7 +250,7 @@ class JobConsumer:
                 # Mesaj corupt: nu îl putem reprocesa → doar îl confirmăm
                 logger.error("invalid_job_json", error=str(e), raw=job_json[:200])
             else:
-                await self._process_with_deletion_watch(job, job_json)
+                await self._process_with_cancel_watch(job, job_json)
         except asyncio.CancelledError:
             # Oprire (SIGTERM): jobul rămâne în processing și e reluat la pornire
             await self._mark_interrupted(job_json)
@@ -262,32 +265,88 @@ class JobConsumer:
 
         await self._ack(job_json)
 
-    async def _process_with_deletion_watch(self, job: dict, job_json: str) -> None:
+    async def _process_with_cancel_watch(self, job: dict, job_json: str) -> None:
         """
-        Rulează jobul și verifică periodic dacă înregistrarea a fost ștearsă.
+        Rulează jobul și verifică periodic dacă trebuie anulat.
 
-        Transcrierea rulează într-un thread (run_in_executor) care nu poate fi
-        oprit. Dacă înregistrarea dispare, confirmăm jobul (să nu fie reluat) și
-        oprim procesul: Docker îl repornește (restart: unless-stopped), CPU-ul și
-        memoria se eliberează, iar coada merge mai departe.
+        Anulare = cheia Redis transcription:cancel:<id> (pusă de API din
+        Administrare → Coadă sau la ștergerea înregistrării), verificată la
+        CANCEL_CHECK_INTERVAL_SECONDS; plus, mai rar, dacă înregistrarea mai
+        există în DB. La anulare setăm `cancel`: etapa în curs se oprește la
+        sfârșitul lotului (JobCancelled), modelele rămân încărcate și worker-ul
+        trece la jobul următor. Dacă etapa nu se oprește în CANCEL_GRACE_SECONDS,
+        confirmăm jobul și oprim procesul (Docker îl repornește).
         """
-        work = asyncio.ensure_future(self._process_job(job))
         recording_id = job.get("recording_id")
+        if recording_id and await self._cancel_requested(recording_id):
+            # Anulat cât stătea în coadă, dar luat de worker înainte ca API-ul să-l scoată
+            await self._finish_cancelled(recording_id)
+            return
+
+        cancel = threading.Event()
+        work = asyncio.ensure_future(self._process_job(job, cancel))
         await self._publish_status(recording_id)
+        last_db_check = time.monotonic()
+        cancelled_at: Optional[float] = None
         try:
             while True:
-                done, _ = await asyncio.wait({work}, timeout=settings.deletion_check_interval_seconds)
+                done, _ = await asyncio.wait({work}, timeout=settings.cancel_check_interval_seconds)
                 if done:
-                    return work.result()
+                    try:
+                        return work.result()
+                    except JobCancelled:
+                        await self._finish_cancelled(recording_id)
+                        return
                 await self._publish_status(recording_id)
-                if recording_id and not await self._recording_exists(recording_id):
-                    logger.warning("recording_deleted_during_transcription", recording_id=recording_id)
-                    await self._ack(job_json)
-                    self._exit_process()
-                    return
+                if not recording_id:
+                    continue
+
+                if cancelled_at is not None:
+                    if time.monotonic() - cancelled_at >= settings.cancel_grace_seconds:
+                        logger.warning("cancel_timeout", recording_id=recording_id,
+                                       grace_sec=settings.cancel_grace_seconds)
+                        await self._finish_cancelled(recording_id)
+                        await self._ack(job_json)
+                        self._exit_process()
+                        return
+                    continue
+
+                reason = None
+                if await self._cancel_requested(recording_id):
+                    reason = "cancel_requested"
+                elif time.monotonic() - last_db_check >= settings.deletion_check_interval_seconds:
+                    last_db_check = time.monotonic()
+                    if not await self._recording_exists(recording_id):
+                        reason = "recording_deleted"
+                if reason:
+                    logger.warning("job_cancelling", recording_id=recording_id, reason=reason)
+                    cancel.set()
+                    cancelled_at = time.monotonic()
+                    self._cancelling = True
+                    await self._publish_status(recording_id)
         finally:
+            self._cancelling = False
             if not work.done():
                 work.cancel()
+
+    async def _cancel_requested(self, recording_id: str) -> bool:
+        try:
+            return bool(await self._redis.exists(cancel_key(recording_id)))
+        except Exception as e:
+            # Redis indisponibil: nu oprim o transcriere validă
+            logger.warning("cancel_check_failed", recording_id=recording_id, error=str(e))
+            return False
+
+    async def _finish_cancelled(self, recording_id: str) -> None:
+        """Marchează înregistrarea 'cancelled' (dacă mai există) și șterge cererea de anulare."""
+        if await self._recording_exists(recording_id):
+            await self._uploader.mark_cancelled(recording_id)
+        else:
+            logger.info("job_cancelled_recording_deleted", recording_id=recording_id)
+        try:
+            await self._redis.delete(cancel_key(recording_id))
+        except Exception as e:
+            logger.warning("cancel_key_delete_failed", recording_id=recording_id, error=str(e))
 
     async def _refresh_settings(self) -> None:
         """
@@ -317,6 +376,8 @@ class JobConsumer:
             "diarization_enabled": settings.diarization_enabled,
             "diarization_parallel": settings.diarization_parallel,
             "current_recording_id": recording_id,
+            "progress": dict(self._transcriber.progress) if recording_id else {},
+            "cancelling": self._cancelling if recording_id else False,
             "started_at": self._started_at,
             "updated_at": time.time(),
         }
@@ -372,7 +433,7 @@ class JobConsumer:
 
     # ── Process job ───────────────────────────────────────────
 
-    async def _process_job(self, job: dict) -> None:
+    async def _process_job(self, job: dict, cancel: Optional[threading.Event] = None) -> None:
         """
         Rutare job: session_mode → _process_session_job, altfel pipeline standard.
 
@@ -393,7 +454,7 @@ class JobConsumer:
         }
         """
         if job.get("session_mode"):
-            await self._process_session_job(job)
+            await self._process_session_job(job, cancel)
             return
         recording_id = job.get("recording_id")
         file_path = job.get("file_path")
@@ -442,7 +503,9 @@ class JobConsumer:
 
             # ── Pasul 4: Transcriem ────────────────────────────
             # Pasul lent: 10 minute pentru 1 oră de audio pe CPU
-            segments = await self._transcriber.transcribe(file_path, final_language)
+            raise_if_cancelled(cancel)
+            segments = await self._transcriber.transcribe(file_path, final_language, cancel=cancel)
+            raise_if_cancelled(cancel)
 
             # ── Pasul 5: Post-procesăm ─────────────────────────
             # Diacritice + whitespace — rapid, sincron
@@ -500,13 +563,15 @@ class JobConsumer:
                 segment_index=audio_segment_index,
             )
 
+        except JobCancelled:
+            raise
         except Exception as e:
             # Orice eroare → marcăm ca failed și continuăm cu alt job
             # Workerul NU se oprește! Un job eșuat nu trebuie să oprească tot serviciul.
             logger.error("job_failed", recording_id=recording_id, error=str(e), exc_info=True)
             await self._uploader.mark_failed(transcript_id, recording_id, str(e))
 
-    async def _process_session_job(self, job: dict) -> None:
+    async def _process_session_job(self, job: dict, cancel: Optional[threading.Event] = None) -> None:
         """
         Pipeline pentru sesiuni multi-segment (audio concatenat).
 
@@ -549,9 +614,11 @@ class JobConsumer:
             merged_path = await self._assembler.assemble(paths)
 
             # ── 4. Transcriem audio-ul concatenat o singură dată ────────
+            raise_if_cancelled(cancel)
             segments = await self._transcriber.transcribe(
-                str(merged_path), detected_language
+                str(merged_path), detected_language, cancel=cancel
             )
+            raise_if_cancelled(cancel)
             segments = self._postprocessor.process(segments)
 
             processing_time = int(time.monotonic() - job_start)
@@ -585,6 +652,8 @@ class JobConsumer:
                 merged_file=permanent_path.name,
             )
 
+        except JobCancelled:
+            raise
         except (AssemblyError, Exception) as e:
             logger.error("session_job_failed", recording_id=recording_id, error=str(e), exc_info=True)
             await self._uploader.mark_failed(transcript_id, recording_id, str(e))

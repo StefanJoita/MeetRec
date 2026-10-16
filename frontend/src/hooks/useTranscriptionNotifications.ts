@@ -27,12 +27,15 @@ export function useTranscriptionNotifications() {
 
     function notify(item: RecordingActivityItem) {
       const ok = item.status === 'completed'
-      const message = ok ? `Transcrierea „${item.title}” este gata.` : `Transcrierea „${item.title}” a eșuat.`
+      const cancelled = item.status === 'cancelled'
+      const message = ok
+        ? `Transcrierea „${item.title}” este gata.`
+        : cancelled ? `Transcrierea „${item.title}” a fost anulată.` : `Transcrierea „${item.title}” a eșuat.`
       queryClient.invalidateQueries({ queryKey: ['recordings'] })
       queryClient.invalidateQueries({ queryKey: ['recording', item.id] })
 
       // Pe pagina înregistrării, pagina își afișează singură starea
-      if (pathRef.current !== `/recordings/${item.id}`) toast(message, ok ? 'success' : 'error')
+      if (pathRef.current !== `/recordings/${item.id}`) toast(message, ok ? 'success' : cancelled ? 'info' : 'error')
 
       if (document.hidden && 'Notification' in window && Notification.permission === 'granted') {
         const n = new Notification('MeetRec', { body: message, tag: item.id })

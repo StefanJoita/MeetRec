@@ -37,9 +37,9 @@ def _make_db(recording) -> AsyncMock:
     return db
 
 
-async def _retry_and_capture_job(recording) -> dict:
+async def _retry_and_capture_job(recording, transcript_status=TranscriptStatus.FAILED.value) -> dict:
     service = TranscriptService(_make_db(recording))
-    transcript = MagicMock(status=TranscriptStatus.FAILED.value)
+    transcript = MagicMock(status=transcript_status)
     service.get_by_recording_id = AsyncMock(return_value=transcript)
 
     redis_client = AsyncMock()
@@ -51,6 +51,8 @@ async def _retry_and_capture_job(recording) -> dict:
         assert await service.retry(recording.id) is True
 
     redis_client.lpush.assert_awaited_once()
+    # o anulare veche, încă neconsumată, ar opri imediat noul job
+    redis_client.delete.assert_awaited_once_with(f"transcription:cancel:{recording.id}")
     return json.loads(redis_client.lpush.await_args.args[1])
 
 
@@ -77,3 +79,24 @@ async def test_retry_simple_upload_publishes_file_job():
     assert job["recording_id"] == str(recording.id)
     assert job["file_path"] == recording.file_path
     assert "session_mode" not in job
+
+
+@pytest.mark.asyncio
+async def test_retry_cancelled_recording():
+    recording = _make_recording(session_id=None)
+    recording.status = RecordingStatus.CANCELLED.value
+
+    job = await _retry_and_capture_job(recording, TranscriptStatus.CANCELLED.value)
+
+    assert job["recording_id"] == str(recording.id)
+    assert recording.status == RecordingStatus.QUEUED.value
+
+
+@pytest.mark.asyncio
+async def test_retry_refused_while_processing():
+    recording = _make_recording(session_id=None)
+    service = TranscriptService(_make_db(recording))
+    service.get_by_recording_id = AsyncMock(
+        return_value=MagicMock(status=TranscriptStatus.PROCESSING.value))
+
+    assert await service.retry(recording.id) is False

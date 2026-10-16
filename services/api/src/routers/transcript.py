@@ -70,7 +70,7 @@ async def retry_transcription(
     if not result:
         raise HTTPException(
             status_code=400,
-            detail="Nu se poate retrimi. Verificați că înregistrarea există și are status 'failed'."
+            detail="Nu se poate retrimite. Verificați că înregistrarea există și transcrierea a eșuat sau a fost anulată."
         )
     title = await db.scalar(select(Recording.title).where(Recording.id == recording_id))
     await log_audit(request, db, action="TRANSCRIBE", resource_type="recording",

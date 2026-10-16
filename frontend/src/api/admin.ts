@@ -99,3 +99,42 @@ export async function getProcessingTimes(page: number, sort: ProcessingSort): Pr
   const { data } = await client.get<ProcessingPage>('/admin/processing', { params: { page, sort } })
   return data
 }
+
+// ── Coada de transcriere ─────────────────────────────────────
+
+export interface QueueItem {
+  recording_id: string
+  title: string | null          // null = înregistrarea a fost ștearsă
+  duration_seconds: number | null
+  status: string | null
+  created_at: string | null
+  jobs: number                  // sesiune multi-fișier: mai multe joburi
+}
+
+export interface RunningQueueItem extends QueueItem {
+  worker_id: string
+  worker_alive: boolean
+  progress: Record<string, number>   // {"transcriere": 100, "aliniere": 40}
+  cancelling: boolean
+  cancel_requested: boolean
+}
+
+export interface TranscriptionQueue {
+  available: boolean
+  running: RunningQueueItem[]
+  waiting: QueueItem[]
+}
+
+export async function getQueue(): Promise<TranscriptionQueue> {
+  const { data } = await client.get<TranscriptionQueue>('/admin/queue')
+  return data
+}
+
+export async function cancelTranscription(recordingId: string): Promise<{ removed: number; running: boolean }> {
+  const { data } = await client.post<{ removed: number; running: boolean }>(`/admin/queue/${recordingId}/cancel`)
+  return data
+}
+
+export async function prioritizeTranscription(recordingId: string): Promise<void> {
+  await client.post(`/admin/queue/${recordingId}/prioritize`)
+}

@@ -20,6 +20,7 @@
 import asyncio
 import math
 import os
+import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
@@ -27,6 +28,7 @@ from typing import Callable, List, Optional
 
 import structlog
 
+from src.cancellation import JobCancelled, raise_if_cancelled
 from src.config import settings
 
 logger = structlog.get_logger(__name__)
@@ -132,6 +134,9 @@ class WhisperTranscriber:
         # limbă → (model, metadata) sau None (nu există / nu s-a putut încărca)
         self._align_models: dict = {}
         self._diarize_model = None
+        # Procentul fiecărei etape a transcrierii în curs ({"transcriere": 42, ...}),
+        # publicat de consumer în starea worker-ului (Administrare → Coadă)
+        self.progress: dict = {}
         # Timpii ultimului transcribe() — worker-ul procesează un singur job odată
         self.last_timings = StageTimings()
 
@@ -212,11 +217,13 @@ class WhisperTranscriber:
         self,
         file_path: str,
         language_hint: Optional[str] = None,
+        cancel: Optional[threading.Event] = None,
     ) -> List[TranscriptSegment]:
         """
         Transcrie un fișier audio și returnează lista de segmente.
 
         Dacă diarizarea e activă, fiecare segment conține speaker_id.
+        `cancel` setat → JobCancelled după lotul în curs al etapei curente.
         """
         if self._model is None:
             raise RuntimeError("Model neîncărcat. Apelați load_model() înainte.")
@@ -231,6 +238,7 @@ class WhisperTranscriber:
             self._run_sync,
             file_path,
             language_hint,
+            cancel,
         )
 
         elapsed = loop.time() - start
@@ -243,12 +251,14 @@ class WhisperTranscriber:
         self,
         file_path: str,
         language_hint: Optional[str],
+        cancel: Optional[threading.Event] = None,
     ) -> List[TranscriptSegment]:
         """Pipeline complet: transcriere → aliniere → diarizare."""
         import whisperx
 
         lang = language_hint or settings.whisper_primary_language
         self.last_timings = timings = StageTimings()
+        self.progress = {}
         audio = whisperx.load_audio(file_path)
 
         # ── 0. Diarizare în paralel (are nevoie doar de audio) ─
@@ -261,7 +271,7 @@ class WhisperTranscriber:
                 logger.info("diarization_parallel", file=file_path, audio_minutes=round(minutes, 1),
                             whisper_threads=_whisper_threads(), torch_threads=torch_threads)
                 executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="diarize")
-                diarize_future = executor.submit(self._diarize, audio, file_path, torch_threads)
+                diarize_future = executor.submit(self._diarize, audio, file_path, torch_threads, cancel)
                 timings.diarization_parallel = True
                 executor.shutdown(wait=False)
             else:
@@ -274,10 +284,11 @@ class WhisperTranscriber:
             started = time.monotonic()
             result = self._model.transcribe(
                 audio, batch_size=8, language=lang,
-                progress_callback=_progress_logger(file_path, "transcriere"),
+                progress_callback=self._progress(file_path, "transcriere", cancel),
             )
             timings.transcription_sec = _stage_done(file_path, "transcriere", started)
             detected_language = result.get("language", lang)
+            raise_if_cancelled(cancel)
 
             # ── 2. Aliniere forțată ───────────────────────────
             align = self._align_model_for(detected_language) if result.get("segments") else None
@@ -292,25 +303,34 @@ class WhisperTranscriber:
                         audio,
                         device="cpu",
                         return_char_alignments=False,
-                        progress_callback=_progress_logger(file_path, "aliniere"),
+                        progress_callback=self._progress(file_path, "aliniere", cancel),
                     )
                     timings.alignment_sec = _stage_done(file_path, "aliniere", started)
+                except JobCancelled:
+                    raise
                 except Exception as e:
                     logger.warning("alignment_failed", error=str(e))
         except BaseException:
             if diarize_future is not None:
                 # Firul nu poate fi oprit: îl așteptăm, ca să nu concureze cu jobul următor
+                # (la anulare se oprește și ea, la următorul pas: are același `cancel`)
                 logger.warning("waiting_for_parallel_diarization_after_error", file=file_path)
-                diarize_future.result()
-                _set_torch_threads(_cpu_count())
+                try:
+                    diarize_future.result()
+                except JobCancelled:
+                    pass
+                finally:
+                    _set_torch_threads(_cpu_count())
             raise
 
         # ── 3. Diarizare (rezultatul firului paralel sau rulată acum) ─
         if diarize_future is not None:
-            diarize_segments = diarize_future.result()
-            _set_torch_threads(_cpu_count())
+            try:
+                diarize_segments = diarize_future.result()
+            finally:
+                _set_torch_threads(_cpu_count())
         elif self._diarize_model is not None and result.get("segments"):
-            diarize_segments = self._diarize(audio, file_path)
+            diarize_segments = self._diarize(audio, file_path, cancel=cancel)
         else:
             diarize_segments = None
 
@@ -325,8 +345,28 @@ class WhisperTranscriber:
             for idx, seg in enumerate(result.get("segments", []))
         ]
 
-    def _diarize(self, audio, file_path: str, torch_threads: Optional[int] = None):
-        """Diarizare pyannote. Returnează segmentele de vorbitori sau None la eroare."""
+    def _progress(self, file_path: str, stage: str,
+                  cancel: Optional[threading.Event]) -> Callable[[float], None]:
+        """
+        Callback de progres WhisperX: loghează, reține procentul etapei și oprește
+        etapa (JobCancelled) dacă jobul a fost anulat între timp.
+        """
+        log = _progress_logger(file_path, stage)
+        self.progress[stage] = 0
+
+        def report(percent: float) -> None:
+            raise_if_cancelled(cancel)
+            self.progress[stage] = int(percent)
+            log(percent)
+
+        return report
+
+    def _diarize(self, audio, file_path: str, torch_threads: Optional[int] = None,
+                 cancel: Optional[threading.Event] = None):
+        """
+        Diarizare pyannote. Returnează segmentele de vorbitori sau None la eroare.
+        Anularea (JobCancelled) nu e o eroare de diarizare: se propagă.
+        """
         if torch_threads is not None:
             _set_torch_threads(torch_threads)   # setarea PyTorch se aplică firului curent
         diarize_kwargs = {}
@@ -337,9 +377,11 @@ class WhisperTranscriber:
         started = time.monotonic()
         try:
             segments = self._diarize_model(
-                audio, progress_callback=_progress_logger(file_path, "diarizare"),
+                audio, progress_callback=self._progress(file_path, "diarizare", cancel),
                 **diarize_kwargs,
             )
+        except JobCancelled:
+            raise
         except Exception as e:
             logger.error("diarization_failed", error=str(e))
             return None

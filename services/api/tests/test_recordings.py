@@ -463,6 +463,20 @@ class TestDeleteRecording:
         assert response.status_code == 204
 
     @pytest.mark.asyncio
+    async def test_delete_stops_transcription_in_queue(self):
+        """Ștearsă în timpul transcrierii → scoasă din coadă / oprită în câteva secunde."""
+        svc = make_mock_service()
+        svc.get_by_id.return_value = MagicMock()
+        svc.delete.return_value = True
+
+        with patch("src.routers.recordings.cancel_quietly", AsyncMock()) as cancel:
+            async with override_service(svc, user=make_fake_user(is_admin=True)) as client:
+                response = await client.delete(f"/api/v1/recordings/{RECORDING_ID}")
+
+        assert response.status_code == 204
+        cancel.assert_awaited_once_with(str(RECORDING_ID))
+
+    @pytest.mark.asyncio
     async def test_delete_existing_has_no_body(self):
         """204 No Content trebuie să fie fără body."""
         svc = make_mock_service()

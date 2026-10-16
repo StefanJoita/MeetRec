@@ -30,7 +30,7 @@ def restore_settings():
 def make_consumer(values):
     uploader = AsyncMock()
     uploader.fetch_app_settings = AsyncMock(return_value=values)
-    consumer = JobConsumer(transcriber=AsyncMock(), uploader=uploader,
+    consumer = JobConsumer(transcriber=AsyncMock(progress={}), uploader=uploader,
                            detector=AsyncMock(), postprocessor=MagicMock())
     consumer._exit_process = MagicMock()
     consumer._redis = fakeredis.FakeAsyncRedis(decode_responses=True)
@@ -120,6 +120,19 @@ class TestWorkerStatus:
         assert status["current_recording_id"] == "rec-1"
         assert status["whisper_model"] == settings.whisper_model
         assert 0 < await consumer._redis.ttl(key) <= STATUS_TTL_SECONDS
+
+    async def test_status_includes_stage_progress(self):
+        consumer = make_consumer({})
+        consumer._transcriber.progress = {"transcriere": 100, "aliniere": 40}
+
+        await consumer._publish_status("rec-1")
+        busy = json.loads(await consumer._redis.get(f"{STATUS_PREFIX}{consumer._worker_id}"))
+        await consumer._publish_status()
+        idle = json.loads(await consumer._redis.get(f"{STATUS_PREFIX}{consumer._worker_id}"))
+
+        assert busy["progress"] == {"transcriere": 100, "aliniere": 40}
+        assert busy["cancelling"] is False
+        assert idle["progress"] == {}
 
     async def test_redis_error_is_not_fatal(self):
         consumer = make_consumer({})

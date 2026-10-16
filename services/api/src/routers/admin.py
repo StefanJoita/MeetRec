@@ -7,6 +7,9 @@
 #   DELETE /admin/settings/{key}    → revine la valoarea din .env
 #   GET    /admin/system            → versiune, worker-e, coadă, disc, eșecuri recente
 #   GET    /admin/processing        → durata transcrierii pe înregistrare și pe etape
+#   GET    /admin/queue             → coada de transcriere: în lucru (etapă, procent) și în așteptare
+#   POST   /admin/queue/{id}/cancel     → scoate din coadă / oprește transcrierea în curs
+#   POST   /admin/queue/{id}/prioritize → mută înregistrarea prima în coadă
 #   GET    /config/upload           → limita de upload (pentru orice utilizator autentificat)
 # ============================================================
 
@@ -14,6 +17,7 @@ import json
 import math
 import os
 import shutil
+import uuid
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
@@ -30,17 +34,15 @@ from src.database import get_db
 from src.middleware.audit import log_audit
 from src.middleware.auth import get_current_admin, get_current_user
 from src.models.audit_log import User
-from src.models.recording import Recording
+from src.models.recording import Recording, RecordingStatus
 from src.models.transcript import Transcript, TranscriptStatus
 from src.services import app_settings as registry
+from src.services.queue_service import WORKER_STATUS_PREFIX, QueueService, get_queue_service
 
 logger = structlog.get_logger(__name__)
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 config_router = APIRouter(prefix="/config", tags=["config"])
-
-# Cheia Redis în care fiecare stt-worker își publică starea (src/consumer.py)
-WORKER_STATUS_PREFIX = "stt_worker:status:"
 
 
 # ── Scheme ───────────────────────────────────────────────────
@@ -337,3 +339,152 @@ async def processing_times(
             ratio=_ratio(processing_total, audio_total),
         ),
     )
+
+
+# ── Coada de transcriere ─────────────────────────────────────
+
+class QueueItem(BaseModel):
+    recording_id: str
+    title: Optional[str]                 # None = înregistrarea a fost ștearsă
+    duration_seconds: Optional[int]
+    status: Optional[str]
+    created_at: Optional[datetime]
+    jobs: int = 1                        # sesiune multi-fișier: mai multe joburi
+
+
+class RunningItem(QueueItem):
+    worker_id: str
+    worker_alive: bool                   # False = worker-ul nu mai publică starea (oprit / repornește)
+    progress: Dict[str, int]             # {"transcriere": 100, "aliniere": 40, ...}
+    cancelling: bool                     # worker-ul oprește jobul
+    cancel_requested: bool               # anulare cerută, încă neobservată de worker
+
+
+class QueueResponse(BaseModel):
+    available: bool                      # False = Redis indisponibil
+    running: List[RunningItem]
+    waiting: List[QueueItem]
+
+
+class QueueActionResponse(BaseModel):
+    removed: int                         # joburi scoase din coadă
+    running: bool                        # era în transcriere → oprirea a fost cerută
+
+
+def _uuid_or_none(value: str) -> Optional[uuid.UUID]:
+    try:
+        return uuid.UUID(value)
+    except ValueError:
+        return None
+
+
+async def _recordings_by_id(db: AsyncSession, ids: List[str]) -> Dict[str, Any]:
+    valid = [u for u in (_uuid_or_none(i) for i in ids) if u is not None]
+    if not valid:
+        return {}
+    rows = (await db.execute(
+        select(Recording.id, Recording.title, Recording.duration_seconds,
+               Recording.status, Recording.created_at)
+        .where(Recording.id.in_(valid))
+    )).all()
+    return {str(r.id): r for r in rows}
+
+
+def _recording_fields(recording) -> Dict[str, Any]:
+    if recording is None:
+        return {"title": None, "duration_seconds": None, "status": None, "created_at": None}
+    status = recording.status
+    return {
+        "title": recording.title,
+        "duration_seconds": recording.duration_seconds,
+        "status": str(status.value if hasattr(status, "value") else status),
+        "created_at": recording.created_at,
+    }
+
+
+@router.get("/queue", response_model=QueueResponse, summary="Coada de transcriere")
+async def get_queue(
+    _: User = Depends(get_current_admin),
+    db: AsyncSession = Depends(get_db),
+    queue: QueueService = Depends(get_queue_service),
+):
+    try:
+        running = await queue.running()
+        waiting = await queue.waiting()
+    except Exception as e:
+        logger.warning("admin_queue_redis_error", error=str(e))
+        return QueueResponse(available=False, running=[], waiting=[])
+
+    recordings = await _recordings_by_id(
+        db, [i["recording_id"] for i in running] + [i["recording_id"] for i in waiting])
+    return QueueResponse(
+        available=True,
+        running=[RunningItem(**item, **_recording_fields(recordings.get(item["recording_id"])))
+                 for item in running],
+        waiting=[QueueItem(**item, **_recording_fields(recordings.get(item["recording_id"])))
+                 for item in waiting],
+    )
+
+
+@router.post("/queue/{recording_id}/cancel", response_model=QueueActionResponse,
+             summary="Anulează transcrierea (în așteptare sau în curs)")
+async def cancel_transcription(
+    recording_id: uuid.UUID,
+    request: Request,
+    _: User = Depends(get_current_admin),
+    db: AsyncSession = Depends(get_db),
+    queue: QueueService = Depends(get_queue_service),
+):
+    """
+    Scoate înregistrarea din coadă; dacă e în transcriere, worker-ul o oprește
+    în câteva secunde (la sfârșitul lotului curent), fără repornire.
+    Înregistrarea rămâne, cu status 'cancelled', și poate fi repornită cu „Reîncearcă”.
+    """
+    recording = await db.scalar(select(Recording).where(Recording.id == recording_id))
+    active = recording is not None and recording.status in (
+        RecordingStatus.QUEUED.value, RecordingStatus.TRANSCRIBING.value)
+    try:
+        result = await queue.cancel(str(recording_id))
+    except Exception as e:
+        logger.warning("admin_queue_cancel_redis_error", recording_id=str(recording_id), error=str(e))
+        raise HTTPException(status_code=503, detail="Coada de transcriere nu este disponibilă.")
+
+    if not (active or result["removed"] or result["running"]):
+        raise HTTPException(status_code=409, detail="Înregistrarea nu este în coada de transcriere.")
+
+    if active:
+        recording.status = RecordingStatus.CANCELLED.value
+        recording.error_message = None
+        transcript = await db.scalar(select(Transcript).where(Transcript.recording_id == recording_id))
+        if transcript is not None and transcript.status != TranscriptStatus.COMPLETED.value:
+            transcript.status = TranscriptStatus.CANCELLED.value
+            transcript.error_message = None
+
+    await log_audit(request, db, action="TRANSCRIBE", resource_type="recording", resource_id=recording_id,
+                    details={"resource_name": recording.title if recording else None, "event": "cancel"})
+    await db.commit()
+    logger.info("transcription_cancelled", recording_id=str(recording_id), **result)
+    return QueueActionResponse(**result)
+
+
+@router.post("/queue/{recording_id}/prioritize", summary="Mută înregistrarea prima în coadă")
+async def prioritize_transcription(
+    recording_id: uuid.UUID,
+    request: Request,
+    _: User = Depends(get_current_admin),
+    db: AsyncSession = Depends(get_db),
+    queue: QueueService = Depends(get_queue_service),
+):
+    try:
+        moved = await queue.move_to_front(str(recording_id))
+    except Exception as e:
+        logger.warning("admin_queue_prioritize_redis_error", recording_id=str(recording_id), error=str(e))
+        raise HTTPException(status_code=503, detail="Coada de transcriere nu este disponibilă.")
+    if not moved:
+        raise HTTPException(status_code=409, detail="Înregistrarea nu mai așteaptă în coadă.")
+
+    title = await db.scalar(select(Recording.title).where(Recording.id == recording_id))
+    await log_audit(request, db, action="TRANSCRIBE", resource_type="recording", resource_id=recording_id,
+                    details={"resource_name": title, "event": "prioritize"})
+    await db.commit()
+    return {"moved": True}

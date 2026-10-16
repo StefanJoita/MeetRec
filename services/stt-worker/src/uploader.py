@@ -438,6 +438,35 @@ class DatabaseUploader:
             error=error_message[:200],
         )
 
+    async def mark_cancelled(self, recording_id: str) -> None:
+        """
+        Transcriere anulată din interfață: înregistrarea rămâne, fără transcriere,
+        și poate fi repornită cu „Reîncearcă”. Nu atinge o transcriere deja terminată.
+        """
+        async with self._pool.acquire() as conn:
+            async with conn.transaction():
+                await conn.execute(
+                    """
+                    UPDATE transcripts
+                    SET status = 'cancelled',
+                        error_message = NULL,
+                        completed_at = NOW()
+                    WHERE recording_id = $1 AND status != 'completed'
+                    """,
+                    recording_id,
+                )
+                await conn.execute(
+                    """
+                    UPDATE recordings
+                    SET status = 'cancelled',
+                        error_message = NULL,
+                        updated_at = NOW()
+                    WHERE id = $1 AND status IN ('queued', 'transcribing', 'cancelled')
+                    """,
+                    recording_id,
+                )
+        logger.info("job_cancelled", recording_id=recording_id)
+
     # ── Session Assembly ──────────────────────────────────────
 
     async def get_all_session_segments(self, recording_id: str) -> list:

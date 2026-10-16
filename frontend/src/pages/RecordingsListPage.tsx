@@ -50,6 +50,7 @@ const STATUS_OPTIONS = [
   { value: 'transcribing', label: 'Transcriere' },
   { value: 'completed',    label: 'Finalizat' },
   { value: 'failed',       label: 'Eșuat' },
+  { value: 'cancelled',    label: 'Anulat' },
 ]
 
 type SortField = 'meeting_date' | 'created_at' | 'title'

@@ -20,11 +20,13 @@
 
 import asyncio
 import json
+import threading
 import uuid
 import fakeredis
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from src.cancellation import JobCancelled, cancel_key
 from src.consumer import JobConsumer
 from src.transcriber import StageTimings, TranscriptSegment
 from src.uploader import DatabaseUploader, TranscriptMetadata
@@ -71,6 +73,7 @@ def make_mock_consumer() -> tuple[JobConsumer, dict]:
     transcriber._model_name = "medium"
     transcriber.transcribe = AsyncMock(return_value=[make_segment(0), make_segment(1)])
     transcriber.last_timings = StageTimings()
+    transcriber.progress = {}
 
     uploader = AsyncMock()
     uploader.get_transcript_id = AsyncMock(return_value=TRANSCRIPT_ID)
@@ -345,7 +348,7 @@ class TestPollOnce:
         await redis.lpush(QUEUE, raw)
         seen = {}
 
-        async def _process(job):
+        async def _process(job, cancel=None):
             seen["queue"] = await queue_contents(redis)
             seen["processing"] = await processing(redis)
 
@@ -444,7 +447,7 @@ class TestRecoveryOnStartup:
         await redis.lpush(f"{QUEUE}:processing:worker-a", json.dumps(make_job(recording_id="ramas")))
         processed = []
 
-        async def _process(job):
+        async def _process(job, cancel=None):
             processed.append(job)
             consumer._running = False
 
@@ -572,7 +575,7 @@ class TestStop:
         await redis.lpush(QUEUE, json.dumps(make_job()))
         started = asyncio.Event()
 
-        async def _long_transcription(job):
+        async def _long_transcription(job, cancel=None):
             started.set()
             await asyncio.Event().wait()            # "transcriere de o oră"
 
@@ -594,29 +597,117 @@ class TestStop:
 
 
 # ============================================================
-# TEST: înregistrare ștearsă în timpul transcrierii
+# TEST: anulare — din interfață sau prin ștergerea înregistrării
 # ============================================================
 
-class TestDeletionDuringTranscription:
+def fast_checks():
+    """Verificările de anulare/ștergere la fiecare 10 ms."""
+    return patch.multiple("src.consumer.settings",
+                          cancel_check_interval_seconds=0.01,
+                          deletion_check_interval_seconds=0.01)
+
+
+async def _cooperative_transcription(job, cancel):
+    """Transcriere lungă care se oprește la anulare, ca WhisperX la sfârșitul lotului."""
+    while not cancel.is_set():
+        await asyncio.sleep(0.005)
+    raise JobCancelled()
+
+
+class TestCancellation:
 
     @pytest.mark.asyncio
-    async def test_deleted_recording_acks_job_and_restarts_process(self):
+    async def test_cancel_request_stops_job_without_restart(self):
         consumer, mocks, redis = make_reliable_consumer()
-        raw = json.dumps(make_job())
-        await redis.lpush(QUEUE, raw)
-        mocks["uploader"].recording_exists = AsyncMock(return_value=False)
+        await redis.lpush(QUEUE, json.dumps(make_job()))
+        await redis.set(cancel_key(RECORDING_ID), "1")
+        mocks["uploader"].recording_exists = AsyncMock(return_value=True)
+        mocks["uploader"].mark_cancelled = AsyncMock()
         consumer._exit_process = MagicMock()
-        seen = {}
+        started = []
 
-        async def _long_transcription(job):
-            seen["started"] = True
-            await asyncio.Event().wait()            # transcriere „care nu se termină”
+        async def _transcription(job, cancel):
+            started.append(job)
+            await _cooperative_transcription(job, cancel)
 
-        consumer._process_job = _long_transcription
-        with patch("src.consumer.settings.deletion_check_interval_seconds", 0.01):
+        consumer._process_job = _transcription
+        # cererea vine după ce jobul a pornit
+        consumer._cancel_requested = AsyncMock(side_effect=[False, True])
+        with fast_checks():
             await consumer._poll_once()
 
-        assert seen == {"started": True}
+        assert len(started) == 1
+        mocks["uploader"].mark_cancelled.assert_awaited_once_with(RECORDING_ID)
+        consumer._exit_process.assert_not_called()          # modelele rămân încărcate
+        assert await processing(redis) == []
+        assert not await redis.exists(cancel_key(RECORDING_ID))
+
+    @pytest.mark.asyncio
+    async def test_cancel_key_checked_in_redis(self):
+        consumer, mocks, redis = make_reliable_consumer()
+        await redis.lpush(QUEUE, json.dumps(make_job()))
+        mocks["uploader"].recording_exists = AsyncMock(return_value=True)
+        mocks["uploader"].mark_cancelled = AsyncMock()
+        consumer._exit_process = MagicMock()
+
+        async def _transcription(job, cancel):
+            await redis.set(cancel_key(RECORDING_ID), "1")   # API-ul cere anularea
+            await _cooperative_transcription(job, cancel)
+
+        consumer._process_job = _transcription
+        with fast_checks():
+            await consumer._poll_once()
+
+        mocks["uploader"].mark_cancelled.assert_awaited_once_with(RECORDING_ID)
+        assert not await redis.exists(cancel_key(RECORDING_ID))
+
+    @pytest.mark.asyncio
+    async def test_cancelled_while_queued_is_not_processed(self):
+        """Anulat cât stătea în coadă, dar luat de worker înainte ca API-ul să-l scoată."""
+        consumer, mocks, redis = make_reliable_consumer()
+        await redis.lpush(QUEUE, json.dumps(make_job()))
+        await redis.set(cancel_key(RECORDING_ID), "1")
+        mocks["uploader"].recording_exists = AsyncMock(return_value=True)
+        mocks["uploader"].mark_cancelled = AsyncMock()
+        consumer._process_job = AsyncMock()
+
+        await consumer._poll_once()
+
+        consumer._process_job.assert_not_called()
+        mocks["uploader"].mark_cancelled.assert_awaited_once_with(RECORDING_ID)
+        assert await processing(redis) == []
+
+    @pytest.mark.asyncio
+    async def test_deleted_recording_stops_job_without_restart(self):
+        consumer, mocks, redis = make_reliable_consumer()
+        await redis.lpush(QUEUE, json.dumps(make_job()))
+        mocks["uploader"].recording_exists = AsyncMock(return_value=False)
+        mocks["uploader"].mark_cancelled = AsyncMock()
+        consumer._exit_process = MagicMock()
+        consumer._process_job = _cooperative_transcription
+
+        with fast_checks():
+            await consumer._poll_once()
+
+        consumer._exit_process.assert_not_called()
+        mocks["uploader"].mark_cancelled.assert_not_called()   # nu mai are ce marca
+        assert await processing(redis) == []
+
+    @pytest.mark.asyncio
+    async def test_stage_that_does_not_stop_restarts_process(self):
+        """Etapa nu se oprește în CANCEL_GRACE_SECONDS → confirmăm jobul și repornim, ca înainte."""
+        consumer, mocks, redis = make_reliable_consumer()
+        await redis.lpush(QUEUE, json.dumps(make_job()))
+        mocks["uploader"].recording_exists = AsyncMock(return_value=False)
+        consumer._exit_process = MagicMock()
+
+        async def _stuck(job, cancel):
+            await asyncio.Event().wait()            # ignoră anularea
+
+        consumer._process_job = _stuck
+        with fast_checks(), patch("src.consumer.settings.cancel_grace_seconds", 0.05):
+            await consumer._poll_once()
+
         consumer._exit_process.assert_called_once()
         assert await processing(redis) == []        # confirmat: nu e reluat la repornire
 
@@ -625,16 +716,18 @@ class TestDeletionDuringTranscription:
         consumer, mocks, redis = make_reliable_consumer()
         await redis.lpush(QUEUE, json.dumps(make_job()))
         mocks["uploader"].recording_exists = AsyncMock(return_value=True)
+        mocks["uploader"].mark_cancelled = AsyncMock()
         consumer._exit_process = MagicMock()
 
-        async def _slow_transcription(job):
+        async def _slow_transcription(job, cancel):
             await asyncio.sleep(0.05)               # câteva verificări cât rulează
 
         consumer._process_job = _slow_transcription
-        with patch("src.consumer.settings.deletion_check_interval_seconds", 0.01):
+        with fast_checks():
             await consumer._poll_once()
 
         assert mocks["uploader"].recording_exists.await_count >= 1
+        mocks["uploader"].mark_cancelled.assert_not_called()
         consumer._exit_process.assert_not_called()
         assert await processing(redis) == []
 
@@ -644,15 +737,38 @@ class TestDeletionDuringTranscription:
         await redis.lpush(QUEUE, json.dumps(make_job()))
         mocks["uploader"].recording_exists = AsyncMock(side_effect=ConnectionError("DB down"))
         consumer._exit_process = MagicMock()
+        finished = []
 
-        async def _slow_transcription(job):
+        async def _slow_transcription(job, cancel):
             await asyncio.sleep(0.05)
+            finished.append(not cancel.is_set())
 
         consumer._process_job = _slow_transcription
-        with patch("src.consumer.settings.deletion_check_interval_seconds", 0.01):
+        with fast_checks():
             await consumer._poll_once()
 
+        assert finished == [True]
         consumer._exit_process.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_job_cancelled_is_not_marked_failed(self):
+        """JobCancelled din transcriere nu trece prin mark_failed."""
+        consumer, mocks = make_mock_consumer()
+        mocks["transcriber"].transcribe.side_effect = JobCancelled()
+
+        with pytest.raises(JobCancelled):
+            await consumer._process_job(make_job(), threading.Event())
+
+        mocks["uploader"].mark_failed.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_cancel_event_passed_to_transcriber(self):
+        consumer, mocks = make_mock_consumer()
+        cancel = threading.Event()
+
+        await consumer._process_job(make_job(), cancel)
+
+        assert mocks["transcriber"].transcribe.call_args.kwargs["cancel"] is cancel
 
 
 # ============================================================

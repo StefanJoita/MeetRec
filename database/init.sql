@@ -38,7 +38,8 @@ CREATE TYPE recording_status AS ENUM (
     'transcribing',       -- transcriere în curs
     'completed',          -- transcriere finalizată
     'failed',             -- eroare la procesare
-    'archived'            -- arhivat (nu mai e activ)
+    'archived',           -- arhivat (nu mai e activ)
+    'cancelled'           -- transcriere anulată din interfață (poate fi repornită)
 );
 
 -- Statusurile unui job de transcriere

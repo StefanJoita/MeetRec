@@ -43,9 +43,14 @@ class Settings(BaseSettings):
     # De câte ori poate muri procesul pe același job (OOM, kill) înainte ca
     # jobul să fie marcat 'failed' în loc să fie reluat.
     max_job_attempts: int = 2
-    # Cât timp rulează un job, verificăm la acest interval dacă înregistrarea
-    # mai există (poate fi ștearsă din interfață în timpul transcrierii).
+    # Cât timp rulează un job, verificăm la acest interval dacă s-a cerut anularea
+    # lui (cheie Redis pusă de API din Administrare → Coadă sau la ștergere).
+    cancel_check_interval_seconds: float = 2
+    # Verificare suplimentară în DB: înregistrarea mai există? (ștearsă pe altă cale)
     deletion_check_interval_seconds: int = 30
+    # După anulare, etapa în curs se oprește la sfârșitul lotului curent. Dacă nu
+    # s-a oprit în acest timp, procesul e repornit (Docker), ca înainte.
+    cancel_grace_seconds: int = 180
 
     # --- Database (fără default — obligatoriu în .env) ---
     # Format: postgresql://user:pass@host:port/dbname
