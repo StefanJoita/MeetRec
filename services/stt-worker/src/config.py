@@ -69,6 +69,13 @@ class Settings(BaseSettings):
     # Passată la whisper.transcribe(language=...) pentru precizie mai bună
     whisper_primary_language: str = "ro"
 
+    # Limbile între care alege detecția automată (primele 30 s de vorbire).
+    # Restul limbilor sunt ignorate: pe zgomot sau vorbire neclară, Whisper poate
+    # „detecta" limbi exotice. Altă limbă decât cea principală trebuie să fie clar
+    # dominantă, altfel rămâne cea principală. Pentru fiecare limbă se încarcă la
+    # prima folosire un model de aliniere (engleză: ~360 MB disc, ~0,5 GB RAM).
+    whisper_detect_languages: str = "ro,en"
+
     # Câte joburi simultan (1 = procesare serială)
     stt_worker_concurrency: int = 1
 

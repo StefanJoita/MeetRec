@@ -73,7 +73,8 @@ RUN useradd -m -u 1000 appuser \
 # ── Modele ML incluse în imagine (rulare offline) ─────────────
 # Descărcate pe o mașină cu internet cu: python install/models/download-models.py
 #   models/whisper/       → faster-whisper (CTranslate2), cache HF (download_root)
-#   models/huggingface/   → $HF_HOME: wav2vec2 aliniere + pyannote diarizare
+#   models/huggingface/   → $HF_HOME: wav2vec2 aliniere (română) + pyannote diarizare
+#   models/torch/         → $TORCH_HOME: wav2vec2 aliniere (engleză, torchaudio)
 #   models/nltk_data/     → punkt_tab (whisperx/alignment.py)
 # La runtime nu se face NICIO cerere de rețea (HF_HUB_OFFLINE=1).
 #
@@ -92,7 +93,7 @@ RUN --mount=type=bind,source=models,target=/tmp/models \
     fi; \
     mkdir -p /app/models/whisper; \
     cp -a "$src" /app/models/whisper/; \
-    for d in huggingface nltk_data; do \
+    for d in huggingface nltk_data torch; do \
         if [ -d "/tmp/models/$d" ]; then cp -a "/tmp/models/$d" /app/models/; fi; \
     done; \
     chown -R appuser:appuser /app/models
@@ -106,12 +107,15 @@ RUN set -e; \
         fi; \
     done; \
     ls -d /app/models/huggingface/hub/models--pyannote--* >/dev/null 2>&1 \
-        || echo "ATENȚIE: modelul pyannote lipsește — diarizarea nu va funcționa offline."
+        || echo "ATENȚIE: modelul pyannote lipsește — diarizarea nu va funcționa offline."; \
+    ls /app/models/torch/hub/checkpoints/wav2vec2_fairseq_base_ls960_asr_ls960.pth >/dev/null 2>&1 \
+        || echo "ATENȚIE: modelul de aliniere pentru engleză lipsește — înregistrările în engleză vor fi transcrise fără timpi pe cuvinte."
 
 ENV HF_HUB_OFFLINE=1 \
     TRANSFORMERS_OFFLINE=1 \
     HF_HUB_DISABLE_TELEMETRY=1 \
-    NLTK_DATA=/app/models/nltk_data
+    NLTK_DATA=/app/models/nltk_data \
+    TORCH_HOME=/app/models/torch
 
 # ── Copiem codul sursă ────────────────────────────────────────
 COPY --chown=appuser:appuser src/ ./src/
