@@ -74,6 +74,7 @@ ok "Docker $(docker version --format '{{.Server.Version}}'), versiune pachet: $V
 # ── 2. Modele ML ──────────────────────────────────────────────
 step "2/7 Modele ML"
 if compgen -G "services/stt-worker/models/whisper/models--*--faster-whisper-$WHISPER_MODEL" >/dev/null \
+   && ls services/stt-worker/models/torch/hub/checkpoints/wav2vec2_fairseq_base_ls960_asr_ls960.pth >/dev/null 2>&1 \
    && ls -d services/search-indexer/models/models--sentence-transformers--* >/dev/null 2>&1; then
     ok "Modele găsite în services/*/models/"
 else
@@ -187,6 +188,9 @@ REDIS_PASSWORD=x docker compose -f "$OUT/docker-compose.yml" --env-file "$OUT/.e
         [[ -d "$d" ]] || continue
         rev=$(cat "$d/refs/main" 2>/dev/null || echo "?")
         printf "  %-60s rev %s\n" "$(basename "$d" | sed 's/^models--//; s/--/\//')" "${rev:0:12}"
+    done
+    for f in services/stt-worker/models/torch/hub/checkpoints/*.pth; do
+        [[ -f "$f" ]] && printf "  %-60s %s\n" "torchaudio $(basename "$f")" "(aliniere engleză)"
     done
     echo "  nltk punkt_tab"
     if [[ -d "$OUT/packages/docker" ]]; then
