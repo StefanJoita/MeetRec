@@ -121,6 +121,33 @@ class TestParallelDiarization:
         assert "diarizare_gata" in dict(events)           # diarizarea s-a terminat înainte de eroare
         assert whisperx_mock.torch_threads.call_args.args[0] == 20
 
+    def test_transcription_error_stops_parallel_diarization(self, whisperx_mock):
+        """Transcrierea eșuată nu mai așteaptă toată diarizarea: firul se oprește la pasul următor."""
+        diarize_started = threading.Event()
+        diarize_steps = []
+        t = make_transcriber([])
+
+        def diarize(audio, progress_callback=None, **kwargs):
+            diarize_started.set()
+            for step in range(1000):
+                diarize_steps.append(step)
+                progress_callback(step / 10)
+                threading.Event().wait(0.001)
+            return "DIARIZE_DF"
+
+        def transcribe(audio, **kwargs):
+            assert diarize_started.wait(timeout=5)
+            raise ValueError("tokenizer")
+
+        t._diarize_model = MagicMock(side_effect=diarize)
+        t._model = MagicMock(transcribe=MagicMock(side_effect=transcribe))
+
+        with pytest.raises(ValueError, match="tokenizer"):
+            t._run_sync("/data/a.wav", "ro")
+
+        assert len(diarize_steps) < 1000
+        assert whisperx_mock.torch_threads.call_args.args[0] == 20
+
     def test_cancel_stops_parallel_diarization_too(self, whisperx_mock):
         """La anulare, firul de diarizare se oprește și el (același `cancel`), iar firele se refac."""
         cancel = threading.Event()

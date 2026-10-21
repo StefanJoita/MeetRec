@@ -28,7 +28,7 @@ from typing import Callable, List, Optional
 
 import structlog
 
-from src.cancellation import JobCancelled, raise_if_cancelled
+from src.cancellation import AnyEvent, JobCancelled, raise_if_cancelled
 from src.config import settings
 
 logger = structlog.get_logger(__name__)
@@ -264,6 +264,8 @@ class WhisperTranscriber:
         # ── 0. Diarizare în paralel (are nevoie doar de audio) ─
         minutes = len(audio) / 16000 / 60          # load_audio → 16 kHz mono
         diarize_future = None
+        # Oprește firul de diarizare dacă transcrierea eșuează (rezultatul nu mai e folosit)
+        stop_diarize = threading.Event()
         if self._diarize_model is not None and _parallel_enabled():
             if minutes <= settings.diarization_parallel_max_minutes:
                 torch_threads = _torch_threads_parallel()
@@ -271,7 +273,8 @@ class WhisperTranscriber:
                 logger.info("diarization_parallel", file=file_path, audio_minutes=round(minutes, 1),
                             whisper_threads=_whisper_threads(), torch_threads=torch_threads)
                 executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="diarize")
-                diarize_future = executor.submit(self._diarize, audio, file_path, torch_threads, cancel)
+                diarize_future = executor.submit(self._diarize, audio, file_path, torch_threads,
+                                                 AnyEvent(cancel, stop_diarize))
                 timings.diarization_parallel = True
                 executor.shutdown(wait=False)
             else:
@@ -282,8 +285,11 @@ class WhisperTranscriber:
         try:
             # ── 1. Transcriere ────────────────────────────────
             started = time.monotonic()
+            # task explicit: modelul e încărcat cu limba principală, iar pentru altă limbă
+            # WhisperX 3.8.6 recreează tokenizer-ul cu task-ul vechi (id de token, nu
+            # "transcribe") → ValueError la orice înregistrare în altă limbă.
             result = self._model.transcribe(
-                audio, batch_size=8, language=lang,
+                audio, batch_size=8, language=lang, task="transcribe",
                 progress_callback=self._progress(file_path, "transcriere", cancel),
             )
             timings.transcription_sec = _stage_done(file_path, "transcriere", started)
@@ -312,9 +318,10 @@ class WhisperTranscriber:
                     logger.warning("alignment_failed", error=str(e))
         except BaseException:
             if diarize_future is not None:
-                # Firul nu poate fi oprit: îl așteptăm, ca să nu concureze cu jobul următor
-                # (la anulare se oprește și ea, la următorul pas: are același `cancel`)
+                # Firul nu poate fi oprit din afară: îi cerem să se oprească la următorul
+                # pas și îl așteptăm, ca să nu concureze cu jobul următor
                 logger.warning("waiting_for_parallel_diarization_after_error", file=file_path)
+                stop_diarize.set()
                 try:
                     diarize_future.result()
                 except JobCancelled:

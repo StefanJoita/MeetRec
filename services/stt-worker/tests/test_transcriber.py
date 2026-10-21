@@ -153,6 +153,8 @@ class TestTranscribe:
         await loaded_transcriber.transcribe("/fake/audio.mp3", language_hint="en")
 
         assert loaded_transcriber._model.transcribe.call_args.kwargs["language"] == "en"
+        # fără task explicit, WhisperX 3.8.6 eșuează pe altă limbă decât cea de la încărcare
+        assert loaded_transcriber._model.transcribe.call_args.kwargs["task"] == "transcribe"
 
     async def test_no_language_hint_uses_primary_language(self, loaded_transcriber):
         """Fără language_hint → limba principală din settings (implicit ro)."""

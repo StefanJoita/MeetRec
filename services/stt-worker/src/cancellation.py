@@ -24,6 +24,16 @@ def cancel_key(recording_id: str) -> str:
     return f"{CANCEL_KEY_PREFIX}{recording_id}"
 
 
+class AnyEvent:
+    """Setat când oricare dintre evenimente e setat (anularea jobului sau oprirea internă a unei etape)."""
+
+    def __init__(self, *events: Optional[threading.Event]):
+        self._events = [e for e in events if e is not None]
+
+    def is_set(self) -> bool:
+        return any(e.is_set() for e in self._events)
+
+
 class JobCancelled(Exception):
     """Transcrierea a fost anulată (din interfață sau prin ștergerea înregistrării)."""
 
