@@ -193,6 +193,8 @@ export default function RecordingDetailPage() {
   }
 
   const isProcessing = recording.status === 'queued' || recording.status === 'transcribing'
+  // Respins la validare (Ingest): nu are transcriere, deci nimic de reîncercat
+  const rejected = recording.status === 'failed' && !recording.transcript
 
   return (
     <div className="p-6 max-w-5xl mx-auto">
@@ -229,7 +231,7 @@ export default function RecordingDetailPage() {
 
         {/* Acțiuni */}
         <div className="flex items-center gap-2 shrink-0">
-          {(recording.status === 'failed' || recording.status === 'cancelled') && user?.role !== 'participant' && (
+          {(recording.status === 'failed' || recording.status === 'cancelled') && !rejected && user?.role !== 'participant' && (
             <button
               onClick={() => retryMutation.mutate()}
               disabled={retryMutation.isPending}
@@ -413,7 +415,21 @@ export default function RecordingDetailPage() {
             </div>
           )}
 
-          {recording.status === 'failed' && (
+          {rejected && (
+            <div className="py-8 text-center">
+              <p className="text-rose-500 text-sm font-medium">Fișierul a fost respins la validare și nu a fost transcris.</p>
+              {recording.error_message && (
+                <p className="text-slate-500 text-xs mt-1.5">{recording.error_message}</p>
+              )}
+              {user?.role !== 'participant' && (
+                <p className="text-slate-400 text-xs mt-1.5">
+                  Corectați fișierul și <Link to="/recordings/upload" className="underline">încărcați-l din nou</Link>.
+                </p>
+              )}
+            </div>
+          )}
+
+          {recording.status === 'failed' && !rejected && (
             <div className="py-8 text-center">
               <p className="text-rose-500 text-sm font-medium">Transcrierea nu a putut fi finalizată.</p>
               {recording.error_message && (

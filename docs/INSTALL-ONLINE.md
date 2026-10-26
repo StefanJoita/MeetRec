@@ -31,7 +31,7 @@ Platformă self-hosted de transcriere automată a ședințelor, cu identificarea
 
 > **Durata transcrierii:** MeetRec rulează pe procesor (imaginile conțin PyTorch pentru CPU; placa video nu e folosită). Cu `large-v3` (implicit), 1 oră de audio durează aproximativ 1–2 ore pe 8 nuclee. `large-v3-turbo` e de câteva ori mai rapid, cu o calitate apropiată: 3 min 42 s de audio procesate în 4 min 36 s, cu diarizarea în paralel. Durata reală a fiecărei transcrieri apare în **Administrare → Procesări**.
 
-### Hardware captură audio (client desktop)
+### Hardware captură audio (înregistrare din browser)
 
 Calitatea transcrierii și a diarizării vorbitorilor depinde direct de calitatea înregistrării audio.
 
@@ -40,6 +40,7 @@ Calitatea transcrierii și a diarizării vorbitorilor depinde direct de calitate
 | 1–2 persoane, birou | Microfon PC built-in | Bun |
 | 3–5 persoane, birou mic | Microfon USB extern | Bun |
 | 6–15 persoane, sală de ședință | **Microfon de conferință USB** | Bun |
+| Sală de consiliu cu microfoane pe pupitre | **Placă de sunet USB** legată la ieșirea de înregistrare a mixerului / sistemului de sonorizare | Foarte bun |
 
 **Microfoane de conferință testate și recomandate:**
 
@@ -49,7 +50,7 @@ Calitatea transcrierii și a diarizării vorbitorilor depinde direct de calitate
 | Jabra Speak 510 | ~100€ | 6m rază | până la 12 |
 | Jabra Speak 750 | ~200€ | 7m rază + beamforming | până la 15 |
 
-Microfoanele de conferință se conectează prin **USB** și apar automat în lista de dispozitive audio din clientul desktop — nu necesită configurare suplimentară.
+Microfoanele de conferință și plăcile de sunet se conectează prin **USB** și apar automat în lista de microfoane din aplicație (meniul *Înregistrează*) — nu necesită configurare suplimentară. Browserul permite accesul la microfon doar pe HTTPS, deci calculatorul din sală trebuie să aibă importat certificatul CA al serverului.
 
 > **De ce contează:** un microfon de PC captează toți vorbitorii la distanțe și volume diferite, ceea ce degradează semnificativ atât transcrierea cât și identificarea vorbitorilor. Un microfon de conferință cu beamforming rezolvă această problemă la nivel hardware.
 

@@ -22,7 +22,7 @@
 #   dist/meetrec-offline-<versiune>.tar   ← arhiva de transferat
 #
 # Folosire:
-#   bash install/offline/build-bundle.sh                    # versiunea din .env sau 1.0.0
+#   bash install/offline/build-bundle.sh                    # versiunea din .env sau 1.1.0
 #   MEETREC_VERSION=1.2.0 bash install/offline/build-bundle.sh
 #   BUNDLE_DIR=/d/meetrec-dist bash install/offline/build-bundle.sh  # pachetul pe alt disc
 #   SKIP_DOCKER_PACKAGES=1 bash install/offline/build-bundle.sh   # serverul are deja Docker
@@ -46,7 +46,7 @@ step() { echo -e "\n\033[1m━━━ $* ━━━\033[0m"; }
 env_value() { [[ -f .env ]] && grep "^$1=" .env | tail -1 | cut -d= -f2- | sed 's/[[:space:]]*#.*//' | tr -d '"\r' || true; }
 
 VERSION="${MEETREC_VERSION:-$(env_value MEETREC_VERSION)}"
-VERSION="${VERSION:-1.0.0}"
+VERSION="${VERSION:-1.1.0}"
 # Modelul Whisper al pachetului: implicit large-v3, NU cel din .env (pe mașina de
 # pregătire .env poate avea un model mic pentru dezvoltare). Alt model: explicit,
 # ex. WHISPER_MODEL=medium bash install/offline/build-bundle.sh

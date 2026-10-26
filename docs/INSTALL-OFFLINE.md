@@ -155,7 +155,7 @@ cp .env.example .env
 
 | Variabilă | Valoare | Rol |
 |-----------|---------|-----|
-| `MEETREC_VERSION` | ex. `1.0.0` | tag-ul imaginilor și numele pachetului |
+| `MEETREC_VERSION` | ex. `1.1.0` | tag-ul imaginilor și numele pachetului |
 | `HF_TOKEN` | token HuggingFace | **doar** pentru diarizare (§3.2). Gol = fără diarizare |
 
 Celelalte valori (parole etc.) se generează pe serverul offline. Nu copia acest `.env` pe server.
@@ -370,6 +370,8 @@ Pentru reînnoire, rulează din nou scriptul: CA-ul e refolosit, deci clienții 
 | Firefox | *Settings → Privacy & Security → Certificates → View Certificates → Authorities → Import* (sau `security.enterprise_roots.enabled = true` pe Windows/macOS) |
 | Chrome / Edge | folosesc depozitul sistemului (rândurile de mai sus) |
 
+**Înregistrarea ședințelor din browser** (meniul *Înregistrează*) cere ca browserul să considere pagina sigură: adresă `https://`, fără avertisment de certificat. Pe calculatoarele din sălile de ședință importă deci `meetrec-ca.crt` și deschide aplicația cu un nume sau IP inclus în certificat (cele date la `gen-local-ca.sh`). Cu un certificat self-signed acceptat manual (§6.2), unele browsere refuză accesul la microfon.
+
 ### 6.2 Self-signed
 
 ```bash
@@ -486,7 +488,7 @@ Fișierul `/opt/meetrec/.env`. După orice modificare: `docker compose up -d`.
 | `GET /api/v1/search/` | 60 / minut per IP |
 | `GET /api/v1/search/semantic` | 30 / minut per IP |
 | `GET /api/v1/export/recording/{id}` | 20 / oră per IP |
-| `/api/v1/inbox/*` | fără limită (clientul desktop urcă multe segmente în paralel) |
+| `/api/v1/inbox/*` | fără limită (înregistrarea din browser trimite câte un segment la 5 minute, cu reîncercări) |
 
 Schimbarea `FRONTEND_SUBNET` cere recrearea rețelei: `docker compose down && docker compose up -d` (volumele de date rămân).
 

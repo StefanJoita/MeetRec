@@ -43,7 +43,7 @@ app = FastAPI(
     - 📤 **Export**: PDF, DOCX, TXT
     - 📋 **Audit**: Log complet al acceselor și acțiunilor
     """,
-    version="1.0.0",
+    version="1.1.0",
     lifespan=lifespan,
     # În producție, dezactivăm /docs pentru securitate:
     docs_url="/docs" if settings.app_env == "development" else None,
@@ -137,7 +137,7 @@ async def health_check():
     return {
         "status": "healthy",
         "service": "meeting-transcriber-api",
-        "version": "1.0.0",
+        "version": "1.1.0",
         "environment": settings.app_env,
     }
 

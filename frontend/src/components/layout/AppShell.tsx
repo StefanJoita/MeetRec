@@ -1,10 +1,12 @@
 import { ReactNode, useState } from 'react'
 import { NavLink, useNavigate } from 'react-router-dom'
 import {
-  Mic2, Search, UploadCloud, LayoutDashboard, ShieldCheck,
+  Mic, Mic2, Search, UploadCloud, LayoutDashboard, ShieldCheck,
   LogOut, Menu, X,
 } from 'lucide-react'
 import { useAuth } from '@/contexts/AuthContext'
+import { useRecorder } from '@/contexts/RecorderContext'
+import { formatTime } from '@/lib/formatTime'
 import { useTranscriptionNotifications } from '@/hooks/useTranscriptionNotifications'
 import { cn } from '@/lib/cn'
 
@@ -14,7 +16,8 @@ const navItems = [
 ]
 
 const operatorItems = [
-  { to: '/recordings/new', label: 'Înregistrare nouă', icon: UploadCloud },
+  { to: '/recordings/record', label: 'Înregistrează', icon: Mic },
+  { to: '/recordings/upload', label: 'Încarcă fișier', icon: UploadCloud },
 ]
 
 const adminItems = [
@@ -25,9 +28,13 @@ export default function AppShell({ children }: { children: ReactNode }) {
   const { user, logout } = useAuth()
   const navigate = useNavigate()
   const [sidebarOpen, setSidebarOpen] = useState(false)
+  const recorder = useRecorder()
   useTranscriptionNotifications()
 
   async function handleLogout() {
+    if (recorder.busy && !window.confirm(
+      'O înregistrare e în curs sau are segmente netrimise. La deconectare, audio-ul netrimis se pierde. Continuați?'
+    )) return
     await logout()
     navigate('/login')
   }
@@ -63,6 +70,19 @@ export default function AppShell({ children }: { children: ReactNode }) {
       </div>
 
       <div className="h-px bg-white/10 mx-4" />
+
+      {/* Înregistrare în curs: vizibilă de pe orice pagină */}
+      {(recorder.phase === 'recording' || recorder.phase === 'finishing') && (
+        <NavLink
+          to="/recordings/record"
+          onClick={() => setSidebarOpen(false)}
+          className="mx-3 mt-4 flex items-center gap-2.5 px-3 py-2.5 rounded-lg bg-rose-600/15 text-rose-300 hover:bg-rose-600/25 text-sm font-medium"
+        >
+          <span className="h-2.5 w-2.5 rounded-full bg-rose-500 animate-pulse shrink-0" />
+          <span className="flex-1 truncate">{recorder.phase === 'recording' ? 'Se înregistrează' : 'Se trimite'}</span>
+          <span className="tabular-nums">{formatTime(recorder.elapsedSeconds)}</span>
+        </NavLink>
+      )}
 
       {/* Nav */}
       <nav className="flex-1 px-3 py-4 space-y-0.5 overflow-y-auto">

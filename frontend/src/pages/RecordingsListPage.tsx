@@ -1,6 +1,6 @@
 import React, { useState, useCallback, useEffect } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
-import { Plus, FileAudio, ChevronUp, ChevronDown, ArrowUpDown, CheckCircle2, Loader2, Clock, Search, X } from 'lucide-react'
+import { Mic, UploadCloud, FileAudio, ChevronUp, ChevronDown, ArrowUpDown, CheckCircle2, Loader2, Clock, Search, X } from 'lucide-react'
 import { useQuery } from '@tanstack/react-query'
 import { useRecordings } from '@/hooks/useRecordings'
 import { getRecordingStats } from '@/api/recordings'
@@ -143,10 +143,16 @@ export default function RecordingsListPage() {
         subtitle={data ? `${data.total} înregistrări total` : undefined}
         actions={
           !isParticipant ? (
-            <Link to="/recordings/new" className="btn-primary">
-              <Plus className="h-4 w-4" />
-              Înregistrare nouă
-            </Link>
+            <div className="flex gap-2">
+              <Link to="/recordings/upload" className="btn-secondary">
+                <UploadCloud className="h-4 w-4" />
+                Încarcă fișier
+              </Link>
+              <Link to="/recordings/record" className="btn-primary">
+                <Mic className="h-4 w-4" />
+                Înregistrează
+              </Link>
+            </div>
           ) : undefined
         }
       />
@@ -246,10 +252,16 @@ export default function RecordingsListPage() {
             }
             action={
               !status && !isParticipant ? (
-                <Link to="/recordings/new" className="btn-primary">
-                  <Plus className="h-4 w-4" />
-                  Înregistrare nouă
-                </Link>
+                <div className="flex gap-2 justify-center">
+                  <Link to="/recordings/upload" className="btn-secondary">
+                    <UploadCloud className="h-4 w-4" />
+                    Încarcă fișier
+                  </Link>
+                  <Link to="/recordings/record" className="btn-primary">
+                    <Mic className="h-4 w-4" />
+                    Înregistrează
+                  </Link>
+                </div>
               ) : undefined
             }
           />
