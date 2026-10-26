@@ -9,6 +9,8 @@
 # ============================================================
 
 import hashlib
+import json
+import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional 
@@ -88,14 +90,14 @@ class AudioValidator:
         if extension not in settings.allowed_audio_formats:
             return self._reject(
                 "INVALID_FORMAT",
-                f"format nesuportat: .{extension}."
-                f"Formate acceptate: {settings.allowed_audio_formats}"
+                f"formatul .{extension} nu e acceptat. Formate acceptate: "
+                + ", ".join(sorted(f.upper() for f in settings.allowed_audio_formats)) + "."
             )
         
         #---Pasul 3: Dimensiune acceptabila?---
         file_size=file_path.stat().st_size #dimensiune in bytes
         if file_size==0:
-            return self._reject("FILE_EMPTY", "Fisierul este gol (0 bytes)")
+            return self._reject("FILE_EMPTY", "fișierul este gol (0 octeți).")
         
         
         if file_size > settings.max_file_size_bytes:
@@ -104,7 +106,7 @@ class AudioValidator:
 
             return self._reject(
                 "FILE_TOO_LARGE",
-                f"Fisierul depaseste dimensiunea maxima acceptata: {self_mb:.2f} MB > {max_mb:.2f} MB"
+                f"fișierul are {self_mb:.0f} MB, peste limita de {max_mb:.0f} MB."
             )
         
         #---Pasul 4: Calculare hash SHA256---
@@ -162,44 +164,54 @@ class AudioValidator:
     ) -> ValidationResult:
         """
         Extrage metadata audio folosind mutagen
-        Mutagen citeste header-ele fisierului fara sa decodeze audio
+        Mutagen citeste header-ele fisierului fara sa decodeze audio.
+        Dacă mutagen nu găsește durata (ex. M4A de la reportofonul telefoanelor
+        Samsung, brand 3gp4: durata 0), o citim cu ffprobe.
         """
         try:
             audio=mutagen.File(file_path,easy=True)
-            
-            if audio is None:
-                #mutagen nu a recunoscut fisierul
+            info=getattr(audio,"info",None)
+            #Extragem durata in secunde
+            duration=getattr(info,"length",None)
+            sample_rate = getattr(info, "sample_rate", None)
+            channels = getattr(info, "channels", None)
+            bitrate = getattr(info, "bitrate", None)
+
+            if not duration or duration <= 0:
+                probed = self._ffprobe(file_path)
+                if probed is not None:
+                    logger.info("duration_from_ffprobe", file=file_path.name, duration_sec=round(probed["duration"], 1))
+                    duration = probed["duration"]
+                    sample_rate = probed["sample_rate"] or sample_rate
+                    channels = probed["channels"] or channels
+                    bitrate = probed["bitrate"] or bitrate
+
+            if audio is None and not duration:
+                #nici mutagen, nici ffprobe nu au recunoscut fisierul
                 return self._reject(
                     "UNREADABLE_AUDIO",
-                    "Fisierul nu poate fi citit ca audio. Posibil corupt sau extensie gresita.",
+                    "fișierul nu poate fi citit ca audio (corupt sau cu altă extensie decât formatul real).",
                 )
-            #Extragem durata in secunde
-            duration=getattr(audio.info,"length",None)
             if duration is None or duration <=0:
                 return self._reject(
                     "INVALID_DURATION",
-                    f"Durata audio invalida: {duration} secunde"
+                    "nu am putut determina durata înregistrării."
                 )
             # Durata minimă: 5 secunde (mai scurt probabil e un test)
             if duration < 5:
                 return self._reject(
                     "TOO_SHORT",
-                    f"Înregistrarea e prea scurtă ({duration:.1f}s). Minimum: 5 secunde."
+                    f"înregistrarea e prea scurtă ({duration:.1f} s); minimum 5 secunde."
                 )
  
             # Durata maximă: 12 ore (o ședință de 12h ar fi excepțională)
             if duration > 43200:
                 return self._reject(
                     "TOO_LONG",
-                    f"Înregistrarea depășește 12 ore ({duration/3600:.1f}h)."
+                    f"înregistrarea depășește 12 ore ({duration/3600:.1f} h)."
                 )
             
             
-            # Extragem sample rate și canale (opționale, nu blocăm dacă lipsesc)
-            sample_rate = getattr(audio.info, "sample_rate", None)
-            channels = getattr(audio.info, "channels", None)
-            bitrate = getattr(audio.info, "bitrate", None)
- 
             metadata = AudioMetadata(
                 filename=file_path.name,
                 file_path=file_path,
@@ -218,8 +230,47 @@ class AudioValidator:
                          file=file_path.name, error=str(e))
             return self._reject(
                 "METADATA_ERROR",
-                f"Eroare la citirea metadatelor audio: {e}"
+                f"eroare la citirea fișierului audio: {e}"
             )
+    @staticmethod
+    def _ffprobe(file_path: Path) -> Optional[dict]:
+        """
+        Durata și parametrii primului flux audio, citiți cu ffprobe (inclus în imagine).
+        None dacă fișierul nu are flux audio sau ffprobe eșuează.
+        """
+        try:
+            out = subprocess.run(
+                ["ffprobe", "-v", "error", "-select_streams", "a:0",
+                 "-show_entries", "format=duration,bit_rate:stream=sample_rate,channels,duration",
+                 "-of", "json", str(file_path)],
+                capture_output=True, text=True, timeout=60, check=True,
+            ).stdout
+            data = json.loads(out)
+        except (OSError, subprocess.SubprocessError, ValueError) as e:
+            logger.warning("ffprobe_failed", file=file_path.name, error=str(e))
+            return None
+
+        streams = data.get("streams") or []
+        if not streams:
+            return None
+        stream, fmt = streams[0], data.get("format") or {}
+
+        def num(value) -> Optional[float]:
+            try:
+                return float(value)
+            except (TypeError, ValueError):
+                return None
+
+        duration = num(fmt.get("duration")) or num(stream.get("duration"))
+        if not duration or duration <= 0:
+            return None
+        return {
+            "duration": duration,
+            "sample_rate": num(stream.get("sample_rate")),
+            "channels": num(stream.get("channels")),
+            "bitrate": num(fmt.get("bit_rate")),
+        }
+
     @staticmethod
     def _reject(error_code: str, error_message: str) -> ValidationResult:
         """Helper: creeaza un ValidationResult negativ cu logging"""

@@ -94,7 +94,22 @@ class FileProcessor:
                 message=result.error_message,
             )
             # Mutăm fișierul invalid în /errors/ pentru inspecție
-            self.storage.move_to_error(file_path)
+            size = file_path.stat().st_size if file_path.exists() else 0
+            error_path = self.storage.move_to_error(file_path)
+            # Fișier încărcat sau copiat în inbox: apare în listă ca „Eșuat”, cu motivul.
+            # Segmentele de sesiune nu: sesiunea are deja înregistrarea ei, iar API-ul
+            # pornește transcrierea cu segmentele valide.
+            if not user_meta.get("session_id"):
+                try:
+                    await self.database.create_rejected_recording(
+                        filename=file_path.name,
+                        file_path=error_path,
+                        file_size_bytes=size,
+                        error_message=f"Fișierul a fost respins: {result.error_message}",
+                        user_meta=user_meta,
+                    )
+                except Exception as e:
+                    logger.error("rejected_recording_failed", file=file_path.name, error=str(e))
             return False
  
         metadata = result.metadata  # AudioMetadata cu toate detaliile

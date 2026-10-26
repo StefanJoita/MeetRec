@@ -60,3 +60,33 @@ async def test_api_uploads_and_sessions_are_not_audited_twice(user_meta):
     await client.create_recording(METADATA, Path("/data/processed/x.mp3"), user_meta=user_meta)
 
     assert audit_inserts(conn) == []
+
+
+# ── Durata sesiunilor multi-segment ──────────────────────────
+# Înregistrarea din browser trimite un segment la 5 minute: durata afișată
+# în timpul transcrierii trebuie să cuprindă toate segmentele primite.
+
+@pytest.mark.asyncio
+async def test_attached_segment_adds_its_duration_to_recording():
+    client, conn = make_client()
+    recording_id = str(uuid.uuid4())
+    segment = AudioMetadata(filename="inregistrare_001.wav", file_path=Path("/data/inbox/inregistrare_001.wav"),
+                            file_size_bytes=3_000_000, file_hash_sha256="cd" * 32, audio_format="wav",
+                            duration_seconds=95)
+
+    await client.create_audio_segment(recording_id, 1, Path("/data/processed/y.wav"), segment)
+
+    [update] = [c.args for c in conn.execute.call_args_list if c.args[0].lstrip().startswith("UPDATE recordings")]
+    assert "duration_seconds = COALESCE(duration_seconds, 0) + $2" in update[0]
+    assert update[1:] == (recording_id, 95)
+    conn.transaction.assert_called_once()   # segmentul și durata, împreună sau deloc
+
+
+@pytest.mark.asyncio
+async def test_primary_file_duration_includes_segments_already_attached():
+    client, conn = make_client()
+
+    await client.update_primary_file(str(uuid.uuid4()), METADATA, Path("/data/processed/x.mp3"))
+
+    [(sql, *_)] = [c.args for c in conn.execute.call_args_list]
+    assert "SUM(duration_seconds) FROM recording_audio_segments" in sql
