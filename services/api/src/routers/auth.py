@@ -116,6 +116,27 @@ async def logout(
     return {"message": "Deconectat cu succes."}
 
 
+@router.post(
+    "/refresh",
+    response_model=TokenResponse,
+    summary="Reînnoiește tokenul de acces",
+)
+async def refresh(
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Emite un token nou, valabil încă JWT_EXPIRE_MINUTES, pentru utilizatorul
+    autentificat. Folosit de înregistrarea din browser: o ședință care începe
+    spre finalul celor 8 ore nu trebuie întreruptă de expirarea tokenului.
+    Un cont dezactivat nu mai poate reînnoi (get_current_user verifică is_active).
+    """
+    return TokenResponse(
+        access_token=create_access_token(str(current_user.id)),
+        token_type="bearer",
+        expires_in=settings.jwt_expire_minutes * 60,
+    )
+
+
 @router.get(
     "/me",
     summary="Utilizatorul curent autentificat",

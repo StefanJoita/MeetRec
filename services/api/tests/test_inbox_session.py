@@ -234,3 +234,34 @@ async def test_session_complete_deja_dispatchata_409(inbox_client):
     )
 
     assert resp.status_code == 409
+
+
+@pytest.mark.asyncio
+async def test_session_create_salveaza_descrierea(inbox_client):
+    """Înregistrarea din browser trimite și descrierea ședinței la /session/create."""
+    db = AsyncMock(spec=AsyncSession)
+    app.dependency_overrides[get_current_user] = lambda: make_operator()
+
+    async def _db_gen():
+        yield db
+
+    app.dependency_overrides[get_db] = _db_gen
+
+    with patch("src.routers.inbox.log_audit", new=AsyncMock()):
+        resp = await inbox_client.post(
+            "/api/v1/inbox/session/create",
+            json={
+                "title": "Ședința Consiliului",
+                "meeting_date": "2026-10-26",
+                "description": "  Buget 2027  ",
+                "participants": "Ion Pop, Maria Ionescu",
+                "location": "Sala Mare",
+            },
+        )
+
+    assert resp.status_code == 201
+    recording = next(c.args[0] for c in db.add.call_args_list if isinstance(c.args[0], Recording))
+    assert recording.description == "Buget 2027"
+    assert recording.participants == ["Ion Pop", "Maria Ionescu"]
+    assert str(recording.id) == resp.json()["session_id"]
+    db.commit.assert_awaited_once()

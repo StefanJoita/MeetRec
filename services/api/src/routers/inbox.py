@@ -73,6 +73,7 @@ def _safe_inbox_filename(raw: str) -> str:
 class SessionCreateRequest(BaseModel):
     title: str
     meeting_date: str          # YYYY-MM-DD
+    description: Optional[str] = None
     participants: Optional[str] = None   # virgulă-separați
     location: Optional[str] = None
     room_name: Optional[str] = None
@@ -140,6 +141,7 @@ async def create_session(
         id=session_id,           # recording.id == session_id pentru sesiuni pre-înregistrate
         session_id=session_id,
         title=body.title,
+        description=(body.description or "").strip() or None,
         meeting_date=meeting_date_val,
         location=body.location,
         participants=participants_list,
