@@ -1,13 +1,15 @@
 import { BrowserRouter, Routes, Route, Navigate, useLocation, Outlet } from 'react-router-dom'
 import { AuthProvider, useAuth } from '@/contexts/AuthContext'
 import { ToastProvider } from '@/contexts/ToastContext'
+import { RecorderProvider } from '@/contexts/RecorderContext'
 import { ErrorBoundary } from '@/components/ErrorBoundary'
 import AppShell from '@/components/layout/AppShell'
 import LoginPage from '@/pages/LoginPage'
 import ForcePasswordChangePage from '@/pages/ForcePasswordChangePage'
 import RecordingsListPage from '@/pages/RecordingsListPage'
 import RecordingDetailPage from '@/pages/RecordingDetailPage'
-import NewRecordingPage from '@/pages/NewRecordingPage'
+import UploadPage from '@/pages/UploadPage'
+import RecordPage from '@/pages/RecordPage'
 import SearchPage from '@/pages/SearchPage'
 import AdminPage from '@/pages/AdminPage'
 import NotFoundPage from '@/pages/NotFoundPage'
@@ -47,12 +49,15 @@ function AnimatedPage() {
 }
 
 // Protected layout with AppShell
+// RecorderProvider stă deasupra paginilor: înregistrarea din browser continuă la navigare
 function ProtectedLayout() {
   return (
     <ProtectedRoute>
-      <AppShell>
-        <AnimatedPage />
-      </AppShell>
+      <RecorderProvider>
+        <AppShell>
+          <AnimatedPage />
+        </AppShell>
+      </RecorderProvider>
     </ProtectedRoute>
   )
 }
@@ -71,7 +76,10 @@ function AppRoutes() {
       />
       <Route element={<ProtectedLayout />}>
         <Route path="/" element={<RecordingsListPage />} />
-        <Route path="/recordings/new" element={<NewRecordingPage />} />
+        <Route path="/recordings/upload" element={<UploadPage />} />
+        <Route path="/recordings/record" element={<RecordPage />} />
+        {/* adresa veche, din semne de carte */}
+        <Route path="/recordings/new" element={<Navigate to="/recordings/upload" replace />} />
         <Route path="/recordings/:id" element={<RecordingDetailPage />} />
         <Route path="/search" element={<SearchPage />} />
         <Route

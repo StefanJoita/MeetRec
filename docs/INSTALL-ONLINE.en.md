@@ -31,7 +31,7 @@ A self-hosted automatic meeting transcription platform. All audio processing run
 
 > **Transcription time:** MeetRec runs on the CPU (the images ship the CPU build of PyTorch; a GPU is not used). With `large-v3` (default), 1 hour of audio takes roughly 1–2 hours on 8 cores. `large-v3-turbo` is several times faster with close accuracy: 3 min 42 s of audio processed in 4 min 36 s, with diarization in parallel. Real timings for every recording are shown in **Admin → Processing times**.
 
-### Audio Capture Hardware (desktop client)
+### Audio Capture Hardware (recording in the browser)
 
 Transcription and speaker diarization quality depends directly on the quality of the audio recording.
 
@@ -40,6 +40,7 @@ Transcription and speaker diarization quality depends directly on the quality of
 | 1–2 people, desk | Built-in PC microphone | Good |
 | 3–5 people, small office | External USB microphone | Good |
 | 6–15 people, meeting room | **USB conference microphone** | Good |
+| Council chamber with desk microphones | **USB audio interface** connected to the record output of the mixer / sound system | Very good |
 
 **Tested and recommended conference microphones:**
 
@@ -49,7 +50,7 @@ Transcription and speaker diarization quality depends directly on the quality of
 | Jabra Speak 510 | ~€100 | 6m radius | up to 12 |
 | Jabra Speak 750 | ~€200 | 7m radius + beamforming | up to 15 |
 
-Conference microphones connect via **USB** and appear automatically in the desktop client's audio device list — no additional configuration required.
+Conference microphones and audio interfaces connect via **USB** and appear automatically in the application's microphone list (the *Record* menu item) — no additional configuration required. Browsers only allow microphone access over HTTPS, so the room computer must trust the server's CA certificate.
 
 > **Why it matters:** a PC microphone picks up all speakers at different distances and volumes, significantly degrading both transcription quality and speaker identification. A conference microphone with beamforming solves this at the hardware level.
 

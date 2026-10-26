@@ -48,6 +48,7 @@ MeetRec runs **entirely on your own server**, including on air-gapped networks w
 - **Automatic transcription** — WhisperX with the Whisper `large-v3` or `large-v3-turbo` model, Romanian word-level alignment (wav2vec2), all CPU cores; drop a file in `/data/inbox` and transcription starts immediately
 - **Reliable job queue** — a transcription interrupted by a crash or restart is resumed automatically; a file that repeatedly crashes the worker is marked failed instead of blocking the queue
 - **Web upload** — drag-and-drop interface with real-time progress; supports MP3, MP4, WAV, M4A, OGG, FLAC, WEBM
+- **Recording in the browser** — record a meeting straight from the web app with any microphone connected to the computer; audio is sent to the server every 5 minutes while the meeting is still running, and transcription starts as soon as the recording is stopped (see [Recording meetings](#recording-meetings))
 - **Synchronized audio player** — click any transcript segment to jump to that exact moment in the recording
 - **Virtual scrolling** — renders thousands of transcript segments without lag using `@tanstack/react-virtual`
 - **Multi-segment session recording** — long meetings are split into 5-minute WAV segments, each uploaded with a shared `session_id`; the server assembles all segments before transcription so Whisper has full context at junctions; session duration is derived from ingest-measured audio durations (not Whisper timestamps)
@@ -102,17 +103,40 @@ MeetRec runs **entirely on your own server**, including on air-gapped networks w
 
 ---
 
-## Desktop Client
+## Recording meetings
 
-A companion **Electron desktop app** is available for conference-room deployments. It records audio continuously, splits recordings into 5-minute WAV segments, and queues uploads to the MeetRec server with automatic retry on failure.
+Meetings are recorded **in the browser**, from the **Record** menu item. No software has to be installed on the room computer: a browser opened on the MeetRec address is enough.
 
-- Repository: [StefanJoita/MeetRec_desktop-client](https://github.com/StefanJoita/MeetRec_desktop-client)
-- Works with the multi-segment session API (`POST /inbox/session/{id}/complete`)
-- Queues segments locally and retries uploads if the network is temporarily unavailable
-- Designed for always-on installation in meeting rooms; no manual intervention required
-- Supports any USB audio device — select the microphone from a dropdown in the app
+1. Fill in the meeting details (title, date, location, participants).
+2. **Enable the microphone**, pick it from the list and check that the level bar moves when someone speaks.
+3. **Start recording.** Every 5 minutes, the audio recorded so far is sent to the server as a WAV segment (16 kHz mono, ~10 MB). The application can be used normally in the meantime; the sidebar shows the recording time.
+4. **Stop and send to transcription.** The last segment is sent and transcription starts immediately.
 
-**Recommended hardware for meeting rooms:** a USB conference microphone (e.g. Jabra Speak 510 ~€100, Jabra Speak 750 ~€200) significantly improves transcription accuracy and speaker identification for 6–15 participants compared to a built-in PC microphone. These devices connect via USB and are detected automatically by the desktop client.
+How it behaves when something goes wrong:
+
+| Situation | Behaviour |
+|---|---|
+| Network or server down during the meeting | Recording continues; segments are kept in the browser and re-sent automatically. An outage longer than `SESSION_TIMEOUT_SECONDS` (30 min) lets the server start transcribing the part received so far |
+| Microphone unplugged | Recording stops and everything recorded so far is sent to transcription |
+| Browser closed by mistake | The browser asks for confirmation first. If it is closed anyway, the segments already sent (all but at most the last 5 minutes) are transcribed automatically after 30 minutes |
+| Long meeting (past the 8-hour login expiry) | The login token is renewed every 30 minutes while recording |
+| Computer going to sleep | Prevented while recording, where the browser supports it (Screen Wake Lock); otherwise disable sleep on the room computer |
+
+Requirements:
+
+- **HTTPS.** Browsers only allow microphone access on secure pages. The client computer must trust the server certificate (import `meetrec-ca.crt`, see the [installation guides](docs/INSTALL-OFFLINE.md#6-certificate-https-și-configurarea-clienților)).
+- **Role.** Recording is available to administrators and operators, like file upload.
+- **Browser.** Current Chrome, Edge or Firefox.
+
+**Recommended hardware:**
+
+| Room | Microphone |
+|---|---|
+| Small (4–8 people, one table) | USB speakerphone in the middle of the table, e.g. Jabra Speak 510 (~€100) / Speak 750 (~€200) |
+| Medium (8–15 people) | Two linked speakerphones (Jabra Speak 750) or a ceiling / bar microphone |
+| Council chamber with desk microphones | No new microphones: connect the record output of the existing sound system or mixer to a USB audio interface (e.g. Behringer UMC202HD, Focusrite Scarlett Solo); every speaker is already close to a microphone, which gives the best transcription |
+
+A built-in laptop microphone works for small meetings, but noticeably lowers transcription accuracy and speaker identification for anyone sitting more than 1–2 m away.
 
 ---
 
@@ -121,11 +145,11 @@ A companion **Electron desktop app** is available for conference-room deployment
 MeetRec is composed of six independent services that communicate through PostgreSQL and Redis. Each service has a single responsibility and can be scaled independently.
 
 ```
-Browser / Desktop Client    Drop folder
+Browser                     Drop folder
     │                          │
     │ POST /api/v1/inbox/upload │ cp meeting.mp3 data/inbox/
-    │ (or multi-segment         │
-    │  session upload)          │
+    │ (file upload, or 5-minute │
+    │  segments while recording)│
     ▼                          ▼
 ┌─────────────────────────────────────────────┐
 │                   Nginx                     │  ← Reverse proxy + static assets
@@ -168,9 +192,9 @@ Browser / Desktop Client    Drop folder
            └─────────────────────┘
 ```
 
-**Design principle:** the Ingest Service is the only entry point for audio. The API never touches audio files directly. This enforces validation and deduplication regardless of how files arrive (web upload, drop folder, or desktop client multi-segment session).
+**Design principle:** the Ingest Service is the only entry point for audio. The API never touches audio files directly. This enforces validation and deduplication regardless of how files arrive (web upload, drop folder, or a meeting recorded in the browser).
 
-**Multi-segment sessions:** the desktop client uploads 5-minute WAV chunks tagged with a shared `session_id`. The Ingest Session Watcher monitors open sessions and dispatches transcription after 1800 s of inactivity or when `POST /inbox/session/{id}/complete` is called. The STT Worker then concatenates all segments before running Whisper and stores the merged WAV for full-session audio playback.
+**Multi-segment sessions:** a meeting recorded in the browser is registered with `POST /inbox/session/create`, then uploaded as 5-minute WAV chunks tagged with the shared `session_id`. The Ingest Session Watcher monitors open sessions and dispatches transcription after 1800 s of inactivity or when `POST /inbox/session/{id}/complete` is called. The STT Worker then concatenates all segments before running Whisper and stores the merged WAV for full-session audio playback.
 
 ### Service summary
 
@@ -288,7 +312,7 @@ Ingest validates the file (format, size, duration, SHA-256 dedup), adds it to th
 ### Web Interface
 
 1. Open `http://localhost` and log in
-2. **New Recording** — drag-and-drop or click to upload; optionally add title, description, location, participants
+2. **Record** — record the meeting from the browser; **Upload file** — drag-and-drop or click to upload an existing recording; both take an optional title, description, location, participants
 3. Transcription progress updates in real time on the recording page
 4. Click any segment in the transcript to seek the audio player to that moment
 5. **Speakers** — assign the detected speakers to participants from the recording page
@@ -391,7 +415,7 @@ Settings marked ✱ can also be changed from **Admin → Settings**; the UI valu
 | `EMBEDDING_CONTEXT_SEGMENTS` | `1` | Neighbouring segments included in each semantic embedding; changing it re-embeds everything in the background |
 | `SESSION_TIMEOUT_SECONDS` | `1800` | Inactivity timeout before an open multi-segment session is auto-dispatched |
 | `HF_TOKEN` | _(empty)_ | HuggingFace token — build machine only, for downloading the pyannote diarization model |
-| `MEETREC_VERSION` | `1.0.0` | Tag of the `meetrec/*` images |
+| `MEETREC_VERSION` | `1.1.0` | Tag of the `meetrec/*` images |
 | `APP_ENV` | `production` | `development` enables `/docs` |
 
 ---
@@ -527,7 +551,7 @@ MeetRec/
 | Virtual scrolling (1000+ segments) | ✅ Complete |
 | Database migrations (001–013) | ✅ Complete |
 | Multi-segment session recording (Session Watcher + audio assembly) | ✅ Complete |
-| Desktop client integration (Electron companion app) | ✅ Complete |
+| Meeting recording in the browser (AudioWorklet → 5-minute WAV segments, retry, token renewal) | ✅ Complete |
 | Full session audio playback (merged WAV stored post-transcription) | ✅ Complete |
 | Modern UI redesign (Inter font, indigo palette, dark sidebar, animated toasts) | ✅ Complete |
 | `POST /inbox/session/{id}/complete` explicit dispatch endpoint | ✅ Complete |
