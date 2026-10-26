@@ -186,3 +186,82 @@ class TestValidationResult:
         assert result.error_code == "TEST_CODE"
         assert result.error_message == "Test message"
         assert result.metadata is None  # metadata e None la eșec
+
+class TestFfprobeFallback:
+    """
+    M4A de la reportofonul telefoanelor Samsung (brand 3gp4): mutagen le
+    recunoaște ca MP4, dar raportează durata 0. Durata se citește cu ffprobe.
+    """
+
+    @staticmethod
+    def _m4a(tmp_path: Path) -> Path:
+        f = tmp_path / "Voce 261006_113235.m4a"
+        f.write_bytes(b"\x00\x00\x00\x18ftyp3gp4" + b"\x00" * 1000)
+        return f
+
+    @staticmethod
+    def _mutagen_with_length(length):
+        audio = MagicMock()
+        audio.info.length = length
+        audio.info.sample_rate = 0
+        audio.info.channels = 0
+        audio.info.bitrate = 0
+        return audio
+
+    @staticmethod
+    def _ffprobe_output(payload: dict):
+        import json
+        return MagicMock(stdout=json.dumps(payload))
+
+    def test_zero_duration_from_mutagen_uses_ffprobe(self, validator, tmp_path):
+        f = self._m4a(tmp_path)
+        probe = {"streams": [{"sample_rate": "48000", "channels": 1}],
+                 "format": {"duration": "4346.876083", "bit_rate": "130512"}}
+        with patch("src.validator.mutagen.File", return_value=self._mutagen_with_length(0.0)), \
+             patch("src.validator.subprocess.run", return_value=self._ffprobe_output(probe)) as run:
+            result = validator.validate(f)
+
+        assert result.is_valid
+        assert result.metadata.duration_seconds == 4346
+        assert result.metadata.sample_rate_hz == 48000
+        assert result.metadata.channels == 1
+        assert result.metadata.bitrate_kbps == 130
+        assert run.call_args.args[0][0] == "ffprobe"
+
+    def test_file_unknown_to_mutagen_is_accepted_if_ffprobe_finds_audio(self, validator, tmp_path):
+        f = self._m4a(tmp_path)
+        probe = {"streams": [{"sample_rate": "44100", "channels": 2, "duration": "61.5"}], "format": {}}
+        with patch("src.validator.mutagen.File", return_value=None), \
+             patch("src.validator.subprocess.run", return_value=self._ffprobe_output(probe)):
+            result = validator.validate(f)
+
+        assert result.is_valid
+        assert result.metadata.duration_seconds == 61
+
+    def test_no_audio_stream_is_still_rejected(self, validator, tmp_path):
+        f = self._m4a(tmp_path)
+        with patch("src.validator.mutagen.File", return_value=self._mutagen_with_length(0.0)), \
+             patch("src.validator.subprocess.run", return_value=self._ffprobe_output({"streams": [], "format": {}})):
+            result = validator.validate(f)
+
+        assert not result.is_valid
+        assert result.error_code == "INVALID_DURATION"
+
+    def test_unreadable_by_both_is_rejected(self, validator, tmp_path):
+        import subprocess
+        f = self._m4a(tmp_path)
+        with patch("src.validator.mutagen.File", return_value=None), \
+             patch("src.validator.subprocess.run", side_effect=subprocess.CalledProcessError(1, "ffprobe")):
+            result = validator.validate(f)
+
+        assert not result.is_valid
+        assert result.error_code == "UNREADABLE_AUDIO"
+
+    def test_ffprobe_not_called_when_mutagen_has_duration(self, validator, tmp_path):
+        f = self._m4a(tmp_path)
+        with patch("src.validator.mutagen.File", return_value=self._mutagen_with_length(120.0)), \
+             patch("src.validator.subprocess.run") as run:
+            result = validator.validate(f)
+
+        assert result.is_valid and result.metadata.duration_seconds == 120
+        run.assert_not_called()

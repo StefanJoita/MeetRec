@@ -9,6 +9,7 @@
 # STT Worker va face update la status='completed' când termină.
 # ============================================================
 
+import hashlib
 import json
 import uuid
 from datetime import datetime, date, timezone
@@ -23,6 +24,9 @@ from src.logger import get_logger
 from src.validator import AudioMetadata 
 
 logger=get_logger(__name__  )
+
+# Valorile tipului audio_format din baza de date (în afară de 'unknown')
+KNOWN_AUDIO_FORMATS = {"wav", "mp3", "m4a", "ogg", "flac", "webm"}
 
 class DatabaseClient:
     """Client pentru operatiile de baza de date ale Ingest Service.
@@ -110,16 +114,7 @@ class DatabaseClient:
         # Titlu: din user_meta → din parametrul title → generat din filename
         final_title = meta.get("title") or title or self._generate_title(metadata.filename)
 
-        # Data ședinței: din user_meta (YYYY-MM-DD) → azi
-        meeting_date_val: date
-        raw_date = meta.get("meeting_date")
-        if raw_date:
-            try:
-                meeting_date_val = date.fromisoformat(raw_date)
-            except ValueError:
-                meeting_date_val = datetime.now(timezone.utc).date()
-        else:
-            meeting_date_val = datetime.now(timezone.utc).date()
+        meeting_date_val = self._meeting_date(meta)
 
         description: Optional[str] = meta.get("description")
         location: Optional[str] = meta.get("location")
@@ -212,6 +207,54 @@ class DatabaseClient:
         )
         return recording_id
  
+    async def create_rejected_recording(
+        self,
+        filename: str,
+        file_path: Path,
+        file_size_bytes: int,
+        error_message: str,
+        user_meta: Optional[Dict[str, Any]] = None,
+    ) -> str:
+        """
+        Înregistrare cu status 'failed' pentru un fișier respins la validare, ca
+        utilizatorul să vadă în listă că fișierul a ajuns și de ce a fost respins
+        (altfel încărcarea pare reușită și „nu se întâmplă nimic”).
+
+        Fără transcript: nu există nimic de reîncercat (interfața ascunde butonul).
+        Hash-ul e unul de completare, NU al fișierului: după corectarea problemei,
+        același fișier trebuie să poată fi încărcat din nou fără să fie luat drept duplicat.
+        """
+        recording_id = str(uuid.uuid4())
+        meta = user_meta or {}
+        extension = Path(filename).suffix.lower().lstrip(".")
+        audio_format = extension if extension in KNOWN_AUDIO_FORMATS else "unknown"
+        title = meta.get("title") or self._generate_title(filename)
+
+        async with self._pool.acquire() as conn:
+            await conn.execute(
+                """
+                INSERT INTO recordings (
+                    id, title, meeting_date, description, location, participants,
+                    original_filename, file_path, file_size_bytes, file_hash_sha256,
+                    audio_format, status, error_message
+                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'failed', $12)
+                """,
+                recording_id,
+                title,
+                self._meeting_date(meta),
+                meta.get("description"),
+                meta.get("location"),
+                meta.get("participants"),
+                filename,
+                str(file_path),
+                file_size_bytes,
+                hashlib.sha256(f"rejected:{recording_id}".encode()).hexdigest(),
+                audio_format,
+                error_message,
+            )
+        logger.info("rejected_recording_created", recording_id=recording_id, filename=filename)
+        return recording_id
+
     async def mark_failed(self, file_hash: str, error_message: str) -> None:
         """
         Marchează o înregistrare ca eșuată.
@@ -264,21 +307,35 @@ class DatabaseClient:
         import uuid as _uuid
         segment_id = str(_uuid.uuid4())
         async with self._pool.acquire() as conn:
-            await conn.execute(
-                """
-                INSERT INTO recording_audio_segments
-                    (id, recording_id, segment_index, file_path,
-                     file_hash_sha256, file_size_bytes, duration_seconds, status)
-                VALUES ($1, $2, $3, $4, $5, $6, $7, 'queued')
-                """,
-                segment_id,
-                recording_id,
-                segment_index,
-                str(stored_path),
-                metadata.file_hash_sha256,
-                metadata.file_size_bytes,
-                metadata.duration_seconds,
-            )
+            async with conn.transaction():
+                await conn.execute(
+                    """
+                    INSERT INTO recording_audio_segments
+                        (id, recording_id, segment_index, file_path,
+                         file_hash_sha256, file_size_bytes, duration_seconds, status)
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, 'queued')
+                    """,
+                    segment_id,
+                    recording_id,
+                    segment_index,
+                    str(stored_path),
+                    metadata.file_hash_sha256,
+                    metadata.file_size_bytes,
+                    metadata.duration_seconds,
+                )
+                # Durata înregistrării = tot audio-ul primit până acum. Altfel, până
+                # la finalul transcrierii (când STT Worker scrie suma), o ședință de
+                # 6 min 30 s apare cu durata primului segment (5 min).
+                await conn.execute(
+                    """
+                    UPDATE recordings
+                    SET duration_seconds = COALESCE(duration_seconds, 0) + $2,
+                        updated_at = NOW()
+                    WHERE id = $1
+                    """,
+                    recording_id,
+                    metadata.duration_seconds,
+                )
         logger.info(
             "audio_segment_attached",
             recording_id=recording_id,
@@ -309,7 +366,11 @@ class DatabaseClient:
                     file_size_bytes    = $3,
                     file_hash_sha256   = $4,
                     audio_format       = $5,
-                    duration_seconds   = $6,
+                    -- plus segmentele sosite înaintea segmentului 0 (încărcări în paralel)
+                    duration_seconds   = $6 + COALESCE((
+                        SELECT SUM(duration_seconds) FROM recording_audio_segments
+                        WHERE recording_id = $9
+                    ), 0),
                     sample_rate_hz     = $7,
                     channels           = $8,
                     status             = 'queued',
@@ -403,6 +464,17 @@ class DatabaseClient:
                 recording_id,
             )
         logger.info("session_dispatched_to_transcription", recording_id=recording_id)
+
+    @staticmethod
+    def _meeting_date(meta: Dict[str, Any]) -> date:
+        """Data ședinței din user_meta (YYYY-MM-DD); altfel azi."""
+        raw_date = meta.get("meeting_date")
+        if raw_date:
+            try:
+                return date.fromisoformat(raw_date)
+            except ValueError:
+                pass
+        return datetime.now(timezone.utc).date()
 
     @staticmethod
     def _generate_title(filename: str) -> str:
