@@ -25,6 +25,7 @@ from datetime import date
 from typing import Dict, List, Optional, Tuple
 
 import httpx
+import structlog
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -33,6 +34,8 @@ from src.models.audit_log import User
 from src.schemas.recording import (
     CombinedSearchResult, RecordingMatch, SearchGroup, SearchResult, SemanticSearchResult,
 )
+
+logger = structlog.get_logger(__name__)
 
 TS_CONFIG = "romanian_unaccent"
 TS_QUERY = f"websearch_to_tsquery('{TS_CONFIG}', :query)"
@@ -523,7 +526,11 @@ class SearchService:
                 resp.raise_for_status()
                 body = resp.json()
                 return body["embedding"], body["model"]
-        except Exception:
+        except Exception as e:
+            # Căutarea continuă doar cu potrivirile exacte; motivul rămâne în log
+            # (ex. search-indexer oprit, sau o versiune care nu trimite „model”)
+            logger.warning("semantic_search_unavailable", url=settings.search_indexer_url,
+                           error_type=type(e).__name__, error=str(e))
             return None
 
 

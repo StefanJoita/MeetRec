@@ -9,6 +9,7 @@ from datetime import date
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import httpx
 import pytest
 from httpx import ASGITransport, AsyncClient
 
@@ -264,3 +265,29 @@ async def test_speakers_include_free_text_names_and_skip_deleted_users():
 def test_combined_search_is_rate_limited():
     from src.limiter import limiter
     assert "src.routers.search.combined_search_transcripts" in limiter._route_limits
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("failure, error_type", [
+    # search-indexer mai vechi decât API-ul: răspunde fără „model”
+    (MagicMock(json=MagicMock(return_value={"embedding": [0.1], "dimensions": 1})), "KeyError"),
+    (httpx.ConnectError("connection refused"), "ConnectError"),
+])
+async def test_embedding_failure_is_logged_with_reason(failure, error_type):
+    client = AsyncMock()
+    if isinstance(failure, Exception):
+        client.post.side_effect = failure
+    else:
+        failure.raise_for_status = MagicMock()
+        client.post.return_value = failure
+    ctx = AsyncMock()
+    ctx.__aenter__.return_value = client
+
+    with patch("src.services.search_service.httpx.AsyncClient", return_value=ctx), \
+         patch.object(search_service, "logger") as log:
+        result = await SearchService(AsyncMock())._get_query_embedding("buget pentru școli")
+
+    assert result is None
+    log.warning.assert_called_once()
+    assert log.warning.call_args.args[0] == "semantic_search_unavailable"
+    assert log.warning.call_args.kwargs["error_type"] == error_type
