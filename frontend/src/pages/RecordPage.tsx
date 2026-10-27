@@ -6,6 +6,7 @@ import { useRecorder } from '@/contexts/RecorderContext'
 import LiveRecorder from '@/components/recording/LiveRecorder'
 import MeetingDetailsForm, { emptyMeetingDetails, trimmedDetails } from '@/components/recording/MeetingDetailsForm'
 import type { SessionMetadata } from '@/api/recordingSession'
+import { BetaBadge } from '@/components/ui/BetaBadge'
 
 function defaultRecordingTitle(): string {
   const now = new Date()
@@ -40,10 +41,14 @@ export default function RecordPage() {
         <ArrowLeft className="h-4 w-4" /> Înapoi
       </button>
 
-      <h1 className="page-title mb-1">Înregistrează ședința</h1>
-      <p className="text-sm text-gray-500 mb-6">
+      <h1 className="page-title mb-1 flex items-center gap-2">Înregistrează ședința <BetaBadge className="text-xs px-2 py-1" /></h1>
+      <p className="text-sm text-gray-500 mb-3">
         Înregistrați direct din browser, cu microfonul conectat la acest calculator. Puteți folosi
         aplicația în timpul înregistrării; transcrierea pornește când opriți.
+      </p>
+      <p className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mb-6">
+        Funcție nouă, în testare. Pentru ședințele importante, păstrați și o înregistrare de rezervă
+        (reportofon sau telefon), pe care o puteți încărca din „Încarcă fișier”.
       </p>
 
       {EDITABLE_PHASES.includes(recorder.phase) && (

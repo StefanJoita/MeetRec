@@ -48,7 +48,7 @@ MeetRec runs **entirely on your own server**, including on air-gapped networks w
 - **Automatic transcription** — WhisperX with the Whisper `large-v3` or `large-v3-turbo` model, Romanian word-level alignment (wav2vec2), all CPU cores; drop a file in `/data/inbox` and transcription starts immediately
 - **Reliable job queue** — a transcription interrupted by a crash or restart is resumed automatically; a file that repeatedly crashes the worker is marked failed instead of blocking the queue
 - **Web upload** — drag-and-drop interface with real-time progress; supports MP3, MP4, WAV, M4A, OGG, FLAC, WEBM
-- **Recording in the browser** — record a meeting straight from the web app with any microphone connected to the computer; audio is sent to the server every 5 minutes while the meeting is still running, and transcription starts as soon as the recording is stopped (see [Recording meetings](#recording-meetings))
+- **Recording in the browser (beta)** — record a meeting straight from the web app with any microphone connected to the computer; audio is sent to the server every 5 minutes while the meeting is still running, and transcription starts as soon as the recording is stopped (see [Recording meetings](#recording-meetings-beta))
 - **Synchronized audio player** — click any transcript segment to jump to that exact moment in the recording
 - **Virtual scrolling** — renders thousands of transcript segments without lag using `@tanstack/react-virtual`
 - **Multi-segment session recording** — long meetings are split into 5-minute WAV segments, each uploaded with a shared `session_id`; the server assembles all segments before transcription so Whisper has full context at junctions; session duration is derived from ingest-measured audio durations (not Whisper timestamps)
@@ -103,7 +103,9 @@ MeetRec runs **entirely on your own server**, including on air-gapped networks w
 
 ---
 
-## Recording meetings
+## Recording meetings (beta)
+
+> Browser recording is new in 1.1 and still being tested. For important meetings, keep a backup recording (voice recorder or phone) that can be uploaded with **Upload file**.
 
 Meetings are recorded **in the browser**, from the **Record** menu item. No software has to be installed on the room computer: a browser opened on the MeetRec address is enough.
 
