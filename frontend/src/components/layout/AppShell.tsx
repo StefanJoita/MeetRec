@@ -7,6 +7,7 @@ import {
 import { useAuth } from '@/contexts/AuthContext'
 import { useRecorder } from '@/contexts/RecorderContext'
 import { formatTime } from '@/lib/formatTime'
+import { BetaBadge } from '@/components/ui/BetaBadge'
 import { useTranscriptionNotifications } from '@/hooks/useTranscriptionNotifications'
 import { cn } from '@/lib/cn'
 
@@ -16,8 +17,8 @@ const navItems = [
 ]
 
 const operatorItems = [
-  { to: '/recordings/record', label: 'Înregistrează', icon: Mic },
-  { to: '/recordings/upload', label: 'Încarcă fișier', icon: UploadCloud },
+  { to: '/recordings/record', label: 'Înregistrează', icon: Mic, beta: true },
+  { to: '/recordings/upload', label: 'Încarcă fișier', icon: UploadCloud, beta: false },
 ]
 
 const adminItems = [
@@ -106,7 +107,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
                 Operare
               </p>
             </div>
-            {operatorItems.map(({ to, label, icon: Icon }) => (
+            {operatorItems.map(({ to, label, icon: Icon, beta }) => (
               <NavLink
                 key={to}
                 to={to}
@@ -115,6 +116,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
               >
                 <Icon className="h-4 w-4 shrink-0" />
                 {label}
+                {beta && <BetaBadge onDark className="ml-auto" />}
               </NavLink>
             ))}
           </>

@@ -3,6 +3,7 @@ import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { Mic, UploadCloud, FileAudio, ChevronUp, ChevronDown, ArrowUpDown, CheckCircle2, Loader2, Clock, Search, X } from 'lucide-react'
 import { useQuery } from '@tanstack/react-query'
 import { useRecordings } from '@/hooks/useRecordings'
+import { BetaBadge } from '@/components/ui/BetaBadge'
 import { getRecordingStats } from '@/api/recordings'
 import { StatusBadge } from '@/components/ui/StatusBadge'
 import { EmptyState } from '@/components/ui/EmptyState'
@@ -151,6 +152,7 @@ export default function RecordingsListPage() {
               <Link to="/recordings/record" className="btn-primary">
                 <Mic className="h-4 w-4" />
                 Înregistrează
+                <BetaBadge onDark />
               </Link>
             </div>
           ) : undefined
@@ -260,6 +262,7 @@ export default function RecordingsListPage() {
                   <Link to="/recordings/record" className="btn-primary">
                     <Mic className="h-4 w-4" />
                     Înregistrează
+                    <BetaBadge onDark />
                   </Link>
                 </div>
               ) : undefined
