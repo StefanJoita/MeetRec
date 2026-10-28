@@ -2,17 +2,19 @@ import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { RotateCcw, Save } from 'lucide-react'
 import { getSettings, resetSetting, updateSetting, type AppSetting, type SettingValue } from '@/api/admin'
+import { CLASSIFICATION_QUERY_KEY } from '@/components/layout/ClassificationBanner'
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
 import { SkeletonTable } from '@/components/ui/Skeleton'
 import { useToast } from '@/contexts/ToastContext'
 
-const GROUP_ORDER = ['Transcriere', 'Joburi', 'Încărcare', 'Retenție']
+const GROUP_ORDER = ['Securitate', 'Transcriere', 'Joburi', 'Încărcare', 'Retenție']
 
 // Scăderea acestor valori poate șterge date la următoarea rulare a retenției
 const DESTRUCTIVE_ON_DECREASE = new Set(['retention_days', 'audit_log_retention_days'])
 
 function formatValue(s: AppSetting, value: SettingValue): string {
   if (s.type === 'bool') return value ? 'Activat' : 'Dezactivat'
+  if (s.type === 'text') return String(value)
   if (value === null) return 'automat'
   return s.unit ? `${value} ${s.unit}` : String(value)
 }
@@ -38,6 +40,7 @@ export default function SettingsPanel() {
   function onSaved(updated: AppSetting[], key: string, message: string) {
     queryClient.setQueryData(['admin-settings'], updated)
     queryClient.invalidateQueries({ queryKey: ['admin-system'] })
+    queryClient.invalidateQueries({ queryKey: CLASSIFICATION_QUERY_KEY })
     setDrafts(d => {
       const next = { ...d }
       delete next[key]
@@ -67,6 +70,12 @@ export default function SettingsPanel() {
   function parsed(s: AppSetting): { value: SettingValue; error?: string } {
     const raw = draftValue(s)
     if (s.type === 'bool') return { value: raw as boolean }
+    if (s.type === 'text') {
+      const value = String(raw).replace(/\s+/g, ' ').trim()
+      if (value === '') return { value, error: 'Valoare obligatorie.' }
+      if (s.max !== null && value.length > s.max) return { value, error: `Maxim ${s.max} de caractere.` }
+      return { value }
+    }
     const text = String(raw).trim()
     if (text === '') {
       return s.type === 'optional_int' ? { value: null } : { value: null, error: 'Valoare obligatorie.' }
@@ -145,6 +154,21 @@ export default function SettingsPanel() {
                         current ? 'translate-x-5' : 'translate-x-0.5'
                       }`} />
                     </button>
+                  ) : s.type === 'text' ? (
+                    <div className="flex flex-col">
+                      <input
+                        id={`setting-${s.key}`}
+                        value={current as string}
+                        maxLength={s.max ?? undefined}
+                        disabled={busy}
+                        onChange={e => setDrafts(d => ({ ...d, [s.key]: e.target.value }))}
+                        onKeyDown={e => { if (e.key === 'Enter') save(s) }}
+                        className={`w-full md:w-72 text-sm border rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-blue-500 ${
+                          error ? 'border-red-400' : 'border-gray-300'
+                        }`}
+                      />
+                      {error && <span className="text-[11px] text-red-600 mt-1">{error}</span>}
+                    </div>
                   ) : (
                     <div className="flex flex-col">
                       <div className="flex items-center gap-1.5">

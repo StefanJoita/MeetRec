@@ -85,6 +85,7 @@ class RecordingService:
                 duration_formatted=rec.duration_formatted,
                 file_size_mb=rec.file_size_mb,
                 status=rec.status,
+                classification=rec.classification,
                 created_at=rec.created_at,
                 transcript_status=transcript_status,
             ))
@@ -175,6 +176,9 @@ class RecordingService:
             setattr(recording, field, value)
 
         await self.db.flush()
+        # updated_at e calculat de PostgreSQL (onupdate=func.now()): după flush e expirat,
+        # iar citirea lui la serializare ar face I/O sincron (MissingGreenlet → 500)
+        await self.db.refresh(recording, ["updated_at"])
         return recording
 
     # ── DELETE ───────────────────────────────────────────────

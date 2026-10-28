@@ -16,6 +16,7 @@ FIELD_LABELS = {
     "meeting_date": "data ședinței",
     "location": "locație",
     "participants": "participanți",
+    "classification": "nivel de clasificare",
     "email": "email",
     "full_name": "nume",
     "is_active": "activ",

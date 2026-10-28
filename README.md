@@ -417,7 +417,7 @@ Settings marked ✱ can also be changed from **Admin → Settings**; the UI valu
 | `EMBEDDING_CONTEXT_SEGMENTS` | `1` | Neighbouring segments included in each semantic embedding; changing it re-embeds everything in the background |
 | `SESSION_TIMEOUT_SECONDS` | `1800` | Inactivity timeout before an open multi-segment session is auto-dispatched |
 | `HF_TOKEN` | _(empty)_ | HuggingFace token — build machine only, for downloading the pyannote diarization model |
-| `MEETREC_VERSION` | `1.1.0` | Tag of the `meetrec/*` images |
+| `MEETREC_VERSION` | `1.2.0` | Tag of the `meetrec/*` images |
 | `APP_ENV` | `production` | `development` enables `/docs` |
 
 ---

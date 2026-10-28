@@ -19,6 +19,8 @@ from datetime import datetime, date
 from typing import Optional, List
 from pydantic import BaseModel, Field, ConfigDict
 
+from src.services.classification import ClassificationCode
+
 
 class ParticipantUserInfo(BaseModel):
     """User linkat ca participant la o înregistrare."""
@@ -89,6 +91,7 @@ class RecordingUpdate(BaseModel):
     meeting_date: Optional[date] = None
     location: Optional[str] = None
     participants: Optional[List[str]] = None
+    classification: Optional[ClassificationCode] = None
 
 
 # ── RECORDING — OUTPUT ───────────────────────────────────────
@@ -104,6 +107,7 @@ class RecordingResponse(BaseModel):
     meeting_date: date
     location: Optional[str]
     participants: Optional[List[str]]
+    classification: str
     original_filename: str
     # file_path NU e inclus — nu vrem să expunem căile de pe server
     file_size_bytes: int
@@ -134,6 +138,7 @@ class RecordingListItem(BaseModel):
     duration_formatted: str
     file_size_mb: float
     status: str
+    classification: str
     created_at: datetime
     transcript_status: Optional[str] = None   # extras din relație
 

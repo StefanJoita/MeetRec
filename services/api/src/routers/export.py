@@ -8,7 +8,6 @@ import re
 from xml.sax.saxutils import escape   # reportlab interpretează marcaje în Paragraph
 import uuid
 from datetime import datetime
-from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
@@ -20,23 +19,12 @@ from src.middleware.audit import log_audit
 from src.middleware.auth import get_current_user, check_recording_access
 from src.models.audit_log import User
 from src.models.recording import Recording
+from src.services.classification import classification_label
+from src.services.export_naming import attachment_headers, export_filename
 from src.services.transcript_service import TranscriptService
 from sqlalchemy import select
 
 router = APIRouter(prefix="/export", tags=["export"])
-
-
-def _safe_filename(title: str) -> str:
-    """Sanitizează titlul pentru a fi folosit sigur în header-ul Content-Disposition.
-    Elimină orice caracter care ar putea cauza header injection (CRLF, ghilimele, etc.).
-    """
-    # Eliminăm caracterele de control (inclusiv CR/LF) și ghilimelele
-    safe = re.sub(r'[\x00-\x1f\x7f"\\]', '', title)
-    # Înlocuim spațiile cu underscore
-    safe = safe.strip().replace(' ', '_')
-    # Păstrăm maxim 50 de caractere
-    safe = safe[:50]
-    return safe or 'export'
 
 
 def _format_time(seconds: float) -> str:
@@ -174,26 +162,31 @@ async def export_transcript(
         action="EXPORT",
         resource_type="recording",
         resource_id=recording_id,
-        details={"resource_name": recording.title, "format": format},
+        details={"resource_name": recording.title, "format": format,
+                 "classification": recording.classification},
     )
 
-    filename_base = _safe_filename(recording.title)
+    # Nivelul înregistrării: codul în numele fișierului, denumirea în antetul documentului
+    filename = export_filename(recording.title, format, recording.classification)
+    level = classification_label(recording.classification)
     display_map = await _build_speaker_display_map(
         transcript.segments, recording.speaker_mapping or {}, db
     )
 
     if format == "txt":
-        return _export_txt(recording, transcript, filename_base, display_map)
+        return _export_txt(recording, transcript, filename, level, display_map)
     elif format == "pdf":
-        return _export_pdf(recording, transcript, filename_base, display_map)
+        return _export_pdf(recording, transcript, filename, level, display_map)
     elif format == "docx":
-        return _export_docx(recording, transcript, filename_base, display_map)
+        return _export_docx(recording, transcript, filename, level, display_map)
 
 
 # ── TXT ──────────────────────────────────────────────────────
 
-def _export_txt(recording, transcript, filename_base: str, display_map: dict) -> StreamingResponse:
+def _export_txt(recording, transcript, filename: str, level: str, display_map: dict) -> StreamingResponse:
     lines = [
+        level.center(60).rstrip(),
+        "",
         f"TRANSCRIERE: {recording.title}",
         f"Data ședinței: {recording.meeting_date}",
         f"Durată: {recording.duration_formatted}",
@@ -214,11 +207,10 @@ def _export_txt(recording, transcript, filename_base: str, display_map: dict) ->
     content = "\n".join(lines)
     buf = io.BytesIO(content.encode("utf-8"))
 
-    encoded = quote(f"{filename_base}.txt")
     return StreamingResponse(
         buf,
         media_type="text/plain; charset=utf-8",
-        headers={"Content-Disposition": f"attachment; filename*=UTF-8''{encoded}"},
+        headers=attachment_headers(filename),
     )
 
 
@@ -244,7 +236,7 @@ def _register_pdf_fonts() -> tuple[str, str]:
     return "Helvetica", "Helvetica-Bold"
 
 
-def _export_pdf(recording, transcript, filename_base: str, display_map: dict) -> StreamingResponse:
+def _export_pdf(recording, transcript, filename: str, level: str, display_map: dict) -> StreamingResponse:
     from reportlab.lib.pagesizes import A4
     from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
     from reportlab.lib.units import cm
@@ -337,20 +329,26 @@ def _export_pdf(recording, transcript, filename_base: str, display_map: dict) ->
             story.append(Paragraph(ts, timestamp_style))
         story.append(Paragraph(escape(text), segment_style))
 
-    doc.build(story)
+    def classification_header(canvas, _doc):
+        # Nivelul de secretizare în antetul fiecărei pagini
+        canvas.saveState()
+        canvas.setFont(font_bold, 9)
+        canvas.drawCentredString(A4[0] / 2, A4[1] - 1.5 * cm, level)
+        canvas.restoreState()
+
+    doc.build(story, onFirstPage=classification_header, onLaterPages=classification_header)
     buf.seek(0)
 
-    encoded = quote(f"{filename_base}.pdf")
     return StreamingResponse(
         buf,
         media_type="application/pdf",
-        headers={"Content-Disposition": f"attachment; filename*=UTF-8''{encoded}"},
+        headers=attachment_headers(filename),
     )
 
 
 # ── DOCX ─────────────────────────────────────────────────────
 
-def _export_docx(recording, transcript, filename_base: str, display_map: dict) -> StreamingResponse:
+def _export_docx(recording, transcript, filename: str, level: str, display_map: dict) -> StreamingResponse:
     from docx import Document
     from docx.shared import Pt, RGBColor, Cm
     from docx.enum.text import WD_ALIGN_PARAGRAPH
@@ -363,6 +361,12 @@ def _export_docx(recording, transcript, filename_base: str, display_map: dict) -
         section.bottom_margin = Cm(2.5)
         section.left_margin = Cm(2.5)
         section.right_margin = Cm(2.5)
+        # Nivelul de secretizare în antetul fiecărei pagini
+        header = section.header.paragraphs[0]
+        header.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        header_run = header.add_run(level)
+        header_run.bold = True
+        header_run.font.size = Pt(9)
 
     # Titlu
     title_par = doc.add_heading(recording.title, level=1)
@@ -403,9 +407,8 @@ def _export_docx(recording, transcript, filename_base: str, display_map: dict) -
     doc.save(buf)
     buf.seek(0)
 
-    encoded = quote(f"{filename_base}.docx")
     return StreamingResponse(
         buf,
         media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-        headers={"Content-Disposition": f"attachment; filename*=UTF-8''{encoded}"},
+        headers=attachment_headers(filename),
     )

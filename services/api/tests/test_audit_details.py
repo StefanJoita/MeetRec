@@ -129,7 +129,7 @@ async def test_delete_user_keeps_name_after_deletion():
 
 def make_recording(**overrides):
     values = dict(id=uuid.uuid4(), title="Ședința CA", description=None, meeting_date=date(2026, 3, 1),
-                  location="Sala 1", participants=["Ion"], speaker_mapping={})
+                  location="Sala 1", participants=["Ion"], classification="N", speaker_mapping={})
     return SimpleNamespace(**{**values, **overrides})
 
 
@@ -351,5 +351,5 @@ async def test_create_session_is_audited():
 
     assert resp.status_code == 201
     entry = logged(db)
-    assert entry.details == {"resource_name": "Ședința CA", "event": "session_started"}
+    assert entry.details == {"resource_name": "Ședința CA", "event": "session_started", "classification": "N"}
     assert str(entry.resource_id) == resp.json()["recording_id"]

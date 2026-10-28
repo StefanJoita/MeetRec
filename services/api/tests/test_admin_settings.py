@@ -132,6 +132,9 @@ async def test_update_overrides_value_and_is_audited(http, store, audit, monkeyp
     ("max_file_size_mb", 2000, "maximă este 600"),
     ("diarization_enabled", "da", "adevărat sau fals"),
     ("max_job_attempts", None, "obligatorie"),
+    ("classification_level", "   ", "obligatorie"),
+    ("classification_level", "S" * 101, "Maximum 100"),
+    ("classification_level", 5, "un text"),
 ])
 async def test_invalid_values_rejected(http, store, audit, key, value, message):
     login(make_user(is_admin=True))
@@ -202,6 +205,35 @@ async def test_upload_config_for_any_user(http, store):
     resp = await http.get("/api/v1/config/upload")
 
     assert resp.json() == {"max_file_size_bytes": 200 * 1024 * 1024}
+
+
+@pytest.mark.asyncio
+async def test_classification_is_public_and_defaults_to_neclasificat(http, store, monkeypatch):
+    monkeypatch.delenv("CLASSIFICATION_LEVEL", raising=False)
+    db = AsyncMock(spec=AsyncSession)
+
+    async def _db():
+        yield db
+
+    app.dependency_overrides[get_db] = _db     # fără utilizator: apare și la autentificare
+
+    resp = await http.get("/api/v1/config/classification")
+
+    assert resp.status_code == 200
+    assert resp.json() == {"level": "NECLASIFICAT"}
+
+
+@pytest.mark.asyncio
+async def test_classification_set_from_interface(http, store, audit):
+    login(make_user(is_admin=True))
+
+    resp = await http.put("/api/v1/admin/settings/classification_level",
+                          json={"value": "  SECRET   DE SERVICIU "})
+
+    assert resp.status_code == 200
+    assert by_key(resp.json())["classification_level"]["value"] == "SECRET DE SERVICIU"
+    assert audit.call_args.kwargs["details"]["new"] == "SECRET DE SERVICIU"
+    assert (await http.get("/api/v1/config/classification")).json() == {"level": "SECRET DE SERVICIU"}
 
 
 @pytest.mark.asyncio

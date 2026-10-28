@@ -155,7 +155,7 @@ cp .env.example .env
 
 | Variabilă | Valoare | Rol |
 |-----------|---------|-----|
-| `MEETREC_VERSION` | ex. `1.1.0` | tag-ul imaginilor și numele pachetului |
+| `MEETREC_VERSION` | ex. `1.2.0` | tag-ul imaginilor și numele pachetului |
 | `HF_TOKEN` | token HuggingFace | **doar** pentru diarizare (§3.2). Gol = fără diarizare |
 
 Celelalte valori (parole etc.) se generează pe serverul offline. Nu copia acest `.env` pe server.

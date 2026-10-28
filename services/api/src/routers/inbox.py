@@ -36,6 +36,7 @@ from src.middleware.auth import get_current_operator_or_above
 from src.models.recording import Recording, RecordingAudioSegment, RecordingStatus
 from src.models.transcript import Transcript
 from src.services import app_settings
+from src.services.classification import DEFAULT_CLASSIFICATION, ClassificationCode, CLASSIFICATION_LABELS
 
 router = APIRouter(
     prefix="/inbox",
@@ -77,6 +78,7 @@ class SessionCreateRequest(BaseModel):
     participants: Optional[str] = None   # virgulă-separați
     location: Optional[str] = None
     room_name: Optional[str] = None
+    classification: ClassificationCode = DEFAULT_CLASSIFICATION
 
 
 class SessionCreateResponse(BaseModel):
@@ -145,6 +147,7 @@ async def create_session(
         meeting_date=meeting_date_val,
         location=body.location,
         participants=participants_list,
+        classification=body.classification,
         original_filename=f"session_{session_id}.wav",   # placeholder
         file_path="",                                     # completat de Ingest
         file_size_bytes=0,                                # completat de Ingest
@@ -164,7 +167,8 @@ async def create_session(
     db.add(transcript)
 
     await log_audit(request, db, action="UPLOAD", resource_type="recording", resource_id=session_id,
-                    details={"resource_name": body.title, "event": "session_started"})
+                    details={"resource_name": body.title, "event": "session_started",
+                             "classification": body.classification})
     await db.commit()
 
     return SessionCreateResponse(
@@ -199,6 +203,7 @@ async def upload_to_inbox(
     participants: Optional[str] = Form(default=None),
     location: Optional[str] = Form(default=None),
     room_name: Optional[str] = Form(default=None),
+    classification: Optional[str] = Form(default=None),
     db: AsyncSession = Depends(get_db),
 ) -> InboxUploadResponse:
     if not file.filename:
@@ -230,6 +235,12 @@ async def upload_to_inbox(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="segment_index trebuie să fie un număr întreg pozitiv.",
             )
+
+    if classification is not None and classification not in CLASSIFICATION_LABELS:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Nivel de clasificare necunoscut. Valori acceptate: {', '.join(CLASSIFICATION_LABELS)}.",
+        )
 
     # ── Verificare sesiune existentă în DB ────────────────────
     existing_recording_id: Optional[str] = None
@@ -330,6 +341,8 @@ async def upload_to_inbox(
         meta["location"] = location.strip()
     if room_name:
         meta["room_name"] = room_name.strip()
+    if classification:
+        meta["classification"] = classification
     if parsed_session_id is not None:
         meta["session_id"] = parsed_session_id
     if parsed_segment_index is not None:
@@ -354,7 +367,8 @@ async def upload_to_inbox(
     # sesiunea apare la pornire și la /complete.
     if parsed_session_id is None or (is_new_session and not parsed_segment_index):
         details = {"resource_name": meta.get("title") or file.filename, "filename": file.filename,
-                   "size_bytes": size, "sha256": sha256.hexdigest()}
+                   "size_bytes": size, "sha256": sha256.hexdigest(),
+                   "classification": meta.get("classification", DEFAULT_CLASSIFICATION)}
         if parsed_session_id is not None:
             # Ingest creează înregistrarea cu alt id; legătura se face prin sha256
             details.update(event="session_started", session_id=parsed_session_id)

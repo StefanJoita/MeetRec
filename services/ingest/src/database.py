@@ -28,6 +28,10 @@ logger=get_logger(__name__  )
 # Valorile tipului audio_format din baza de date (în afară de 'unknown')
 KNOWN_AUDIO_FORMATS = {"wav", "mp3", "m4a", "ogg", "flac", "webm"}
 
+# Nivelurile de clasificare (aceeași listă ca în API: services/classification.py).
+# Fișierele copiate direct în inbox, fără nivel, devin N.
+CLASSIFICATIONS = {"N", "SSv", "S", "SS"}
+
 class DatabaseClient:
     """Client pentru operatiile de baza de date ale Ingest Service.
     Folosim asyncpg direct (fara ORM) pentru simplitate in aceast serviciu"""
@@ -144,9 +148,10 @@ class DatabaseClient:
                         channels,
                         session_id,
                         last_segment_at,
-                        status
+                        status,
+                        classification
                     ) VALUES (
-                        $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17
+                        $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18
                     )
                     """,
                     recording_id,
@@ -168,6 +173,7 @@ class DatabaseClient:
                     # Session Watcher verifică acest câmp pentru a decide când să lanseze transcrierea
                     datetime.now(timezone.utc) if session_id_val else None,
                     "queued",
+                    self._classification(meta),
                 )
 
                 # Cream si intrarea transcript asociata (in starea pending).
@@ -236,8 +242,8 @@ class DatabaseClient:
                 INSERT INTO recordings (
                     id, title, meeting_date, description, location, participants,
                     original_filename, file_path, file_size_bytes, file_hash_sha256,
-                    audio_format, status, error_message
-                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'failed', $12)
+                    audio_format, status, error_message, classification
+                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'failed', $12, $13)
                 """,
                 recording_id,
                 title,
@@ -251,6 +257,7 @@ class DatabaseClient:
                 hashlib.sha256(f"rejected:{recording_id}".encode()).hexdigest(),
                 audio_format,
                 error_message,
+                self._classification(meta),
             )
         logger.info("rejected_recording_created", recording_id=recording_id, filename=filename)
         return recording_id
@@ -464,6 +471,12 @@ class DatabaseClient:
                 recording_id,
             )
         logger.info("session_dispatched_to_transcription", recording_id=recording_id)
+
+    @staticmethod
+    def _classification(meta: Dict[str, Any]) -> str:
+        """Nivelul de clasificare din user_meta; necunoscut sau lipsă → N."""
+        value = meta.get("classification")
+        return value if value in CLASSIFICATIONS else "N"
 
     @staticmethod
     def _meeting_date(meta: Dict[str, Any]) -> date:

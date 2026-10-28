@@ -43,7 +43,7 @@ app = FastAPI(
     - 📤 **Export**: PDF, DOCX, TXT
     - 📋 **Audit**: Log complet al acceselor și acțiunilor
     """,
-    version="1.1.0",
+    version="1.2.0",
     lifespan=lifespan,
     # În producție, dezactivăm /docs pentru securitate:
     docs_url="/docs" if settings.app_env == "development" else None,
@@ -73,6 +73,7 @@ async def check_must_change_password(request: Request, call_next):
         "/api/v1/auth/logout",
         "/api/v1/auth/me",
         "/api/v1/auth/change-password-first-login",
+        "/api/v1/config/classification",
     }
     if p in change_password_exempt:
         return await call_next(request)
@@ -137,7 +138,7 @@ async def health_check():
     return {
         "status": "healthy",
         "service": "meeting-transcriber-api",
-        "version": "1.1.0",
+        "version": "1.2.0",
         "environment": settings.app_env,
     }
 

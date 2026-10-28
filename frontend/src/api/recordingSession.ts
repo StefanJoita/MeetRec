@@ -1,10 +1,12 @@
 import client from './client'
 import type { TokenResponse } from './types'
+import type { ClassificationCode } from '@/lib/classification'
 
 // Înregistrarea din browser folosește API-ul de sesiune multi-segment:
 // /session/create → /upload (câte un segment) → /session/{id}/complete.
 
 export interface SessionMetadata {
+  classification: ClassificationCode
   title: string
   meeting_date: string
   description?: string

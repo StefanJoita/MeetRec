@@ -20,6 +20,7 @@ from src.models.audit_log import AuditLog, User
 from src.models.recording import Recording
 from src.models.transcript import Transcript
 from src.services.audit_describe import describe
+from src.services.export_naming import attachment_headers, export_filename
 
 router = APIRouter(prefix="/audit-logs", tags=["audit"])
 
@@ -241,10 +242,9 @@ async def export_audit_logs_csv(
             json.dumps(item.details, ensure_ascii=False) if item.details else "",
         ])
 
-    filename = f"audit-log-{datetime.utcnow().strftime('%Y%m%d-%H%M')}.csv"
     output.seek(0)
     return StreamingResponse(
         iter([output.getvalue()]),
         media_type="text/csv; charset=utf-8",
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        headers=attachment_headers(export_filename("Jurnal audit", "csv")),
     )

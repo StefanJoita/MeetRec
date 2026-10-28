@@ -3,6 +3,8 @@
 // These are the single source of truth for API data shapes.
 // ============================================================
 
+import type { ClassificationCode } from '@/lib/classification'
+
 export type RecordingStatus =
   | 'uploaded'
   | 'validating'
@@ -29,6 +31,7 @@ export interface RecordingListItem {
   duration_formatted: string     // "01:02:35"
   file_size_mb: number
   status: RecordingStatus
+  classification: ClassificationCode
   created_at: string             // ISO 8601
   transcript_status: TranscriptStatus | null
 }
@@ -50,6 +53,7 @@ export interface RecordingResponse {
   meeting_date: string
   location: string | null
   participants: string[] | null          // nume brute din metadată
+  classification: ClassificationCode
   original_filename: string
   file_size_bytes: number
   audio_format: string
@@ -191,6 +195,7 @@ export interface SpeakerOption {
 
 // ── Input schemas ────────────────────────────────────────────
 export interface RecordingUpdate {
+  classification?: ClassificationCode
   title?: string
   description?: string
   meeting_date?: string

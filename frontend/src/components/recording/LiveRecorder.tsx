@@ -27,9 +27,11 @@ interface Props {
   /** Detaliile ședinței din formular, citite la pornire. */
   getMetadata: () => SessionMetadata
   onNewRecording: () => void
+  /** Motivul pentru care înregistrarea nu poate porni încă (ex. nivelul de clasificare nu e ales). */
+  startBlocked?: string
 }
 
-export default function LiveRecorder({ getMetadata, onNewRecording }: Props) {
+export default function LiveRecorder({ getMetadata, onNewRecording, startBlocked }: Props) {
   const rec = useRecorder()
   const [confirmStop, setConfirmStop] = useState(false)
 
@@ -186,12 +188,12 @@ export default function LiveRecorder({ getMetadata, onNewRecording }: Props) {
           <button
             type="button"
             onClick={() => void rec.start(getMetadata())}
-            disabled={rec.phase === 'starting'}
+            disabled={rec.phase === 'starting' || !!startBlocked}
             className="btn-danger w-full justify-center"
           >
             {rec.phase === 'starting'
               ? <><Spinner className="h-4 w-4" /> Se pornește…</>
-              : <><Circle className="h-4 w-4 fill-current" /> Pornește înregistrarea</>}
+              : startBlocked ?? <><Circle className="h-4 w-4 fill-current" /> Pornește înregistrarea</>}
           </button>
         </>
       )}

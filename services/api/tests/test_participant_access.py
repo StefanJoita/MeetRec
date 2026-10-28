@@ -75,6 +75,7 @@ def make_recording(rec_id: uuid.UUID, title: str, created_at: datetime) -> Simpl
         duration_seconds=300,
         file_size_mb=1.0,
         status="completed",
+        classification="N",
         created_at=created_at,
         speaker_mapping={},
         transcript=SimpleNamespace(status="completed"),
@@ -252,7 +253,7 @@ def patch_recording_response():
     async def _to_response(self, rec):
         return RecordingResponse(
             id=rec.id, title=rec.title, description=None, meeting_date=rec.meeting_date,
-            location=None, participants=[], original_filename="x.mp3",
+            location=None, participants=[], classification="N", original_filename="x.mp3",
             file_size_bytes=1024, audio_format="mp3", duration_seconds=300,
             duration_formatted="00:05:00", file_size_mb=1.0, status="completed",
             error_message=None, created_at=rec.created_at, updated_at=rec.created_at,

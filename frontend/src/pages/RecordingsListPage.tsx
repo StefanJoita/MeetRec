@@ -6,6 +6,7 @@ import { useRecordings } from '@/hooks/useRecordings'
 import { BetaBadge } from '@/components/ui/BetaBadge'
 import { getRecordingStats } from '@/api/recordings'
 import { StatusBadge } from '@/components/ui/StatusBadge'
+import { ClassificationBadge } from '@/components/ui/ClassificationBadge'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { SkeletonTable } from '@/components/ui/Skeleton'
 import { Pagination } from '@/components/ui/Pagination'
@@ -286,6 +287,9 @@ export default function RecordingsListPage() {
                       Titlu <SortIcon field="title" />
                     </span>
                   </th>
+                  <th className="px-5 py-3.5 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">
+                    Clasificare
+                  </th>
                   <th
                     className="px-5 py-3.5 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider cursor-pointer hover:text-slate-700 select-none"
                     onClick={() => handleSort('meeting_date')}
@@ -325,6 +329,9 @@ export default function RecordingsListPage() {
                         {rec.audio_format.toUpperCase()} · {rec.file_size_mb.toFixed(1)} MB
                       </p>
                     </td>
+                    <td className="px-5 py-3.5">
+                      <ClassificationBadge code={rec.classification} />
+                    </td>
                     <td className="px-5 py-3.5 text-sm text-slate-600 whitespace-nowrap">
                       {new Date(rec.meeting_date).toLocaleDateString('ro-RO', {
                         day: 'numeric', month: 'short', year: 'numeric',
@@ -357,7 +364,10 @@ export default function RecordingsListPage() {
               >
                 <div className="flex items-start justify-between gap-2 mb-2">
                   <p className="text-sm font-medium text-slate-900 leading-snug">{rec.title}</p>
-                  <StatusBadge status={rec.status} />
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <ClassificationBadge code={rec.classification} />
+                    <StatusBadge status={rec.status} />
+                  </div>
                 </div>
                 <div className="flex items-center gap-3 text-xs text-slate-400">
                   <span>

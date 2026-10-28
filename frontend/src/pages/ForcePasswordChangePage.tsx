@@ -5,6 +5,7 @@ import { Navigate } from 'react-router-dom'
 
 import { changePasswordFirstLogin } from '@/api/auth'
 import { useAuth } from '@/contexts/AuthContext'
+import { ClassificationBanner } from '@/components/layout/ClassificationBanner'
 
 interface PasswordForm {
   currentPassword: string
@@ -54,7 +55,8 @@ export default function ForcePasswordChangePage() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center p-4">
+    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center p-4 pt-11 relative">
+      <ClassificationBanner className="absolute inset-x-0 top-0" />
       <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-8">
         <div className="flex flex-col items-center mb-8">
           <div className="h-14 w-14 bg-blue-600 rounded-2xl flex items-center justify-center mb-4 shadow-md">

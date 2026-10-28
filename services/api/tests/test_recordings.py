@@ -69,6 +69,7 @@ def make_recording_response(**kwargs) -> RecordingResponse:
         "meeting_date": MEETING_DATE,
         "location": "Sala Consiliului",
         "participants": ["Ion Ionescu", "Maria Pop"],
+        "classification": "N",
         "original_filename": "sedinta_2024_03_15.mp3",
         "file_size_bytes": 10 * 1024 * 1024,  # 10MB
         "audio_format": "mp3",
@@ -206,6 +207,7 @@ class TestListRecordings:
             duration_formatted="01:00:00",
             file_size_mb=10.0,
             status="completed",
+            classification="N",
             created_at=NOW,
             transcript_status="completed",
         )

@@ -4,9 +4,14 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import LoginPage from '@/pages/LoginPage'
 import { AuthContext } from '@/contexts/AuthContext'
 import type { User } from '@/api/types'
+
+vi.mock('@/api/admin', () => ({
+  getClassification: vi.fn().mockResolvedValue({ level: 'SECRET DE SERVICIU' }),
+}))
 
 // ── Helper: wrapper cu context mock ──────────────────────────
 function renderLoginPage(loginFn = vi.fn()) {
@@ -18,12 +23,15 @@ function renderLoginPage(loginFn = vi.fn()) {
     refreshUser: vi.fn(),
   }
 
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   return render(
-    <MemoryRouter>
-      <AuthContext.Provider value={contextValue}>
-        <LoginPage />
-      </AuthContext.Provider>
-    </MemoryRouter>
+    <QueryClientProvider client={queryClient}>
+      <MemoryRouter>
+        <AuthContext.Provider value={contextValue}>
+          <LoginPage />
+        </AuthContext.Provider>
+      </MemoryRouter>
+    </QueryClientProvider>
   )
 }
 
@@ -35,6 +43,12 @@ describe('LoginPage — randare', () => {
   it('afișează titlul MeetRec', () => {
     renderLoginPage()
     expect(screen.getByText('MeetRec')).toBeInTheDocument()
+  })
+
+  it('afișează nivelul de secretizare înainte de autentificare', async () => {
+    renderLoginPage()
+    expect(await screen.findByText('SECRET DE SERVICIU')).toBeInTheDocument()
+    expect(screen.getByRole('note', { name: 'Nivel de secretizare' })).toBeInTheDocument()
   })
 
   it('afișează subtitlul platformei', () => {

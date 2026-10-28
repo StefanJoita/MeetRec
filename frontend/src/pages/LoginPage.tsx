@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { useForm } from 'react-hook-form'
 import { Mic2, Eye, EyeOff, AlertCircle } from 'lucide-react'
 import { useAuth } from '@/contexts/AuthContext'
+import { ClassificationBanner } from '@/components/layout/ClassificationBanner'
 
 interface LoginForm {
   username: string
@@ -35,7 +36,8 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-slate-50 p-4 relative overflow-hidden">
+    <div className="min-h-screen flex items-center justify-center bg-slate-50 p-4 pt-11 relative overflow-hidden">
+      <ClassificationBanner className="absolute inset-x-0 top-0 z-10" />
       {/* Background decorative blobs */}
       <div className="absolute inset-0 overflow-hidden pointer-events-none">
         <div className="absolute -top-40 -right-40 w-96 h-96 bg-primary-100 rounded-full opacity-60 blur-3xl" />

@@ -11,6 +11,7 @@
 #   POST   /admin/queue/{id}/cancel     → scoate din coadă / oprește transcrierea în curs
 #   POST   /admin/queue/{id}/prioritize → mută înregistrarea prima în coadă
 #   GET    /config/upload           → limita de upload (pentru orice utilizator autentificat)
+#   GET    /config/classification   → nivelul de secretizare (public: apare și la autentificare)
 # ============================================================
 
 import json
@@ -70,6 +71,10 @@ class SettingUpdate(BaseModel):
 
 class UploadConfig(BaseModel):
     max_file_size_bytes: int
+
+
+class ClassificationConfig(BaseModel):
+    level: str
 
 
 class ProcessingItem(BaseModel):
@@ -192,6 +197,13 @@ async def upload_config(
 ):
     mb = await registry.effective_value(db, "max_file_size_mb")
     return UploadConfig(max_file_size_bytes=mb * registry.MIB)
+
+
+@config_router.get("/classification", response_model=ClassificationConfig,
+                   summary="Nivelul de secretizare")
+async def classification_config(db: AsyncSession = Depends(get_db)):
+    # Fără autentificare: banda cu nivelul apare și pe pagina de autentificare
+    return ClassificationConfig(level=await registry.classification_level(db))
 
 
 # ── Starea sistemului ────────────────────────────────────────

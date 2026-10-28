@@ -109,6 +109,9 @@ describe('Înregistrare din browser', () => {
     await user.type(screen.getByLabelText('Titlu'), 'Ședința Consiliului')
     await user.type(screen.getByLabelText('Locație'), 'Sala Mare')
     await user.click(screen.getByRole('button', { name: /Activează microfonul/ }))
+    // Fără nivel de clasificare înregistrarea nu pornește
+    expect(await screen.findByRole('button', { name: 'Alegeți nivelul de clasificare' })).toBeDisabled()
+    await user.selectOptions(screen.getByLabelText(/^Nivel de clasificare/), 'S')
 
     // Doar microfoanele apar în listă
     const select = await screen.findByLabelText('Microfon')
@@ -118,7 +121,7 @@ describe('Înregistrare din browser', () => {
     await screen.findByText('Se înregistrează')
     expect(api.refreshAccessToken).toHaveBeenCalled()
     expect(api.createRecordingSession).toHaveBeenCalledWith(expect.objectContaining({
-      title: 'Ședința Consiliului', location: 'Sala Mare',
+      title: 'Ședința Consiliului', location: 'Sala Mare', classification: 'S',
     }))
     // Formularul dispare: detaliile au plecat la pornire
     expect(screen.queryByLabelText('Titlu')).not.toBeInTheDocument()
@@ -148,6 +151,7 @@ describe('Înregistrare din browser', () => {
     api.createRecordingSession.mockRejectedValueOnce({ response: { status: 500, data: { detail: 'Baza de date indisponibilă' } } })
     const user = userEvent.setup()
     renderPage()
+    await user.selectOptions(screen.getByLabelText(/^Nivel de clasificare/), 'N')
     await user.click(screen.getByRole('button', { name: /Activează microfonul/ }))
     await user.click(await screen.findByRole('button', { name: /Pornește înregistrarea/ }))
 
