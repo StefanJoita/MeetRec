@@ -1,6 +1,11 @@
 // Detaliile ședinței, comune paginilor „Încarcă fișier” și „Înregistrează ședința”.
+// Nivelul de clasificare e obligatoriu; restul câmpurilor sunt opționale.
+
+import type { ClassificationCode } from '@/lib/classification'
+import ClassificationPicker from '@/components/recording/ClassificationPicker'
 
 export interface MeetingDetails {
+  classification: ClassificationCode | ''
   title: string
   meetingDate: string
   location: string
@@ -9,12 +14,13 @@ export interface MeetingDetails {
 }
 
 export function emptyMeetingDetails(): MeetingDetails {
-  return { title: '', meetingDate: new Date().toISOString().slice(0, 10), location: '', participants: '', description: '' }
+  return { classification: '', title: '', meetingDate: new Date().toISOString().slice(0, 10), location: '', participants: '', description: '' }
 }
 
 /** Câmpurile completate, fără spații; cele goale lipsesc. */
 export function trimmedDetails(d: MeetingDetails) {
   return {
+    classification: d.classification || undefined,
     title: d.title.trim() || undefined,
     meeting_date: d.meetingDate || undefined,
     description: d.description.trim() || undefined,
@@ -30,15 +36,24 @@ interface Props {
   titlePlaceholder?: string
   /** Text afișat în locul câmpului Titlu (ex. la mai multe fișiere, fiecare cu titlul lui). */
   titleNote?: string
+  /** Evidențiază nivelul de clasificare cât timp nu e ales (butonul de trimitere e blocat). */
+  showRequired?: boolean
 }
 
-export default function MeetingDetailsForm({ value, onChange, disabled, titlePlaceholder, titleNote }: Props) {
+export default function MeetingDetailsForm({ value, onChange, disabled, titlePlaceholder, titleNote, showRequired }: Props) {
   const set = (field: keyof MeetingDetails) =>
     (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => onChange({ ...value, [field]: e.target.value })
 
   return (
     <div className="space-y-4">
-      <h2 className="text-sm font-semibold text-gray-700">Detalii ședință <span className="font-normal text-gray-400">(opțional)</span></h2>
+      <ClassificationPicker
+        value={value.classification}
+        onChange={classification => onChange({ ...value, classification })}
+        disabled={disabled}
+        showRequired={showRequired}
+      />
+
+      <h2 className="text-sm font-semibold text-gray-700 pt-1">Detalii ședință <span className="font-normal text-gray-400">(opțional)</span></h2>
 
       {titleNote ? (
         <p className="text-xs text-gray-500 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2">{titleNote}</p>

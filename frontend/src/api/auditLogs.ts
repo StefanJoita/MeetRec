@@ -32,11 +32,15 @@ export function downloadAuditLogsCsv(filters: AuditLogFilters = {}): void {
 
   // Fetch cu token și trigger download manual
   fetch(url, { headers: { Authorization: `Bearer ${token}` } })
-    .then(res => res.blob())
-    .then(blob => {
+    .then(async res => {
+      // Numele vine de la server (AAAALLZZ_Jurnal_audit.csv)
+      const match = res.headers.get('Content-Disposition')?.match(/filename\*?=(?:UTF-8'')?([^;\n]+)/i)
+      return { blob: await res.blob(), name: match ? decodeURIComponent(match[1].replace(/['"]/g, '')) : 'Jurnal_audit.csv' }
+    })
+    .then(({ blob, name }) => {
       const a = document.createElement('a')
       a.href = URL.createObjectURL(blob)
-      a.download = `audit-log-${new Date().toISOString().slice(0, 10)}.csv`
+      a.download = name
       a.click()
       URL.revokeObjectURL(a.href)
     })

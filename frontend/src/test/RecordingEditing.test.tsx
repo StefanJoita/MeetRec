@@ -100,7 +100,7 @@ describe('EditRecordingDialog', () => {
     api.updateRecording.mockReset().mockResolvedValue({})
     const recording = {
       id: 'r1', title: 'Ședința CA', meeting_date: '2026-10-01', location: null, description: null,
-      participants: ['Ion'],
+      participants: ['Ion'], classification: 'N',
     } as unknown as RecordingResponse
     const onClose = vi.fn()
     wrap(<EditRecordingDialog recording={recording} onClose={onClose} />)
@@ -109,10 +109,12 @@ describe('EditRecordingDialog', () => {
     await userEvent.clear(title)
     await userEvent.type(title, 'Ședința CA — octombrie')
     await userEvent.type(screen.getByLabelText('Participanți (separați prin virgulă)'), ', Ana ,')
+    expect(screen.getByLabelText(/^Nivel de clasificare/)).toHaveValue('N')
+    await userEvent.selectOptions(screen.getByLabelText(/^Nivel de clasificare/), 'SSv')
     await userEvent.click(screen.getByRole('button', { name: 'Salvează' }))
 
     await waitFor(() => expect(api.updateRecording).toHaveBeenCalledWith('r1', {
-      title: 'Ședința CA — octombrie', meeting_date: '2026-10-01', location: '', description: '',
+      classification: 'SSv', title: 'Ședința CA — octombrie', meeting_date: '2026-10-01', location: '', description: '',
       participants: ['Ion', 'Ana'],
     }))
     expect(onClose).toHaveBeenCalled()

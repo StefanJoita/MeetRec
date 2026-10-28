@@ -27,6 +27,7 @@ export default function RecordPage() {
     const d = trimmedDetails(details)
     return {
       ...d,
+      classification: details.classification || 'N',   // butonul de pornire așteaptă alegerea
       title: d.title ?? defaultRecordingTitle(),
       meeting_date: d.meeting_date ?? new Date().toISOString().slice(0, 10),
     }
@@ -58,12 +59,14 @@ export default function RecordPage() {
             onChange={setDetails}
             disabled={recorder.busy}
             titlePlaceholder={`implicit: ${defaultRecordingTitle()}`}
+            showRequired
           />
         </div>
       )}
 
       <LiveRecorder
         getMetadata={metadata}
+        startBlocked={details.classification === '' ? 'Alegeți nivelul de clasificare' : undefined}
         onNewRecording={() => { recorder.reset(); setDetails(emptyMeetingDetails()) }}
       />
     </div>

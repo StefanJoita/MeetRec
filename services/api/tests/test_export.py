@@ -46,6 +46,7 @@ def make_recording_mock(recording_id: uuid.UUID) -> MagicMock:
     rec.title = "Ședință test"
     rec.meeting_date = date(2024, 3, 15)
     rec.duration_formatted = "00:05:00"
+    rec.classification = "N"
     return rec
 
 
@@ -322,3 +323,63 @@ async def test_pdf_survives_markup_characters(export_client, mock_db):
     resp = await export_with_speakers(export_client, mock_db, "pdf", {"SPEAKER_00": "Ion <b>Popescu & co"})
 
     assert resp.status_code == 200 and resp.content.startswith(b"%PDF")
+
+
+# ── Numele fișierului și nivelul de clasificare ──────────────
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("fmt", ["txt", "pdf", "docx"])
+async def test_export_nume_fisier_si_nivel_de_clasificare(export_client, mock_db, fmt):
+    """Fișierul se numește AAAALLZZ_NIVEL_Titlu.ext; denumirea nivelului apare în document."""
+    recording_id = uuid.uuid4()
+    app.dependency_overrides[get_current_user] = lambda: make_user("operator")
+    recording = make_recording_mock(recording_id)
+    recording.classification = "SSv"
+
+    with patch(
+        "src.routers.export._get_transcript_and_recording",
+        new_callable=AsyncMock,
+        return_value=(recording, make_transcript_mock()),
+    ), patch(
+        "src.routers.export.check_recording_access",
+        new_callable=AsyncMock,
+        return_value=True,
+    ), patch(
+        "src.routers.export.log_audit",
+        new_callable=AsyncMock,
+    ):
+        resp = await export_client.get(f"/api/v1/export/recording/{recording_id}?format={fmt}")
+
+    assert resp.status_code == 200
+    expected = f"{date.today():%Y%m%d}_SSv_%C8%98edin%C8%9B%C4%83_test.{fmt}"   # Ședință_test
+    assert resp.headers["content-disposition"] == f"attachment; filename*=UTF-8''{expected}"
+    if fmt == "txt":
+        assert resp.text.splitlines()[0].strip() == "SECRET DE SERVICIU"
+    elif fmt == "docx":
+        import io
+        from docx import Document
+        header = Document(io.BytesIO(resp.content)).sections[0].header.paragraphs[0].text
+        assert header == "SECRET DE SERVICIU"
+
+
+class TestExportNaming:
+
+    @pytest.mark.parametrize("classification, expected", [
+        ("SS", "20261028_SS_Ședința_consiliului.pdf"),
+        ("N", "20261028_N_Ședința_consiliului.pdf"),
+        (None, "20261028_Ședința_consiliului.pdf"),           # fără înregistrare (jurnalul de audit)
+    ])
+    def test_format(self, classification, expected):
+        from src.services.export_naming import export_filename
+        assert export_filename("Ședința consiliului", "pdf", classification, on=date(2026, 10, 28)) == expected
+
+    @pytest.mark.parametrize("title, expected", [
+        ('Raport: "buget"/2027?', "Raport_buget2027"),        # caractere interzise în Windows
+        ("a\r\nb", "ab"),                                      # fără injecție în header
+        ("  multe    spații  ", "multe_spații"),
+        ("...", "Document"),
+        ("x" * 200, "x" * 80),
+    ])
+    def test_document_name(self, title, expected):
+        from src.services.export_naming import document_name
+        assert document_name(title) == expected

@@ -24,6 +24,11 @@ function renderPage() {
   return document.getElementById('file-input') as HTMLInputElement
 }
 
+/** Nivelul de clasificare e obligatoriu înainte de trimitere. */
+async function chooseClassification(user: ReturnType<typeof userEvent.setup>, code = 'SSv') {
+  await user.selectOptions(screen.getByLabelText(/^Nivel de clasificare/), code)
+}
+
 const sentNames = () => http.post.mock.calls.map(([, form]) => ((form as FormData).get('file') as File).name)
 const sentField = (i: number, key: string) => (http.post.mock.calls[i][1] as FormData).get(key)
 
@@ -45,6 +50,7 @@ describe('Încărcare fișiere', () => {
     expect(screen.getByText(/Fiecare fișier primește ca titlu numele lui/)).toBeInTheDocument()
 
     await user.type(screen.getByLabelText('Locație'), 'Sala Mare')
+    await chooseClassification(user)
     await user.click(screen.getByRole('button', { name: 'Trimite 3 fișiere la transcriere' }))
 
     expect(await screen.findByText(/3 fișiere trimise la transcriere/)).toBeInTheDocument()
@@ -52,6 +58,8 @@ describe('Încărcare fișiere', () => {
     expect(sentField(0, 'location')).toBe('Sala Mare')
     expect(sentField(2, 'location')).toBe('Sala Mare')
     expect(sentField(0, 'title')).toBeNull()
+    expect(sentField(0, 'classification')).toBe('SSv')
+    expect(sentField(2, 'classification')).toBe('SSv')
     expect(screen.getAllByText('Trimis')).toHaveLength(3)
   })
 
@@ -60,6 +68,7 @@ describe('Încărcare fișiere', () => {
     const input = renderPage()
     await user.upload(input, audio('a.m4a'))
     await user.type(screen.getByLabelText('Titlu'), 'Ședința CA')
+    await chooseClassification(user)
     await user.click(screen.getByRole('button', { name: 'Trimite la transcriere' }))
 
     expect(await screen.findByText(/Un fișier trimis la transcriere/)).toBeInTheDocument()
@@ -76,6 +85,7 @@ describe('Încărcare fișiere', () => {
     expect(within(list).getByText('Fișierul depășește limita de 1 MB.')).toBeInTheDocument()
     expect(within(list).getByText(/Formatul \.mp4 nu e acceptat/)).toBeInTheDocument()
 
+    await chooseClassification(user)
     await user.click(screen.getByRole('button', { name: 'Trimite la transcriere' }))
     expect(await screen.findByText(/Un fișier trimis la transcriere/)).toBeInTheDocument()
     expect(sentNames()).toEqual(['bun.m4a'])
@@ -89,6 +99,7 @@ describe('Încărcare fișiere', () => {
     const user = userEvent.setup()
     const input = renderPage()
     await user.upload(input, [audio('dublura.m4a'), audio('nou.m4a')])
+    await chooseClassification(user)
     await user.click(screen.getByRole('button', { name: 'Trimite 2 fișiere la transcriere' }))
 
     expect(await screen.findByText(/Un fișier trimis la transcriere/)).toBeInTheDocument()
@@ -115,6 +126,7 @@ describe('Încărcare fișiere', () => {
     const user = userEvent.setup()
     const input = renderPage()
     await user.upload(input, [audio('a.m4a'), audio('b.m4a')])
+    await chooseClassification(user)
     await user.click(screen.getByRole('button', { name: 'Trimite 2 fișiere la transcriere' }))
     await screen.findByText(/Se trimite 1 din 2/)
 
@@ -122,5 +134,20 @@ describe('Încărcare fișiere', () => {
     await waitFor(() => expect(screen.getAllByText('În așteptare')).toHaveLength(2))
     expect(http.post).toHaveBeenCalledTimes(1)
     expect(screen.getByRole('button', { name: 'Trimite 2 fișiere la transcriere' })).toBeEnabled()
+  })
+
+  it('fără nivel de clasificare nu se trimite nimic', async () => {
+    const user = userEvent.setup()
+    const input = renderPage()
+    await user.upload(input, audio('a.m4a'))
+
+    expect(screen.getByRole('button', { name: 'Alegeți nivelul de clasificare' })).toBeDisabled()
+    expect(screen.getByLabelText(/^Nivel de clasificare/)).toHaveValue('')
+
+    await chooseClassification(user, 'SS')
+    expect(screen.getByLabelText(/^Nivel de clasificare/)).toHaveValue('SS')
+    await user.click(screen.getByRole('button', { name: 'Trimite la transcriere' }))
+    expect(await screen.findByText(/Un fișier trimis la transcriere/)).toBeInTheDocument()
+    expect(sentField(0, 'classification')).toBe('SS')
   })
 })

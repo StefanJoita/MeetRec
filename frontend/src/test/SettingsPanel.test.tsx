@@ -115,4 +115,22 @@ describe('SettingsPanel', () => {
 
     await waitFor(() => expect(api.updateSetting).toHaveBeenCalledWith('retention_days', 365))
   })
+
+  it('nivelul de secretizare: text liber, fără spații în plus, obligatoriu', async () => {
+    api.getSettings.mockResolvedValue([
+      setting({ key: 'classification_level', group: 'Securitate', label: 'Nivel de secretizare',
+                type: 'text', min: null, max: 100, value: 'NECLASIFICAT', env_value: 'NECLASIFICAT' }),
+    ])
+    renderPanel()
+    const input = await screen.findByLabelText('Nivel de secretizare')
+    expect(screen.getByText('Securitate')).toBeInTheDocument()
+
+    await userEvent.clear(input)
+    expect(screen.getByText('Valoare obligatorie.')).toBeInTheDocument()
+
+    await userEvent.type(input, '  SECRET   DE SERVICIU ')
+    await userEvent.click(screen.getByRole('button', { name: /Salvează/ }))
+
+    await waitFor(() => expect(api.updateSetting).toHaveBeenCalledWith('classification_level', 'SECRET DE SERVICIU'))
+  })
 })

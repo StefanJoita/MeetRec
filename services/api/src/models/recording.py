@@ -76,6 +76,8 @@ class Recording(Base):
         nullable=True,
     )
     speaker_mapping: Mapped[dict] = mapped_column(JSON, default=dict, server_default='{}')
+    #nivelul de clasificare: N, SSv, S, SS (vezi services/classification.py)
+    classification: Mapped[str] = mapped_column(String(3), nullable=False, default="N", server_default="N")
 
     #--Informatii tehnice despre fisierul audio------
     original_filename: Mapped[str] = mapped_column(String(255), nullable=False) #numele fisierului incarcat

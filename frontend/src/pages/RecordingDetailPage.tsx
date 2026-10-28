@@ -11,6 +11,7 @@ import { getRecording, retryTranscription, deleteRecording, getRecordingParticip
 import { getTranscript } from '@/api/transcripts'
 import type { ParticipantUserInfo, Recording, Segment, Transcript } from '@/api/types'
 import { StatusBadge } from '@/components/ui/StatusBadge'
+import { ClassificationBadge } from '@/components/ui/ClassificationBadge'
 import { Spinner } from '@/components/ui/Spinner'
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
 import { SkeletonCard } from '@/components/ui/Skeleton'
@@ -220,6 +221,7 @@ export default function RecordingDetailPage() {
       <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4 mb-6">
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2.5 mb-2">
+            <ClassificationBadge code={recording.classification} />
             <StatusBadge status={recording.status} />
             <span className="text-xs text-slate-400 font-medium">{recording.audio_format.toUpperCase()}</span>
           </div>

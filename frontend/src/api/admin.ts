@@ -1,6 +1,6 @@
 import client from '@/api/client'
 
-export type SettingValue = number | boolean | null
+export type SettingValue = number | boolean | string | null
 
 export interface AppSetting {
   key: string
@@ -8,7 +8,7 @@ export interface AppSetting {
   label: string
   description: string
   applies: string
-  type: 'int' | 'bool' | 'optional_int'
+  type: 'int' | 'bool' | 'optional_int' | 'text'
   min: number | null
   max: number | null
   unit: string | null
@@ -92,6 +92,12 @@ export async function getSystemStatus(): Promise<SystemStatus> {
 
 export async function getUploadConfig(): Promise<{ max_file_size_bytes: number }> {
   const { data } = await client.get<{ max_file_size_bytes: number }>('/config/upload')
+  return data
+}
+
+// Public: banda cu nivelul de secretizare apare și pe pagina de autentificare
+export async function getClassification(): Promise<{ level: string }> {
+  const { data } = await client.get<{ level: string }>('/config/classification')
   return data
 }
 

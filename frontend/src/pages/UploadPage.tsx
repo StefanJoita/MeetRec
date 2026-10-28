@@ -170,6 +170,7 @@ export default function UploadPage() {
               value={details}
               onChange={setDetails}
               disabled={running}
+              showRequired={pending > 0}
               titleNote={multiple
                 ? 'Fiecare fișier primește ca titlu numele lui; îl puteți schimba după încărcare. Celelalte detalii se aplică tuturor fișierelor.'
                 : undefined}
@@ -187,10 +188,12 @@ export default function UploadPage() {
             <button
               type="button"
               onClick={handleUpload}
-              disabled={pending === 0}
+              disabled={pending === 0 || details.classification === ''}
               className="btn-primary mt-6 w-full justify-center"
             >
-              {pending > 1 ? `Trimite ${pending} fișiere la transcriere` : 'Trimite la transcriere'}
+              {pending > 0 && details.classification === ''
+                ? 'Alegeți nivelul de clasificare'
+                : pending > 1 ? `Trimite ${pending} fișiere la transcriere` : 'Trimite la transcriere'}
             </button>
           )}
         </>

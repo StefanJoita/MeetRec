@@ -8,6 +8,7 @@ import { useAuth } from '@/contexts/AuthContext'
 import { useRecorder } from '@/contexts/RecorderContext'
 import { formatTime } from '@/lib/formatTime'
 import { BetaBadge } from '@/components/ui/BetaBadge'
+import { ClassificationBanner } from '@/components/layout/ClassificationBanner'
 import { useTranscriptionNotifications } from '@/hooks/useTranscriptionNotifications'
 import { cn } from '@/lib/cn'
 
@@ -170,47 +171,50 @@ export default function AppShell({ children }: { children: ReactNode }) {
   )
 
   return (
-    <div className="flex h-screen bg-slate-50 overflow-hidden">
-      {/* Sidebar desktop */}
-      <div className="hidden md:flex md:flex-shrink-0">
-        <Sidebar />
-      </div>
-
-      {/* Sidebar mobile — overlay */}
-      {sidebarOpen && (
-        <div className="fixed inset-0 z-40 flex md:hidden">
-          <div
-            className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm"
-            onClick={() => setSidebarOpen(false)}
-          />
-          <div className="relative flex flex-col w-64 z-50">
-            <Sidebar />
-          </div>
+    <div className="flex flex-col h-screen bg-slate-50 overflow-hidden">
+      <ClassificationBanner />
+      <div className="flex flex-1 min-h-0">
+        {/* Sidebar desktop */}
+        <div className="hidden md:flex md:flex-shrink-0">
+          <Sidebar />
         </div>
-      )}
 
-      {/* Main content */}
-      <div className="flex flex-col flex-1 min-w-0 overflow-hidden">
-        {/* Top bar mobile */}
-        <div className="md:hidden flex items-center gap-3 px-4 py-3 bg-white border-b border-slate-200 shadow-sm">
-          <button
-            onClick={() => setSidebarOpen(!sidebarOpen)}
-            className="p-1.5 rounded-lg text-slate-600 hover:bg-slate-100 transition-colors"
-          >
-            {sidebarOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
-          </button>
-          <div className="flex items-center gap-2">
-            <div className="h-6 w-6 rounded-md bg-primary-600 flex items-center justify-center">
-              <Mic2 className="h-3.5 w-3.5 text-white" />
+        {/* Sidebar mobile — overlay */}
+        {sidebarOpen && (
+          <div className="fixed inset-x-0 top-7 bottom-0 z-40 flex md:hidden">
+            <div
+              className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm"
+              onClick={() => setSidebarOpen(false)}
+            />
+            <div className="relative flex flex-col w-64 z-50">
+              <Sidebar />
             </div>
-            <span className="font-semibold text-slate-900">MeetRec</span>
           </div>
-        </div>
+        )}
 
-        {/* Page content */}
-        <main className="flex-1 overflow-y-auto">
-          {children}
-        </main>
+        {/* Main content */}
+        <div className="flex flex-col flex-1 min-w-0 overflow-hidden">
+          {/* Top bar mobile */}
+          <div className="md:hidden flex items-center gap-3 px-4 py-3 bg-white border-b border-slate-200 shadow-sm">
+            <button
+              onClick={() => setSidebarOpen(!sidebarOpen)}
+              className="p-1.5 rounded-lg text-slate-600 hover:bg-slate-100 transition-colors"
+            >
+              {sidebarOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
+            </button>
+            <div className="flex items-center gap-2">
+              <div className="h-6 w-6 rounded-md bg-primary-600 flex items-center justify-center">
+                <Mic2 className="h-3.5 w-3.5 text-white" />
+              </div>
+              <span className="font-semibold text-slate-900">MeetRec</span>
+            </div>
+          </div>
+
+          {/* Page content */}
+          <main className="flex-1 overflow-y-auto">
+            {children}
+          </main>
+        </div>
       </div>
     </div>
   )

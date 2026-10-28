@@ -90,3 +90,18 @@ async def test_primary_file_duration_includes_segments_already_attached():
 
     [(sql, *_)] = [c.args for c in conn.execute.call_args_list]
     assert "SUM(duration_seconds) FROM recording_audio_segments" in sql
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("user_meta, stored", [
+    ({"classification": "SS"}, "SS"),
+    ({"classification": "TOP"}, "N"),     # valoare necunoscută
+    ({}, "N"),                            # fișier copiat direct în inbox
+])
+async def test_recording_classification(user_meta, stored):
+    client, conn = make_client()
+
+    await client.create_recording(METADATA, Path("/data/processed/x.mp3"), user_meta=user_meta)
+
+    [insert] = [c.args for c in conn.execute.call_args_list if "INSERT INTO recordings" in c.args[0]]
+    assert "classification" in insert[0] and insert[-1] == stored

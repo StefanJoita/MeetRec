@@ -3,6 +3,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { updateRecording } from '@/api/recordings'
 import { useToast } from '@/contexts/ToastContext'
 import type { RecordingResponse as Recording } from '@/api/types'
+import ClassificationPicker from '@/components/recording/ClassificationPicker'
 
 interface Props {
   recording: Recording
@@ -11,11 +12,12 @@ interface Props {
 
 const INPUT = 'w-full px-3 py-2 text-sm border border-gray-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-blue-500'
 
-/** Titlul, data, locația, descrierea și participanții ședinței (operator / admin). */
+/** Clasificarea, titlul, data, locația, descrierea și participanții ședinței (operator / admin). */
 export default function EditRecordingDialog({ recording, onClose }: Props) {
   const toast = useToast()
   const queryClient = useQueryClient()
   const [form, setForm] = useState({
+    classification: recording.classification,
     title: recording.title,
     meeting_date: recording.meeting_date.slice(0, 10),
     location: recording.location ?? '',
@@ -31,6 +33,7 @@ export default function EditRecordingDialog({ recording, onClose }: Props) {
 
   const mutation = useMutation({
     mutationFn: () => updateRecording(recording.id, {
+      classification: form.classification,
       title: form.title.trim(),
       meeting_date: form.meeting_date,
       location: form.location.trim(),
@@ -68,6 +71,12 @@ export default function EditRecordingDialog({ recording, onClose }: Props) {
         className="bg-white rounded-xl shadow-xl p-6 w-full max-w-lg mx-4 space-y-3"
       >
         <h2 id="edit-recording-title" className="text-base font-semibold text-gray-900 mb-1">Datele ședinței</h2>
+
+        <ClassificationPicker
+          value={form.classification}
+          onChange={classification => setForm(f => ({ ...f, classification }))}
+          id="er-classification"
+        />
 
         <div>
           <label htmlFor="er-title" className="block text-xs font-medium text-gray-600 mb-1">Titlu</label>

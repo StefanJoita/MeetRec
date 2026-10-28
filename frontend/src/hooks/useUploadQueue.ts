@@ -16,6 +16,7 @@ export interface UploadItem {
 }
 
 export interface UploadMetadata {
+  classification?: string
   title?: string
   meeting_date?: string
   description?: string

@@ -89,6 +89,9 @@ CREATE TABLE recordings (
     meeting_date    DATE NOT NULL,
     location        VARCHAR(255),
     participants    TEXT[],
+    -- Nivelul de clasificare: N (neclasificat), SSv (secret de serviciu), S (secret), SS (strict secret)
+    classification  VARCHAR(3) NOT NULL DEFAULT 'N'
+                    CONSTRAINT recordings_classification_check CHECK (classification IN ('N', 'SSv', 'S', 'SS')),
     -- Asocierea vorbitorilor din diarizare cu persoane: {"SPEAKER_00": "Ion Popescu", ...}
     speaker_mapping JSONB DEFAULT '{}',
 

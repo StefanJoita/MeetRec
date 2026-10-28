@@ -207,7 +207,7 @@ async def update_recording(
     existing = await service.get_by_id(recording_id, current_user=current_user)
     if not existing:
         raise HTTPException(status_code=404, detail="Înregistrarea nu există.")
-    fields = ("title", "description", "meeting_date", "location", "participants")
+    fields = ("title", "description", "meeting_date", "location", "participants", "classification")
     before = snapshot(existing, fields)
     recording = await service.update(recording_id, data, current_user=current_user)
     if not recording:

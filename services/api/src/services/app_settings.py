@@ -17,6 +17,7 @@
 # ============================================================
 
 import os
+import re
 import uuid
 from dataclasses import dataclass
 from typing import Any, Callable, Dict, List, Optional
@@ -35,14 +36,14 @@ NGINX_MAX_UPLOAD_MB = 600   # client_max_body_size din nginx: o limită mai mare
 class SettingDef:
     key: str
     env: str
-    type: str                     # "int" | "bool" | "optional_int"
+    type: str                     # "int" | "bool" | "optional_int" | "text"
     default: Any
     group: str
     label: str
     description: str
     applies: str                  # când intră în vigoare, afișat în interfață
     min: Optional[int] = None
-    max: Optional[int] = None
+    max: Optional[int] = None     # la "text": lungimea maximă
     unit: Optional[str] = None
     from_env: Optional[Callable[[str], Any]] = None   # conversie specială din variabila de mediu
 
@@ -53,7 +54,16 @@ _WORKER_RESTART = ("Worker-ul de transcriere se repornește automat când nu are
 _NEXT_CHECK = "La următoarea verificare (cel mult 15 minute)."
 _NEXT_RETENTION = "La următoarea rulare a politicii de retenție (zilnic)."
 
+DEFAULT_CLASSIFICATION = "NECLASIFICAT"
+
 SETTINGS: List[SettingDef] = [
+    SettingDef(
+        "classification_level", "CLASSIFICATION_LEVEL", "text", DEFAULT_CLASSIFICATION, "Securitate",
+        "Nivel de secretizare",
+        "Afișat pe fiecare pagină a aplicației, inclusiv la autentificare, și pe fiecare pagină "
+        "a documentelor exportate (PDF, DOCX, TXT).",
+        "Imediat (ceilalți utilizatori îl văd în cel mult un minut).", max=100,
+    ),
     SettingDef(
         "diarization_enabled", "DIARIZATION_ENABLED", "bool", False, "Transcriere",
         "Identificarea vorbitorilor (diarizare)",
@@ -136,6 +146,8 @@ def env_value(d: SettingDef) -> Any:
     raw = os.environ.get(d.env, "").split("#", 1)[0].strip()
     if raw == "":
         return d.default
+    if d.type == "text":
+        return raw
     try:
         if d.from_env:
             return d.from_env(raw)
@@ -148,6 +160,16 @@ def env_value(d: SettingDef) -> Any:
 
 def validate(d: SettingDef, value: Any) -> Any:
     """Verifică tipul și limitele; întoarce valoarea normalizată."""
+    if d.type == "text":
+        if not isinstance(value, str):
+            raise SettingValidationError("Valoarea trebuie să fie un text.")
+        # Un singur rând: apare în antetul paginilor și al documentelor
+        value = re.sub(r"\s+", " ", value).strip()
+        if value == "":
+            raise SettingValidationError("Valoarea este obligatorie.")
+        if d.max is not None and len(value) > d.max:
+            raise SettingValidationError(f"Maximum {d.max} de caractere.")
+        return value
     if d.type == "bool":
         if not isinstance(value, bool):
             raise SettingValidationError("Valoarea trebuie să fie adevărat sau fals.")
@@ -179,6 +201,12 @@ async def effective_value(db: AsyncSession, key: str) -> Any:
     d = BY_KEY[key]
     row = await db.get(AppSetting, key)
     return row.value if row is not None else env_value(d)
+
+
+async def classification_level(db: AsyncSession) -> str:
+    """Nivelul de secretizare afișat în interfață și în exporturi."""
+    value = await effective_value(db, "classification_level")
+    return value if isinstance(value, str) and value.strip() else DEFAULT_CLASSIFICATION
 
 
 def check_consistency(values: Dict[str, Any]) -> None:

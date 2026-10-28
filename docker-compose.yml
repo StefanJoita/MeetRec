@@ -9,7 +9,7 @@
 # ============================================================
 
 # Nume de proiect FIX: volumele se numesc meetrec_postgres_data, meetrec_audio_storage etc.
-# indiferent de directorul din care rulezi compose (ex. meetrec-offline-1.0.6 → 1.1.0 la upgrade).
+# indiferent de directorul din care rulezi compose (ex. meetrec-offline-1.1.0 → 1.2.0 la upgrade).
 # Fără el, un director nou = proiect nou = volume noi, goale.
 name: meetrec
 
@@ -99,7 +99,7 @@ services:
     build:
       context: ./services/api     # folderul cu Dockerfile și codul
       dockerfile: Dockerfile
-    image: meetrec/api:${MEETREC_VERSION:-1.1.0}   # tag folosit de pachetul offline (docker save/load)
+    image: meetrec/api:${MEETREC_VERSION:-1.2.0}   # tag folosit de pachetul offline (docker save/load)
     container_name: mt-api
     restart: unless-stopped
     environment:
@@ -116,7 +116,7 @@ services:
       LOG_LEVEL: ${LOG_LEVEL}
       # Setările schimbabile din Administrare → Setări: API-ul afișează valoarea
       # din .env ca implicită (aceleași valori implicite ca serviciile care le folosesc)
-      MEETREC_VERSION: ${MEETREC_VERSION:-1.1.0}
+      MEETREC_VERSION: ${MEETREC_VERSION:-1.2.0}
       WHISPER_MODEL: ${WHISPER_MODEL:-large-v3}
       DIARIZATION_ENABLED: ${DIARIZATION_ENABLED:-false}
       DIARIZATION_PARALLEL: ${DIARIZATION_PARALLEL:-true}
@@ -128,6 +128,7 @@ services:
       MAX_FILE_SIZE_BYTES: ${MAX_FILE_SIZE_BYTES:-524288000}
       RETENTION_DAYS: ${RETENTION_DAYS:-1095}
       AUDIT_LOG_RETENTION_DAYS: ${AUDIT_LOG_RETENTION_DAYS:-2190}
+      CLASSIFICATION_LEVEL: ${CLASSIFICATION_LEVEL:-NECLASIFICAT}
       # De la ce IP-uri acceptă uvicorn X-Forwarded-For (IP-ul real al clientului,
       # folosit de rate limiting și audit). Implicit: subnetul frontend-network,
       # unde stă nginx. NU folosiți "*". Vezi services/api/entrypoint.sh.
@@ -163,7 +164,7 @@ services:
     build:
       context: ./services/ingest
       dockerfile: Dockerfile
-    image: meetrec/ingest:${MEETREC_VERSION:-1.1.0}   # tag folosit de pachetul offline (docker save/load)
+    image: meetrec/ingest:${MEETREC_VERSION:-1.2.0}   # tag folosit de pachetul offline (docker save/load)
     container_name: mt-ingest
     restart: unless-stopped
     environment:
@@ -207,7 +208,7 @@ services:
         WHISPER_MODEL: ${WHISPER_MODEL:-large-v3}
     # Tag-ul conține modelul: imaginea de dev (ex. small) și cea a pachetului
     # offline (large-v3) nu se suprascriu una pe alta pe aceeași mașină.
-    image: meetrec/stt-worker:${MEETREC_VERSION:-1.1.0}-${WHISPER_MODEL:-large-v3}
+    image: meetrec/stt-worker:${MEETREC_VERSION:-1.2.0}-${WHISPER_MODEL:-large-v3}
     container_name: mt-stt-worker
     restart: unless-stopped
     # La SIGTERM worker-ul nu mai ia joburi noi și NU așteaptă jobul curent:
@@ -298,7 +299,7 @@ services:
     build:
       context: ./frontend
       dockerfile: Dockerfile
-    image: meetrec/frontend:${MEETREC_VERSION:-1.1.0}   # tag folosit de pachetul offline (docker save/load)
+    image: meetrec/frontend:${MEETREC_VERSION:-1.2.0}   # tag folosit de pachetul offline (docker save/load)
     container_name: mt-frontend
     restart: unless-stopped
     networks:
@@ -313,7 +314,7 @@ services:
     build:
       context: ./services/audit-retention
       dockerfile: Dockerfile
-    image: meetrec/audit-retention:${MEETREC_VERSION:-1.1.0}   # tag folosit de pachetul offline (docker save/load)
+    image: meetrec/audit-retention:${MEETREC_VERSION:-1.2.0}   # tag folosit de pachetul offline (docker save/load)
     container_name: mt-audit
     restart: unless-stopped
     environment:
@@ -350,7 +351,7 @@ services:
     build:
       context: ./services/search-indexer
       dockerfile: Dockerfile
-    image: meetrec/search-indexer:${MEETREC_VERSION:-1.1.0}   # tag folosit de pachetul offline (docker save/load)
+    image: meetrec/search-indexer:${MEETREC_VERSION:-1.2.0}   # tag folosit de pachetul offline (docker save/load)
     container_name: mt-search-indexer
     restart: unless-stopped
     environment:
