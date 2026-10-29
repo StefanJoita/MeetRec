@@ -14,6 +14,7 @@
 #   5. Certificate HTTPS (CA locală / self-signed / ale organizației)
 #   6. Pornește serviciile
 #   7. Configurează contul de administrator
+#   +  Utilitare de administrare din packages/extra/ (opțional: SSH, editoare, diagnostic, NTP)
 #
 # Re-rulare: sigură. .env, certificatele și datele existente sunt păstrate.
 # Detalii: docs/INSTALL-OFFLINE.md
@@ -301,6 +302,61 @@ else
     echo "    docker compose exec api python -m src.cli.create_admin --username admin --email admin@firma.ro --update-existing --disable-default-operator"
     warn "Până atunci există conturile implicite admin/admin123 și operator/operator123 (schimbare parolă obligatorie)."
 fi
+
+# ── Utilitare de administrare (opțional) ──────────────────────
+# packages/extra/<codename>/<grup>/ sunt depozite apt locale (cu index Packages): apt rezolvă
+# dependențele și conflictele fără internet. Lista de surse și indexurile sunt separate,
+# deci configurația apt a serverului nu este atinsă. Un eșec aici nu afectează MeetRec.
+install_extra_packages() {
+    local root="$BUNDLE_DIR/packages/extra/$CODENAME" tmp virt group pkg groups=(base) failed=() apt_opts
+    [[ -n "$CODENAME" && -d "$root/base" ]] && command -v apt-get >/dev/null || return 0
+    step "Utilitare de administrare"
+    if [[ "${SKIP_EXTRA_PACKAGES:-0}" == "1" ]]; then
+        info "SKIP_EXTRA_PACKAGES=1 — sar peste utilitarele de administrare."
+        return 0
+    fi
+    [[ "$(ask "Instalez utilitarele de administrare (SSH, editoare, diagnostic, backup)? (D/n)" "D")" =~ ^[Nn] ]] && return 0
+
+    virt=$(systemd-detect-virt 2>/dev/null || true)
+    case "$virt" in
+        vmware)   groups+=(vmware) ;;
+        kvm|qemu) groups+=(kvm) ;;
+    esac
+    if [[ "$(systemctl get-default 2>/dev/null)" == graphical.target || -f /etc/X11/default-display-manager ]]; then
+        groups+=(gui)
+    fi
+
+    tmp=$(mktemp -d)
+    for group in "${groups[@]}"; do
+        echo "deb [trusted=yes] file:$root/$group ./" >> "$tmp/sources.list"
+    done
+    apt_opts=(-o Dir::Etc::SourceList="$tmp/sources.list" -o Dir::Etc::SourceParts=/dev/null
+              -o Dir::State::Lists="$tmp/lists" -o Dir::Cache::Archives="$tmp/archives"
+              -o APT::Sandbox::User=root)
+    mkdir -p "$tmp/lists/partial" "$tmp/archives/partial"
+    if ! apt-get "${apt_opts[@]}" update -qq >/dev/null 2>&1; then
+        warn "Nu am putut citi depozitul local de utilitare; le sar."
+        rm -rf "$tmp"; return 0
+    fi
+
+    # Fiecare pachet separat: unul care nu se potrivește cu sistemul nu le blochează pe celelalte
+    info "Instalez utilitarele (grupuri: ${groups[*]})..."
+    for pkg in $(for group in "${groups[@]}"; do cat "$root/$group/packages.txt"; done); do
+        DEBIAN_FRONTEND=noninteractive apt-get "${apt_opts[@]}" install -y -qq --no-install-recommends \
+            -o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold "$pkg" >/dev/null 2>&1 \
+            || failed+=("$pkg")
+    done
+    rm -rf "$tmp"
+    if [[ ${#failed[@]} -eq 0 ]]; then
+        ok "Utilitare de administrare instalate"
+    else
+        warn "Nu s-au putut instala: ${failed[*]} (restul sunt instalate). Vezi docs/INSTALL-OFFLINE.md §5.9."
+    fi
+    if dpkg -s chrony >/dev/null 2>&1 && ! grep -qE '^(server|pool) ' /etc/chrony/sources.d/*.sources 2>/dev/null; then
+        info "Ora serverului: setează serverul NTP intern în /etc/chrony/sources.d/local.sources (docs/INSTALL-OFFLINE.md §5.9)."
+    fi
+}
+install_extra_packages
 
 # ── Sumar ─────────────────────────────────────────────────────
 echo ""
