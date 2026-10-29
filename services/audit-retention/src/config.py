@@ -35,6 +35,17 @@ class Settings(BaseSettings):
     # valid (ex. segmentul 0 respins ca duplicat) în ABANDONED_SESSION_HOURS: șterse.
     abandoned_session_hours: int = 24
 
+    # Backup (src/backup.py). Destinația e montată din BACKUP_HOST_PATH de pe server;
+    # .env și nginx/ssl sunt montate read-only în BACKUP_CONFIG_PATH.
+    backup_enabled: bool = True
+    backup_hour: int = 2                      # ora locală (TZ) a backup-ului zilnic
+    backup_keep_daily: int = 7                # câte backup-uri zilnice ale bazei de date se păstrează
+    backup_keep_weekly: int = 4               # ... și câte săptămânale
+    backup_deleted_audio_days: int = 30       # cât rămân în backup fișierele audio șterse din aplicație
+    backup_path: Path = Path("/backups")
+    backup_config_path: Path = Path("/config")
+    backup_check_interval_seconds: int = 30
+
     log_level: str = "INFO"
 
     @field_validator("database_url")

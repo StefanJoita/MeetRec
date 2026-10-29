@@ -229,6 +229,7 @@ Opțiuni: `--whisper-model large-v3-turbo` (sau `medium`, `small`), `--skip-diar
 meetrec-offline-<versiune>/
 ├── install-offline.sh          ← installerul pentru server
 ├── uninstall-offline.sh        ← dezinstalare / reinstalare de la zero (§10.1)
+├── restore-backup.sh          ← restaurare din backup-ul zilnic (§9.3)
 ├── docker-compose.yml          ← varianta offline (fără build:, pull_policy: never)
 ├── .env.example
 ├── MANIFEST.txt                ← versiuni imagini, revizii modele, pachete Docker
@@ -311,6 +312,7 @@ Dacă `.env` nu există, e creat din `.env.example` cu:
 | `DIARIZATION_ENABLED` | întrebat, dacă modelul pyannote e inclus; altfel `false` |
 | `APP_ENV` | `production` |
 | `MEETREC_VERSION` | versiunea pachetului |
+| `BACKUP_HOST_PATH` | întrebat; implicit `/opt/meetrec-backups` (backup-ul zilnic, §9.2). Se întreabă și la actualizarea unei instalări fără backup |
 
 `.env` primește permisiuni `600`. La o re-rulare, fișierul existent e păstrat neschimbat.
 
@@ -520,6 +522,11 @@ Fișierul `/opt/meetrec/.env`. După orice modificare: `docker compose up -d`.
 | `MAX_FILE_SIZE_BYTES` ✱ | `524288000` | dimensiunea maximă a unui fișier audio (500 MB); în interfață se setează în MB, maxim 600 (limita nginx) |
 | `RETENTION_DAYS` ✱ | `1095` | după câte zile de la încărcare se șterg înregistrările (audio + transcriere) |
 | `AUDIT_LOG_RETENTION_DAYS` ✱ | `2190` | retenția jurnalului de audit |
+| `BACKUP_HOST_PATH` | `/opt/meetrec-backups` | folderul de pe server pentru backup (§9.2); după schimbare: `docker compose up -d` |
+| `BACKUP_ENABLED` ✱ | `true` | backup zilnic automat; cât timp e activ, retenția așteaptă ca fișierul să fie în backup |
+| `BACKUP_HOUR` ✱ | `2` | ora backup-ului zilnic (0-23, ora serverului) |
+| `BACKUP_KEEP_DAILY` / `BACKUP_KEEP_WEEKLY` ✱ | `7` / `4` | câte backup-uri zilnice / săptămânale ale bazei de date și configurației se păstrează |
+| `BACKUP_DELETED_AUDIO_DAYS` ✱ | `30` | cât rămân în backup fișierele audio șterse din aplicație |
 | `EMBEDDING_CONTEXT_SEGMENTS` | `1` | câte segmente vecine intră în vectorul fiecărui segment la căutarea după sens; la schimbare, toți vectorii se recalculează automat, în fundal |
 | `JWT_EXPIRE_MINUTES` | `480` | durata sesiunii |
 | `NGINX_HTTPS_PORT` | `443` | portul HTTPS |
@@ -562,50 +569,71 @@ Serviciile au `restart: unless-stopped` și pornesc automat după un reboot.
 
 ### 9.1 Date persistente
 
-| Volum Docker | Conținut |
-|--------------|----------|
-| `meetrec_postgres_data` | baza de date (utilizatori, transcrieri, audit) |
-| `meetrec_audio_storage` | fișierele audio procesate |
-| `meetrec_export_storage` | exporturi PDF/DOCX |
-| `meetrec_redis_data` | coada de joburi |
+| Unde | Conținut |
+|------|----------|
+| volumul `meetrec_postgres_data` | baza de date (utilizatori, transcrieri, niveluri de clasificare, audit) |
+| volumul `meetrec_audio_storage` | fișierele audio procesate (`AAAA/LL/ZZ/<uuid>.<ext>`) |
+| volumul `meetrec_redis_data` | coada de joburi |
 | `/opt/meetrec/.env`, `/opt/meetrec/nginx/ssl/` | configurație, secrete, certificate |
+| `/opt/meetrec/data/inbox/` | fișiere în curs de preluare (loc de trecere; respinsele în `errors/`) |
+| `BACKUP_HOST_PATH` (implicit `/opt/meetrec-backups`) | backup-ul zilnic (§9.2) |
 
-### 9.2 Backup
+Exporturile (PDF, DOCX, TXT) nu se păstrează pe server: se generează la cerere și se descarcă în browser.
 
-```bash
-cd /opt/meetrec
-BK=/backup/meetrec-$(date +%F); sudo mkdir -p $BK
+### 9.2 Backup zilnic automat
 
-# Baza de date (consistent, cu serviciile pornite)
-docker compose exec -T postgres sh -c 'pg_dump -U "$POSTGRES_USER" -Fc "$POSTGRES_DB"' > $BK/db.dump
+Serviciul `audit-retention` face zilnic, la `BACKUP_HOUR` (implicit 02:00), un backup în folderul `BACKUP_HOST_PATH` din `.env`. Installerul întreabă folderul (implicit `/opt/meetrec-backups`, în afara directorului pachetului, ca să rămână la actualizări). Poate fi un disc separat sau un share montat (SMB/NFS); un backup pe același disc nu protejează la defectarea discului.
 
-# Audio + exporturi
-for v in audio_storage export_storage; do
-  docker run --rm -v meetrec_$v:/src:ro -v $BK:/dst alpine tar -czf /dst/$v.tar.gz -C /src .
-done
-
-# Configurație + certificate (conțin secrete — păstrează backup-ul protejat)
-sudo tar -czf $BK/config.tar.gz .env nginx/ssl
+```
+/opt/meetrec-backups/
+├── db/meetrec-AAAALLZZ-HHMMSS.dump        ← baza de date (pg_dump), câte una pe zi
+├── config/config-AAAALLZZ-HHMMSS.tar.gz   ← .env + nginx/ssl (conține secrete)
+├── audio/AAAA/LL/ZZ/<uuid>.<ext>          ← copia fișierelor audio (doar cele noi se copiază)
+├── audio-deleted/AAAALLZZ/...             ← fișierele șterse din aplicație, păstrate 30 de zile
+└── last-backup.json                       ← rezultatul ultimei rulări
 ```
 
-Imaginea `alpine` e folosită doar pentru backup și nu face parte din pachet. Pe un server offline, ca alternativă, folosește o imagine deja încărcată:
+- **Baza de date și configurația:** se păstrează cel mai nou backup din fiecare dintre ultimele 7 zile și din fiecare dintre ultimele 4 săptămâni (`BACKUP_KEEP_DAILY`, `BACKUP_KEEP_WEEKLY`). Un backup manual înlocuiește backup-ul din aceeași zi.
+- **Fișierele audio:** o singură copie, completată la fiecare backup cu fișierele noi (fișierele audio nu se modifică după încărcare). Un fișier șters din aplicație — manual sau de retenție — e mutat în `audio-deleted/` și șters de acolo după `BACKUP_DELETED_AUDIO_DAYS` zile (implicit 30).
+- **Legătura cu retenția:** cât timp backup-ul e activ, retenția (§8, `RETENTION_DAYS`) șterge o înregistrare doar după ce fișierul ei audio a ajuns în backup.
+- **Dacă serverul era oprit** la ora backup-ului, backup-ul rulează la pornire. Un backup eșuat se reia a doua zi sau manual.
+- **Backup-urile nu sunt criptate.** Conțin înregistrările, transcrierile și secretele din `.env`: folderul primește permisiuni `700` (doar root), iar accesul la destinație trebuie restricționat la fel ca la server.
+
+**Din interfață:**
+- *Administrare → Stare sistem → Backup*: ultimul backup (data, dimensiunea, fișierele audio noi, spațiul liber la destinație), eroarea dacă a eșuat, avertisment dacă nu există un backup reușit în ultimele 36 de ore, și butonul **„Backup acum”** (pornește în cel mult 30 de secunde).
+- *Administrare → Setări → Backup*: oprire/pornire, ora, câte backup-uri se păstrează.
+- *Jurnal audit*, filtrul „Backup”: fiecare backup (reușit sau eșuat) și fiecare pornire manuală, cu utilizatorul.
+
+**Verificare din linia de comandă:**
 
 ```bash
-docker run --rm --entrypoint tar -v meetrec_audio_storage:/src:ro -v $BK:/dst redis:7-alpine -czf /dst/audio_storage.tar.gz -C /src .
+cat /opt/meetrec-backups/last-backup.json
+docker compose logs audit-retention | grep -E "backup_completed|backup_failed"
+sudo /opt/meetrec/restore-backup.sh --list
 ```
+
+**Destinație pe un share de rețea:** montează share-ul (de ex. în `/mnt/meetrec-backup`, prin `/etc/fstab`, cu `_netdev`), pune `BACKUP_HOST_PATH=/mnt/meetrec-backup` în `.env`, apoi `docker compose up -d`. Dacă share-ul nu e montat, backup-ul eșuează („Destinația backup-ului nu există”) și apare în *Stare sistem*.
 
 ### 9.3 Restaurare
 
 ```bash
 cd /opt/meetrec
-docker compose stop api ingest stt-worker search-indexer audit-retention
-docker compose exec -T postgres sh -c 'pg_restore -U "$POSTGRES_USER" -d "$POSTGRES_DB" --clean --if-exists' < $BK/db.dump
-docker run --rm --entrypoint sh -v meetrec_audio_storage:/dst -v $BK:/src:ro redis:7-alpine \
-    -c 'rm -rf /dst/* && tar -xzf /src/audio_storage.tar.gz -C /dst'
-docker compose up -d
+sudo ./restore-backup.sh --list                                   # backup-urile disponibile
+sudo ./restore-backup.sh                                          # cel mai nou backup
+sudo ./restore-backup.sh --db meetrec-20261029-020000.dump        # un backup anume
 ```
 
----
+Scriptul cere confirmarea („da”), apoi:
+1. oprește serviciile aplicației (rămân `postgres` și `redis`);
+2. recreează baza de date din dump — **tot ce s-a adăugat după backup se pierde**;
+3. copiază în volumul audio fișierele din backup care lipsesc (`--no-audio` sare peste pas; nu se șterge nimic);
+4. pornește serviciile. Dacă backup-ul e de la o versiune mai veche, migrațiile rulează automat.
+
+Configurația nu se suprascrie: `--config` dezarhivează cel mai nou `config-*.tar.gz` într-un folder separat (`restored-config-<dată>/`), pentru comparare cu `.env` și `nginx/ssl/`.
+
+**Un fișier audio șters din greșeală** (în ultimele 30 de zile) se găsește în `audio-deleted/<data ștergerii>/AAAA/LL/ZZ/<uuid>.<ext>`. Înregistrarea din baza de date (titlu, transcriere) se recuperează doar prin restaurarea unui backup de dinainte de ștergere.
+
+**Pe un server nou:** instalează pachetul (§5), copiază folderul de backup și setează `BACKUP_HOST_PATH` în `.env` spre el, apoi rulează `restore-backup.sh` și, cu `--config`, recuperează certificatele din arhivă. Cheia `.env` nouă (parole generate de installer) rămâne valabilă: dump-ul nu depinde de ea.
 
 ## 10. Actualizare la o versiune nouă
 
@@ -614,7 +642,7 @@ docker compose up -d
 3. Pe server:
 
 ```bash
-# backup înainte de actualizare (§9.2)
+# backup înainte de actualizare: Administrare → Stare sistem → „Backup acum” (§9.2)
 sudo tar -xf meetrec-offline-<nouă>.tar -C /opt
 cd /opt/meetrec-offline-<nouă>
 
@@ -629,6 +657,7 @@ sudo ln -sfn /opt/meetrec-offline-<nouă> /opt/meetrec
 
 - Volumele de date se păstrează: proiectul Compose are nume fix (`name: meetrec`), indiferent de director.
 - Migrațiile bazei de date (Alembic) rulează automat la pornirea API-ului.
+- Folderul de backup (`BACKUP_HOST_PATH`) e în afara directorului pachetului și rămâne neschimbat. La actualizarea de la o versiune fără backup automat, installerul întreabă folderul.
 - Installerul repornește nginx după pornirea serviciilor. Dacă actualizezi manual (`docker compose up -d` cu imagini noi), rulează și `docker compose restart nginx` (§11.9).
 - Dacă versiunea nouă schimbă modelul de căutare după sens sau contextul (ex. de la 1.0.2 la 1.0.3), search-indexer recalculează în fundal vectorii tuturor transcrierilor. Între timp, căutarea exactă funcționează normal; progresul apare în *Administrare → Stare sistem*.
 - Dacă rețeaua Docker `mt-frontend` existentă are alt subnet decât `FRONTEND_SUBNET` (instalări anterioare, fără subnet fix), installerul oprește containerele și o recreează. Volumele de date nu sunt afectate.
@@ -656,7 +685,7 @@ sudo ./install-offline.sh              # instalare de la zero, din același pach
 - Sunt găsite și volumele instalărilor vechi, făcute din alte directoare (proiecte Compose cu volumul `audio_storage`); lista apare înainte de confirmare.
 - `--keep-certs` e util cu CA locală: fără el, reinstalarea generează o CA nouă, iar fiecare client trebuie să importe din nou `meetrec-ca.crt` (§6.1).
 - `--remove-docker` dezinstalează Docker doar dacă a fost pus de installer (pachetele `.deb` din `packages/docker/` sau binarele statice). Șterge și containerele altor aplicații de pe server; scriptul le listează înainte.
-- Nu se ating: pachetele de sistem (iptables, nftables, openssl), utilitarele de administrare (§2.4.1), `/etc/hosts`, CA-ul importat pe clienți și fișierele pachetului (`images/`, `packages/`), deci reinstalarea nu cere un nou transfer.
+- Nu se ating: folderul de backup (`BACKUP_HOST_PATH`, §9.2), pachetele de sistem (iptables, nftables, openssl), utilitarele de administrare (§2.4.1), `/etc/hosts`, CA-ul importat pe clienți și fișierele pachetului (`images/`, `packages/`), deci reinstalarea nu cere un nou transfer.
 - Pentru a elimina complet MeetRec după dezinstalare: `sudo rm -rf /opt/meetrec-offline-<versiune>` (și linkul `/opt/meetrec`, dacă există).
 
 ---

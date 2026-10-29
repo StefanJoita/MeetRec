@@ -14,6 +14,7 @@ from src.retention_policy import (
     delete_expired_audit_logs,
 )
 from src.audit_writer import log_retention_delete, log_audit_purge
+from src.backup import is_backed_up
 from src import runtime_settings
 
 logger = structlog.get_logger(__name__)
@@ -63,8 +64,12 @@ class RetentionScheduler:
         expired = await fetch_expired_recordings(pool)
         logger.info("expired_recordings_found", count=len(expired))
 
-        deleted_recordings = 0
+        deleted_recordings = waiting_backup = 0
         for rec in expired:
+            # Cu backup-ul activ, o înregistrare se șterge doar după ce fișierul ei e în backup
+            if settings.backup_enabled and not is_backed_up(rec.file_path):
+                waiting_backup += 1
+                continue
             success = await delete_recording(pool, rec, dry_run=settings.retention_dry_run)
             if success and not settings.retention_dry_run:
                 await log_retention_delete(pool, rec.id, rec.title)
@@ -79,5 +84,6 @@ class RetentionScheduler:
         logger.info(
             "retention_run_completed",
             deleted_recordings=deleted_recordings,
+            waiting_for_backup=waiting_backup,
             deleted_audit_logs=deleted_logs,
         )

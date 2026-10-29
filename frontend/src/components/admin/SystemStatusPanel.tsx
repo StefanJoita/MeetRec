@@ -1,9 +1,10 @@
-import { useQuery } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
-import { AlertTriangle, Cpu, HardDrive, ListOrdered, Search, Server } from 'lucide-react'
-import { getSystemStatus, type SystemStatus } from '@/api/admin'
+import { AlertTriangle, Archive, Cpu, HardDrive, ListOrdered, Loader2, Search, Server } from 'lucide-react'
+import { getSystemStatus, runBackupNow, type BackupStatus, type SystemStatus } from '@/api/admin'
 import { SkeletonTable } from '@/components/ui/Skeleton'
 import { StatusBadge } from '@/components/ui/StatusBadge'
+import { useToast } from '@/contexts/ToastContext'
 
 function formatBytes(bytes: number): string {
   const gb = bytes / 1024 ** 3
@@ -14,6 +15,81 @@ function secondsAgo(epochSeconds: number): string {
   const s = Math.max(0, Math.round(Date.now() / 1000 - epochSeconds))
   if (s < 60) return `acum ${s} s`
   return `acum ${Math.round(s / 60)} min`
+}
+
+function formatDateTime(iso: string): string {
+  return new Date(iso).toLocaleString('ro-RO', { dateStyle: 'medium', timeStyle: 'short' })
+}
+
+// Un backup reușit mai vechi de atât (ore) e semnalat: backup-ul zilnic nu mai rulează
+const STALE_BACKUP_HOURS = 36
+
+function BackupCard({ backup }: { backup: BackupStatus }) {
+  const toast = useToast()
+  const queryClient = useQueryClient()
+  const run = useMutation({
+    mutationFn: runBackupNow,
+    onSuccess: () => {
+      toast('Backup-ul pornește în cel mult 30 de secunde.', 'success')
+      queryClient.invalidateQueries({ queryKey: ['admin-system'] })
+    },
+    onError: (error) => {
+      const detail = (error as { response?: { data?: { detail?: unknown } } })?.response?.data?.detail
+      toast(typeof detail === 'string' ? detail : 'Nu am putut porni backup-ul.', 'error')
+    },
+  })
+  const { last } = backup
+  const running = last?.state === 'running' || backup.requested
+  const lastSuccess = last?.state === 'ok' ? last.finished_at : last?.last_success_at
+  const stale = lastSuccess
+    ? Date.now() - new Date(lastSuccess).getTime() > STALE_BACKUP_HOURS * 3600_000
+    : true
+
+  return (
+    <Card icon={<Archive className="h-4 w-4 text-teal-600" />} title="Backup">
+      {running ? (
+        <p className="text-sm text-blue-700 flex items-center gap-1.5">
+          <Loader2 className="h-4 w-4 animate-spin" />
+          {last?.state === 'running' ? 'Backup în curs…' : 'Backup cerut, pornește în curând…'}
+        </p>
+      ) : last?.state === 'failed' ? (
+        <p className="text-sm text-red-600 flex items-start gap-1.5">
+          <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
+          <span>Ultimul backup a eșuat{last.finished_at ? ` (${formatDateTime(last.finished_at)})` : ''}: {last.error}</span>
+        </p>
+      ) : last?.state === 'ok' && last.finished_at ? (
+        <p className="text-sm text-gray-900">Ultimul backup: {formatDateTime(last.finished_at)}</p>
+      ) : (
+        <p className="text-sm text-gray-500">Niciun backup încă.</p>
+      )}
+
+      {last?.state === 'ok' && (
+        <p className="text-xs text-gray-500 mt-1">
+          Bază de date {formatBytes(last.db_bytes ?? 0)} · {last.audio_files ?? 0} fișiere audio
+          ({formatBytes(last.audio_bytes ?? 0)}), {last.audio_copied ?? 0} noi
+          {last.free_bytes !== undefined && <> · liber la destinație {formatBytes(last.free_bytes)}</>}
+        </p>
+      )}
+      {last?.state === 'failed' && last.last_success_at && (
+        <p className="text-xs text-gray-500 mt-1">Ultimul backup reușit: {formatDateTime(last.last_success_at)}</p>
+      )}
+      {backup.enabled === false ? (
+        <p className="text-xs text-amber-700 mt-1">Backup-ul zilnic e oprit (Administrare → Setări).</p>
+      ) : stale && !running && (
+        <p className="text-xs text-amber-700 mt-1">Niciun backup reușit în ultimele {STALE_BACKUP_HOURS} de ore.</p>
+      )}
+      {backup.path && <p className="text-xs text-gray-400 mt-1">Destinație: {backup.path}</p>}
+
+      <button
+        type="button"
+        className="btn-secondary mt-3"
+        disabled={running || run.isPending}
+        onClick={() => run.mutate()}
+      >
+        Backup acum
+      </button>
+    </Card>
+  )
 }
 
 function Card({ icon, title, children }: { icon: React.ReactNode; title: string; children: React.ReactNode }) {
@@ -142,6 +218,8 @@ export default function SystemStatusPanel() {
           <p className="text-sm text-gray-500">Indisponibil.</p>
         )}
       </Card>
+
+      <BackupCard backup={data.backup} />
 
       <Card icon={<ListOrdered className="h-4 w-4 text-emerald-600" />} title="Înregistrări pe stări">
         {Object.keys(data.recordings_by_status).length === 0 ? (

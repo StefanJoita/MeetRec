@@ -53,6 +53,7 @@ _WORKER_RESTART = ("Worker-ul de transcriere se repornește automat când nu are
                    "în lucru (încărcarea modelelor durează 1-3 minute).")
 _NEXT_CHECK = "La următoarea verificare (cel mult 15 minute)."
 _NEXT_RETENTION = "La următoarea rulare a politicii de retenție (zilnic)."
+_NEXT_BACKUP = "La următorul backup."
 
 DEFAULT_CLASSIFICATION = "NECLASIFICAT"
 
@@ -131,6 +132,41 @@ SETTINGS: List[SettingDef] = [
         "Păstrarea jurnalului de audit",
         "Intrările din jurnalul de audit mai vechi de atât sunt șterse automat. Minimum un an.",
         _NEXT_RETENTION, min=365, max=3650, unit="zile",
+    ),
+    SettingDef(
+        "backup_enabled", "BACKUP_ENABLED", "bool", True, "Backup",
+        "Backup zilnic automat",
+        "Copiază zilnic baza de date, fișierele audio noi și configurația (.env, certificate) "
+        "în folderul de backup. Cât timp e activ, retenția șterge o înregistrare doar după "
+        "ce fișierul ei a ajuns în backup.",
+        "La următoarea verificare (cel mult un minut).",
+    ),
+    SettingDef(
+        "backup_hour", "BACKUP_HOUR", "int", 2, "Backup",
+        "Ora backup-ului",
+        "Backup-ul pornește zilnic după această oră (ora serverului). Dacă serverul era "
+        "oprit la ora respectivă, backup-ul rulează la pornire.",
+        "La următoarea verificare (cel mult un minut).", min=0, max=23,
+    ),
+    SettingDef(
+        "backup_keep_daily", "BACKUP_KEEP_DAILY", "int", 7, "Backup",
+        "Backup-uri zilnice păstrate",
+        "Câte copii zilnice ale bazei de date și ale configurației se păstrează. "
+        "Fișierele audio au o singură copie, actualizată la fiecare backup.",
+        _NEXT_BACKUP, min=1, max=90,
+    ),
+    SettingDef(
+        "backup_keep_weekly", "BACKUP_KEEP_WEEKLY", "int", 4, "Backup",
+        "Backup-uri săptămânale păstrate",
+        "În plus față de cele zilnice: cel mai nou backup din fiecare dintre ultimele săptămâni.",
+        _NEXT_BACKUP, min=0, max=52,
+    ),
+    SettingDef(
+        "backup_deleted_audio_days", "BACKUP_DELETED_AUDIO_DAYS", "int", 30, "Backup",
+        "Păstrarea în backup a fișierelor audio șterse",
+        "Fișierele audio șterse din aplicație (manual sau de retenție) rămân atât timp "
+        "în backup, apoi sunt șterse și de acolo.",
+        _NEXT_BACKUP, min=1, max=3650, unit="zile",
     ),
 ]
 

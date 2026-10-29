@@ -41,6 +41,7 @@ services/stt-worker/models/
 data/inbox/*
 data/processed/*
 data/exports/*
+/backups/
 !data/inbox/.gitkeep
 !data/processed/.gitkeep
 !data/exports/.gitkeep

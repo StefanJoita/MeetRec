@@ -56,6 +56,7 @@ const RESOURCE_LABELS: Record<string, string> = {
   search: 'Căutare',
   app_setting: 'Setare',
   audit_logs: 'Jurnal de audit',
+  backup: 'Backup',
 }
 
 const RESOURCE_FILTERS: { value: AuditResourceGroup | ''; label: string }[] = [
@@ -64,6 +65,7 @@ const RESOURCE_FILTERS: { value: AuditResourceGroup | ''; label: string }[] = [
   { value: 'user', label: 'Utilizatori' },
   { value: 'app_setting', label: 'Setări' },
   { value: 'audit_logs', label: 'Jurnal de audit' },
+  { value: 'backup', label: 'Backup' },
 ]
 
 function formatRelativeTime(timestamp: string): { relative: string; absolute: string } {

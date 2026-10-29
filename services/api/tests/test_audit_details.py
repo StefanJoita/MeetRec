@@ -199,6 +199,10 @@ async def test_speaker_changes_use_user_names():
      "3 intrări vechi din jurnal șterse"),
     ("SEARCH", None, {"query": "buget"}, "„buget”"),
     ("VIEW", "recording", {"resource_name": "X"}, None),
+    ("CREATE", "backup", {"event": "backup_requested"}, "backup pornit manual"),
+    ("CREATE", "backup", {"trigger": "scheduled", "db_bytes": 5 * 1024 * 1024, "audio_copied": 3},
+     "backup zilnic · bază de date 5,0 MB · 3 fișiere audio noi"),
+    ("CREATE", "backup", {"trigger": "manual", "error": "disc plin"}, "backup eșuat: disc plin"),
 ])
 def test_describe(action, resource_type, details, expected):
     assert describe(action, resource_type, details) == expected

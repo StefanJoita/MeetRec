@@ -22,6 +22,11 @@ KEYS = (
     "audit_log_retention_days",
     "stuck_transcription_hours",
     "abandoned_session_hours",
+    "backup_enabled",
+    "backup_hour",
+    "backup_keep_daily",
+    "backup_keep_weekly",
+    "backup_deleted_audio_days",
 )
 
 # Valorile din .env, capturate la import (înainte de orice suprascriere)

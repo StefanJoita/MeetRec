@@ -30,6 +30,28 @@ export interface WorkerStatus {
   updated_at: number
 }
 
+export interface BackupRun {
+  state: 'running' | 'ok' | 'failed'
+  trigger: 'scheduled' | 'manual'
+  started_at: string
+  finished_at?: string
+  last_success_at?: string
+  db_bytes?: number
+  audio_files?: number
+  audio_bytes?: number
+  audio_copied?: number
+  audio_moved_to_deleted?: number
+  free_bytes?: number
+  error?: string
+}
+
+export interface BackupStatus {
+  enabled: boolean | null
+  path: string | null
+  last: BackupRun | null
+  requested: boolean
+}
+
 export interface SystemStatus {
   version: string | null
   whisper_model_configured: string | null
@@ -41,6 +63,7 @@ export interface SystemStatus {
   }
   search_index: { available: boolean; model: string | null; pending_segments: number | null }
   disk: { total_bytes: number; used_bytes: number; free_bytes: number } | null
+  backup: BackupStatus
   recordings_by_status: Record<string, number>
   recent_failures: { id: string; title: string; error_message: string | null; updated_at: string | null }[]
 }
@@ -88,6 +111,11 @@ export async function resetSetting(key: string): Promise<AppSetting[]> {
 export async function getSystemStatus(): Promise<SystemStatus> {
   const { data } = await client.get<SystemStatus>('/admin/system')
   return data
+}
+
+// Backup-ul pornește în cel mult 30 de secunde (îl rulează serviciul audit-retention)
+export async function runBackupNow(): Promise<void> {
+  await client.post('/admin/backup/run')
 }
 
 export async function getUploadConfig(): Promise<{ max_file_size_bytes: number }> {

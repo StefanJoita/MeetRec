@@ -5,7 +5,8 @@
 #   GET    /admin/settings          → toate setările, cu valoarea efectivă și sursa
 #   PUT    /admin/settings/{key}    → setează din interfață (validat, auditat)
 #   DELETE /admin/settings/{key}    → revine la valoarea din .env
-#   GET    /admin/system            → versiune, worker-e, coadă, disc, eșecuri recente
+#   GET    /admin/system            → versiune, worker-e, coadă, disc, backup, eșecuri recente
+#   POST   /admin/backup/run        → pornește un backup acum (îl rulează audit-retention)
 #   GET    /admin/processing        → durata transcrierii pe înregistrare și pe etape
 #   GET    /admin/queue             → coada de transcriere: în lucru (etapă, procent) și în așteptare
 #   POST   /admin/queue/{id}/cancel     → scoate din coadă / oprește transcrierea în curs
@@ -250,6 +251,29 @@ async def _search_index_status() -> Dict[str, Any]:
         return {"available": False, "model": None, "pending_segments": None}
 
 
+# Chei Redis comune cu audit-retention (services/audit-retention/src/backup.py)
+BACKUP_STATUS_KEY = "meetrec:backup:status"
+BACKUP_REQUEST_KEY = "meetrec:backup:request"
+
+
+async def _backup_status() -> Dict[str, Any]:
+    """Ultima rulare a backup-ului (publicată de audit-retention) și dacă așteaptă o cerere."""
+    result: Dict[str, Any] = {
+        "enabled": None, "path": os.environ.get("BACKUP_HOST_PATH") or None,
+        "last": None, "requested": False,
+    }
+    r = aioredis.from_url(settings.redis_url, decode_responses=True, socket_timeout=3)
+    try:
+        raw = await r.get(BACKUP_STATUS_KEY)
+        result["last"] = json.loads(raw) if raw else None
+        result["requested"] = bool(await r.exists(BACKUP_REQUEST_KEY))
+    except Exception as e:
+        logger.warning("admin_system_backup_status_error", error=str(e))
+    finally:
+        await r.aclose()
+    return result
+
+
 def _disk() -> Optional[Dict[str, int]]:
     try:
         usage = shutil.disk_usage(settings.audio_storage_path)
@@ -279,6 +303,8 @@ async def system_status(
         "queue": await _redis_status(),
         "search_index": await _search_index_status(),
         "disk": _disk(),
+        "backup": {**await _backup_status(),
+                   "enabled": await registry.effective_value(db, "backup_enabled")},
         "recordings_by_status": {str(k.value if hasattr(k, "value") else k): v for k, v in counts.items()},
         "recent_failures": [
             {"id": str(f.id), "title": f.title, "error_message": f.error_message,
@@ -286,6 +312,33 @@ async def system_status(
             for f in failed
         ],
     }
+
+
+@router.post("/backup/run", status_code=202, summary="Pornește un backup acum")
+async def run_backup_now(
+    request: Request,
+    admin: User = Depends(get_current_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    """Cererea ajunge la audit-retention prin Redis; backup-ul pornește în cel mult 30 de secunde."""
+    r = aioredis.from_url(settings.redis_url, decode_responses=True, socket_timeout=3)
+    try:
+        raw = await r.get(BACKUP_STATUS_KEY)
+        if raw and json.loads(raw).get("state") == "running":
+            raise HTTPException(status_code=409, detail="Un backup rulează deja.")
+        await r.set(BACKUP_REQUEST_KEY, json.dumps({"by": admin.username}))
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("backup_request_failed", error=str(e))
+        raise HTTPException(status_code=503, detail="Cererea nu a putut fi trimisă (Redis indisponibil).") from e
+    finally:
+        await r.aclose()
+    await log_audit(request, db, action="CREATE", resource_type="backup",
+                    details={"event": "backup_requested"})
+    await db.commit()
+    logger.info("backup_requested", by=admin.username)
+    return {"requested": True}
 
 
 # ── Durata procesării ────────────────────────────────────────

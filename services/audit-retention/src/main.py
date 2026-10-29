@@ -13,6 +13,7 @@ import structlog
 
 from src.config import settings
 from src.database import DatabaseClient
+from src.backup import BackupScheduler
 from src.retention_scheduler import RetentionScheduler
 from src.stuck_reaper import StuckTranscriptionReaper
 
@@ -42,6 +43,7 @@ async def main() -> None:
 
     scheduler = RetentionScheduler(db)
     reaper = StuckTranscriptionReaper(db)
+    backup = BackupScheduler(db)
 
     # ── Signal handlers pentru oprire curată ──────────────────────────────
     loop = asyncio.get_running_loop()
@@ -50,12 +52,13 @@ async def main() -> None:
         logger.info("signal_received", signal=sig.name)
         scheduler.stop()
         reaper.stop()
+        backup.stop()
 
     for sig in (signal.SIGTERM, signal.SIGINT):
         loop.add_signal_handler(sig, lambda s=sig: handle_signal(s))
 
     try:
-        await asyncio.gather(scheduler.start(), reaper.start())
+        await asyncio.gather(scheduler.start(), reaper.start(), backup.start())
     finally:
         await db.disconnect()
         logger.info("audit_retention_stopped")

@@ -1,7 +1,7 @@
 import client from '@/api/client'
 import type { PaginatedAuditLogs } from '@/api/types'
 
-export type AuditResourceGroup = 'recording' | 'user' | 'app_setting' | 'audit_logs'
+export type AuditResourceGroup = 'recording' | 'user' | 'app_setting' | 'audit_logs' | 'backup'
 
 export interface AuditLogFilters {
   search?: string
