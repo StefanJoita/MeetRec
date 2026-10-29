@@ -80,10 +80,10 @@ describe('Încărcare fișiere', () => {
     const input = renderPage()
     await screen.findByText(/max 1 MB fiecare/)
 
-    await user.upload(input, [audio('mare.wav', 2 * 1024 * 1024), audio('video.mp4'), audio('bun.m4a')])
+    await user.upload(input, [audio('mare.wav', 2 * 1024 * 1024), audio('video.avi'), audio('bun.m4a')])
     const list = screen.getByRole('list', { name: 'Fișiere de încărcat' })
     expect(within(list).getByText('Fișierul depășește limita de 1 MB.')).toBeInTheDocument()
-    expect(within(list).getByText(/Formatul \.mp4 nu e acceptat/)).toBeInTheDocument()
+    expect(within(list).getByText(/Formatul \.avi nu e acceptat/)).toBeInTheDocument()
 
     await chooseClassification(user)
     await user.click(screen.getByRole('button', { name: 'Trimite la transcriere' }))

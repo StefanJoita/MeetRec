@@ -265,3 +265,35 @@ class TestFfprobeFallback:
 
         assert result.is_valid and result.metadata.duration_seconds == 120
         run.assert_not_called()
+
+
+class TestMp4:
+    """MP4 (doar audio sau cu video): acceptat dacă are un flux audio."""
+
+    @staticmethod
+    def _mp4(tmp_path: Path) -> Path:
+        f = tmp_path / "Sedinta Teams.mp4"
+        f.write_bytes(b"\x00\x00\x00\x18ftypisom" + b"\x00" * 1000)
+        return f
+
+    def test_mp4_with_audio_is_accepted(self, validator, tmp_path):
+        probe = {"streams": [{"sample_rate": "48000", "channels": 2}],
+                 "format": {"duration": "1800.2", "bit_rate": "2500000"}}
+        audio = TestFfprobeFallback._mutagen_with_length(1800.2)
+        with patch("src.validator.mutagen.File", return_value=audio), \
+             patch("src.validator.subprocess.run", return_value=TestFfprobeFallback._ffprobe_output(probe)):
+            result = validator.validate(self._mp4(tmp_path))
+
+        assert result.is_valid
+        assert result.metadata.duration_seconds == 1800
+
+    def test_mp4_without_audio_is_rejected(self, validator, tmp_path):
+        # Video fără sunet: mutagen raportează durata filmului, dar nu există ce transcrie
+        audio = TestFfprobeFallback._mutagen_with_length(600.0)
+        with patch("src.validator.mutagen.File", return_value=audio), \
+             patch("src.validator.subprocess.run",
+                   return_value=TestFfprobeFallback._ffprobe_output({"streams": [], "format": {}})):
+            result = validator.validate(self._mp4(tmp_path))
+
+        assert not result.is_valid
+        assert result.error_code == "NO_AUDIO_STREAM"

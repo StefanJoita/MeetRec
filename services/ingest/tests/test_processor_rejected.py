@@ -87,7 +87,8 @@ def make_client():
 @pytest.mark.parametrize("filename, expected_format", [
     ("sedinta.m4a", "m4a"),
     ("sedinta.MP3", "mp3"),
-    ("Prima parte conferinta.m4a.mp4", "unknown"),   # extensie respinsă: nu e în tipul audio_format
+    ("Prima parte conferinta.m4a.mp4", "mp4"),
+    ("sedinta.avi", "unknown"),   # extensie respinsă: nu e în tipul audio_format
 ])
 async def test_rejected_recording_row(filename, expected_format):
     client, conn = make_client()

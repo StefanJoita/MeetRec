@@ -8,7 +8,7 @@ import { useUploadQueue, type UploadItem } from '@/hooks/useUploadQueue'
 import MeetingDetailsForm, { emptyMeetingDetails, trimmedDetails } from '@/components/recording/MeetingDetailsForm'
 import { cn } from '@/lib/cn'
 
-const FORMATS = ['mp3', 'wav', 'm4a', 'ogg', 'flac', 'webm']
+const FORMATS = ['mp3', 'wav', 'm4a', 'mp4', 'ogg', 'flac', 'webm']
 const ACCEPTED = FORMATS.map(f => `.${f}`).join(',')
 const DEFAULT_MAX_MB = 500
 

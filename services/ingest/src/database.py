@@ -26,7 +26,7 @@ from src.validator import AudioMetadata
 logger=get_logger(__name__  )
 
 # Valorile tipului audio_format din baza de date (în afară de 'unknown')
-KNOWN_AUDIO_FORMATS = {"wav", "mp3", "m4a", "ogg", "flac", "webm"}
+KNOWN_AUDIO_FORMATS = {"wav", "mp3", "m4a", "mp4", "ogg", "flac", "webm"}
 
 # Nivelurile de clasificare (aceeași listă ca în API: services/classification.py).
 # Fișierele copiate direct în inbox, fără nivel, devin N.

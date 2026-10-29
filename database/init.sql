@@ -56,6 +56,7 @@ CREATE TYPE audio_format AS ENUM (
     'wav',     -- cel mai bun pentru STT (fără compresie)
     'mp3',     -- comprimat, mai mic
     'm4a',     -- format Apple
+    'mp4',     -- MP4 (doar audio sau cu video — se transcrie sunetul)
     'ogg',     -- open source
     'flac',    -- compresie fără pierderi
     'webm',    -- format web
