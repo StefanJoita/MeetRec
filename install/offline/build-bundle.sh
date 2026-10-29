@@ -16,6 +16,7 @@
 #   ├── images/*.tar.gz              ← toate imaginile Docker (docker save)
 #   ├── packages/docker/             ← Docker Engine + Compose (.deb + static)
 #   ├── packages/system/             ← iptables, nftables, openssl + dependențe (.deb)
+#   ├── packages/extra/              ← utilitare de administrare (SSH, editoare, diagnostic, NTP)
 #   ├── docs/INSTALL-OFFLINE.md
 #   ├── MANIFEST.txt                 ← versiuni, imagini, modele
 #   └── SHA256SUMS                   ← verificare integritate după transfer
@@ -27,6 +28,7 @@
 #   BUNDLE_DIR=/d/meetrec-dist bash install/offline/build-bundle.sh  # pachetul pe alt disc
 #   SKIP_DOCKER_PACKAGES=1 bash install/offline/build-bundle.sh   # serverul are deja Docker
 #   SKIP_SYSTEM_PACKAGES=1 bash install/offline/build-bundle.sh   # fără pachete de sistem
+#   SKIP_EXTRA_PACKAGES=1 bash install/offline/build-bundle.sh    # fără utilitare de administrare
 #
 # Prerechizite: docker (cu compose v2), curl, gzip, sha256sum, tar.
 # Modelele ML: dacă lipsesc, sunt descărcate automat (HF_TOKEN din .env pentru diarizare).
@@ -137,6 +139,14 @@ else
     bash install/offline/download-system-packages.sh "$DIST/packages/system"
     mkdir -p "$OUT/packages"
     cp -r "$DIST/packages/system" "$OUT/packages/"
+fi
+# Utilitare de administrare (SSH, editoare, diagnostic, backup, NTP): opționale la instalare
+if [[ "${SKIP_EXTRA_PACKAGES:-0}" == "1" ]]; then
+    warn "SKIP_EXTRA_PACKAGES=1 — utilitarele de administrare nu sunt incluse."
+else
+    bash install/offline/download-extra-packages.sh "$DIST/packages/extra"
+    mkdir -p "$OUT/packages"
+    cp -r "$DIST/packages/extra" "$OUT/packages/"
 fi
 
 # ── 6. Fișiere de deployment ──────────────────────────────────

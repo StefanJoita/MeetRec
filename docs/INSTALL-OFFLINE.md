@@ -123,6 +123,19 @@ Fiecare set `.deb` conține: `containerd.io`, `docker-ce-cli`, `docker-ce`, `doc
 
 Dependențele sunt rezolvate automat de `apt`, la generarea pachetului, într-un container cu aceeași versiune de sistem (`install/offline/download-system-packages.sh`). Pe server se instalează **doar** pachetele care lipsesc; cele existente nu sunt modificate.
 
+### 2.4.1 Utilitare de administrare (în `packages/extra/`)
+
+Nu sunt necesare pentru MeetRec, dar ușurează administrarea unui server fără internet. Sunt incluse pentru Ubuntu 22.04, Ubuntu 24.04 și Debian 12, cu toate dependențele (`install/offline/download-extra-packages.sh`), în patru grupuri:
+
+| Grup | Pachete | Se instalează |
+|------|---------|---------------|
+| `base` | **acces și editare:** `openssh-server`, `nano`, `vim`, `tmux`, `less`, `tree`, `bash-completion`<br>**diagnostic:** `curl`, `jq`, `htop`, `iotop`, `sysstat`, `ncdu`, `lsof`, `smartmontools`<br>**rețea:** `tcpdump`, `dnsutils`, `net-tools`, `mtr-tiny`, `iputils-ping`, `traceroute`<br>**backup și arhive:** `rsync`, `zip`, `unzip`, `pv`, `pigz`, `xz-utils`<br>**stocare:** `lvm2`, `cifs-utils`, `nfs-common`<br>**sistem:** `chrony` (sincronizarea orei), `cron`, `logrotate`, `ca-certificates`, `gnupg`, `auditd` | mereu (dacă nu e refuzat) |
+| `vmware` | `open-vm-tools` | doar pe VMware (`systemd-detect-virt`) |
+| `kvm` | `qemu-guest-agent` | doar pe KVM / QEMU / Proxmox |
+| `gui` | `gedit` | doar dacă serverul are interfață grafică |
+
+Nu sunt incluse intenționat: `postgresql-client` (`pg_dump` din distribuție e mai vechi decât PostgreSQL 16 și refuză backup-ul; se folosește cel din container, §9.2) și `ufw` (Docker ocolește regulile ufw pentru porturile publicate).
+
 ### 2.5 Alte dependențe incluse
 
 | Componentă | Unde |
@@ -226,6 +239,7 @@ meetrec-offline-<versiune>/
 ├── images/                     ← 9 imagini Docker (.tar.gz)
 ├── packages/docker/            ← Docker Engine + Compose pentru server
 ├── packages/system/            ← iptables, nftables, openssl + dependențe (.deb)
+├── packages/extra/             ← utilitare de administrare (SSH, editoare, diagnostic, backup, NTP)
 ├── data/                       ← inbox / processed / exports
 └── docs/INSTALL-OFFLINE.md     ← acest manual
 ```
@@ -338,6 +352,24 @@ docker compose exec api python -m src.cli.create_admin \
     --username admin --email admin@firma.ro --update-existing --disable-default-operator
 # parola se cere interactiv
 ```
+
+### 5.9 Utilitare de administrare
+
+La final, installerul întreabă dacă instalează utilitarele din `packages/extra/` (§2.4.1). Răspunsul implicit e „Da”; cu `--non-interactive` se instalează fără întrebare. `SKIP_EXTRA_PACKAGES=1 sudo -E ./install-offline.sh` le sare.
+
+- Fiecare grup din `packages/extra/<codename>/` e un depozit `apt` local. `apt` rezolvă dependențele și conflictele fără internet (de ex. `chrony` înlocuiește `systemd-timesyncd`). Configurația `apt` a serverului (`/etc/apt/sources.list`) nu este modificată.
+- Pachetele se instalează pe rând; dacă unul nu se potrivește cu sistemul (de ex. cere o bibliotecă mai nouă decât cea instalată, §11.1), restul se instalează oricum, iar installerul le afișează pe cele eșuate. Un eșec aici nu afectează MeetRec.
+- Rulare separată, doar pentru utilitare: rulează din nou `sudo ./install-offline.sh` (pașii deja făcuți sunt păstrați).
+
+**Ora serverului.** `chrony` vine configurat cu serverele publice ale distribuției, inaccesibile offline. Setează serverul NTP intern (ora corectă contează pentru jurnalul de audit și datele înregistrărilor):
+
+```bash
+echo "server ntp.firma.local iburst" | sudo tee /etc/chrony/sources.d/local.sources
+sudo systemctl restart chrony
+chronyc sources        # serverul intern trebuie să apară cu ^*
+```
+
+**SSH.** `openssh-server` pornește imediat, pe portul 22. Autentificarea `root` cu parolă e dezactivată implicit; folosește un utilizator obișnuit cu `sudo`.
 
 ---
 
