@@ -134,7 +134,7 @@ Nu sunt necesare pentru MeetRec, dar ușurează administrarea unui server fără
 | `kvm` | `qemu-guest-agent` | doar pe KVM / QEMU / Proxmox |
 | `gui` | `gedit` | doar dacă serverul are interfață grafică |
 
-Nu sunt incluse intenționat: `postgresql-client` (`pg_dump` din distribuție e mai vechi decât PostgreSQL 16 și refuză backup-ul; se folosește cel din container, §9.2) și `ufw` (Docker ocolește regulile ufw pentru porturile publicate).
+Nu sunt incluse intenționat: `postgresql-client` (pe Ubuntu 22.04, `pg_dump` din distribuție e versiunea 14 și refuză backup-ul bazei PostgreSQL 15 a aplicației; backup-ul se face cu `pg_dump` din container, §9.2) și `ufw` (Docker ocolește regulile ufw pentru porturile publicate).
 
 ### 2.5 Alte dependențe incluse
 
@@ -200,7 +200,7 @@ Scriptul face, în ordine:
 2. descarcă modelele ML în `services/*/models/`, dacă lipsesc (`install/models/download-models.py`, rulat într-un container `python:3.11-slim`);
 3. construiește cele 6 imagini `meetrec/*` pentru `linux/amd64` și descarcă imaginile de bază;
 4. exportă toate imaginile cu `docker save` în `images/*.tar.gz`;
-5. descarcă Docker Engine (`.deb` + binare statice) și pachetele de sistem (`iptables`, `nftables`, `openssl` + dependențe) pentru fiecare versiune de sistem suportată. Sari peste ele cu `SKIP_DOCKER_PACKAGES=1`, respectiv `SKIP_SYSTEM_PACKAGES=1`;
+5. descarcă Docker Engine (`.deb` + binare statice), pachetele de sistem (`iptables`, `nftables`, `openssl` + dependențe) și utilitarele de administrare (§2.4.1) pentru fiecare versiune de sistem suportată. Sari peste ele cu `SKIP_DOCKER_PACKAGES=1`, `SKIP_SYSTEM_PACKAGES=1`, respectiv `SKIP_EXTRA_PACKAGES=1`;
 6. copiază fișierele de deployment și generează un `docker-compose.yml` fără `build:` și cu `pull_policy: never`;
 7. calculează `SHA256SUMS`, scrie `MANIFEST.txt` și creează arhiva.
 
@@ -209,7 +209,7 @@ Durata: 30–60 de minute la prima rulare (descărcarea PyTorch și a modelelor)
 **Rezultat:**
 
 ```
-dist/meetrec-offline-<versiune>.tar          (~8–10 GB)
+dist/meetrec-offline-<versiune>.tar          (~7 GB cu large-v3-turbo, ~9 GB cu large-v3)
 dist/meetrec-offline-<versiune>.tar.sha256
 ```
 
@@ -328,7 +328,7 @@ docker compose up -d --no-build --pull never
 ```
 
 - `data/inbox` primește proprietarul UID 1000 (utilizatorul din containerul API).
-- Installerul așteaptă până la 3 minute ca API-ul să răspundă la `/health`.
+- Installerul așteaptă până la 3 minute ca API-ul să răspundă la `/health`, apoi repornește nginx (la o actualizare, nginx ar păstra adresele vechi ale containerelor recreate, §11.9).
 - `stt-worker` mai are nevoie de 1–3 minute ca să încarce modelul Whisper.
 
 ### 5.7 Pasul 7 — Contul de administrator
@@ -462,11 +462,11 @@ curl -I https://meetrec.firma.local          # fără -k dacă CA-ul e importat
 
 **Test funcțional:**
 1. Deschide `https://<server>` și autentifică-te cu administratorul.
-2. *Înregistrări → Adaugă*: încarcă un fișier audio scurt (30–60 de secunde, în română).
+2. *Înregistrări → Adaugă*: alege nivelul de clasificare și încarcă un fișier audio scurt (30–60 de secunde, în română). Formate acceptate: MP3, WAV, M4A, MP4 (doar audio sau cu video — se transcrie sunetul), OGG, FLAC, WEBM; maxim 500 MB pe fișier (`MAX_FILE_SIZE_BYTES`, §8). În lista de înregistrări, nivelul apare în coloana „Clasificare”.
 3. Statusul trebuie să treacă prin `queued`, `transcribing` și `completed`.
 4. Deschide transcrierea: textul are timestamps, iar dacă diarizarea e activă, are și vorbitori (V1, V2…). Asociază un vorbitor cu un participant din pagina înregistrării.
 5. *Căutare*: caută un cuvânt din transcriere, o dată cu diacritice și o dată fără, și apasă Enter. Rezultatele apar grupate pe ședință; click pe un fragment pornește audio-ul la momentul lui.
-6. Exportă transcrierea în PDF și DOCX și verifică diacriticele și vorbitorii.
+6. Exportă transcrierea în PDF și DOCX și verifică diacriticele, vorbitorii, nivelul de clasificare din antet și numele fișierului (`AAAALLZZ_COD_Titlu.pdf`, §8).
 7. *Administrare → Stare sistem*: la „Căutare după sens” trebuie să apară „Toate transcrierile sunt indexate”. *Administrare → Procesări*: transcrierea de test apare cu durata și etapele ei. *Jurnal audit*: autentificarea și încărcarea apar cu numele tău și al fișierului.
 
 ---
@@ -480,6 +480,22 @@ Fișierul `/opt/meetrec/.env`. După orice modificare: `docker compose up -d`.
 - Diarizarea pornită/oprită și diarizarea în paralel cer reîncărcarea modelelor: worker-ul de transcriere se repornește singur când nu are nimic în lucru (1-3 minute).
 - Celelalte se aplică la următoarea transcriere, la următoarea verificare (cel mult 15 minute) sau la următoarea rulare a retenției (zilnic).
 - Nu se pot schimba din interfață: secretele, rețeaua, căile, versiunea și modelul Whisper (fiecare imagine `stt-worker` conține un singur model).
+
+**Niveluri de clasificare.**
+
+- **Nivelul de secretizare general** apare în antetul fiecărei pagini a aplicației. Se setează din *Administrare → Setări* (text liber; implicit `NECLASIFICAT`).
+- **Nivelul fiecărei înregistrări** se alege obligatoriu la încărcare și la pornirea înregistrării din browser, și se poate schimba din *Editează*:
+
+| Cod | Nivel |
+|-----|-------|
+| `N` | Neclasificat |
+| `SSv` | Secret de serviciu |
+| `S` | Secret |
+| `SS` | Strict secret |
+
+- Nivelul înregistrării apare în listă, în pagina înregistrării, în antetul exporturilor și în numele fișierelor exportate: `AAAALLZZ_COD_Titlu.ext` (ex. `20261029_SSv_Sedinta_CA.pdf`).
+- Fișierele copiate direct în `data/inbox`, fără să treacă prin interfață, primesc nivelul `N`.
+- Jurnalul de audit exportat se numește `AAAALLZZ_Jurnal_audit.csv`.
 
 **Administrare → Stare sistem** arată versiunea, worker-ul de transcriere (model, fire, ce transcrie acum), lungimea cozii, spațiul liber pentru înregistrări, starea indexului de căutare după sens, înregistrările pe stări și ultimele eșecuri.
 
@@ -524,11 +540,7 @@ Fișierul `/opt/meetrec/.env`. După orice modificare: `docker compose up -d`.
 
 Schimbarea `FRONTEND_SUBNET` cere recrearea rețelei: `docker compose down && docker compose up -d` (volumele de date rămân).
 
-**Firewall:** expune doar porturile **80** (redirect) și **443**. PostgreSQL, Redis, API-ul și search-indexer nu sunt publicate pe host.
-
-```bash
-sudo ufw allow 80/tcp && sudo ufw allow 443/tcp
-```
+**Firewall:** Docker publică pe host doar porturile **80** (redirect) și **443**. PostgreSQL, Redis, API-ul și search-indexer nu sunt publicate. Restricționarea accesului (de ex. HTTPS doar din rețeaua utilizatorilor, SSH pe portul 22 doar din rețeaua administratorilor) se face pe firewall-ul de rețea al organizației. Un firewall local (`ufw`, `firewalld`) **nu** filtrează porturile publicate de Docker, care își adaugă propriile reguli `iptables` înaintea lor.
 
 ---
 
@@ -617,6 +629,7 @@ sudo ln -sfn /opt/meetrec-offline-<nouă> /opt/meetrec
 
 - Volumele de date se păstrează: proiectul Compose are nume fix (`name: meetrec`), indiferent de director.
 - Migrațiile bazei de date (Alembic) rulează automat la pornirea API-ului.
+- Installerul repornește nginx după pornirea serviciilor. Dacă actualizezi manual (`docker compose up -d` cu imagini noi), rulează și `docker compose restart nginx` (§11.9).
 - Dacă versiunea nouă schimbă modelul de căutare după sens sau contextul (ex. de la 1.0.2 la 1.0.3), search-indexer recalculează în fundal vectorii tuturor transcrierilor. Între timp, căutarea exactă funcționează normal; progresul apare în *Administrare → Stare sistem*.
 - Dacă rețeaua Docker `mt-frontend` existentă are alt subnet decât `FRONTEND_SUBNET` (instalări anterioare, fără subnet fix), installerul oprește containerele și o recreează. Volumele de date nu sunt afectate.
 - **Revenire la versiunea anterioară:** `cd /opt/meetrec-offline-<veche>`, setează `MEETREC_VERSION=<veche>` în `.env`, apoi `docker compose up -d`. Imaginile vechi rămân încărcate până la `docker image prune`. Restaurează și backup-ul bazei de date dacă versiunea nouă a aplicat migrații.
@@ -643,7 +656,7 @@ sudo ./install-offline.sh              # instalare de la zero, din același pach
 - Sunt găsite și volumele instalărilor vechi, făcute din alte directoare (proiecte Compose cu volumul `audio_storage`); lista apare înainte de confirmare.
 - `--keep-certs` e util cu CA locală: fără el, reinstalarea generează o CA nouă, iar fiecare client trebuie să importe din nou `meetrec-ca.crt` (§6.1).
 - `--remove-docker` dezinstalează Docker doar dacă a fost pus de installer (pachetele `.deb` din `packages/docker/` sau binarele statice). Șterge și containerele altor aplicații de pe server; scriptul le listează înainte.
-- Nu se ating: pachetele de sistem (iptables, nftables, openssl), `/etc/hosts`, CA-ul importat pe clienți și fișierele pachetului (`images/`, `packages/`), deci reinstalarea nu cere un nou transfer.
+- Nu se ating: pachetele de sistem (iptables, nftables, openssl), utilitarele de administrare (§2.4.1), `/etc/hosts`, CA-ul importat pe clienți și fișierele pachetului (`images/`, `packages/`), deci reinstalarea nu cere un nou transfer.
 - Pentru a elimina complet MeetRec după dezinstalare: `sudo rm -rf /opt/meetrec-offline-<versiune>` (și linkul `/opt/meetrec`, dacă există).
 
 ---
@@ -708,7 +721,7 @@ sudo chown 1000:1000 /opt/meetrec/data/inbox
 
 - `meetrec-ca.crt` nu e importat pe client (§6.1);
 - sau numele/IP-ul folosit nu e în certificat. Verifică cu `openssl x509 -in nginx/ssl/fullchain.pem -noout -ext subjectAltName` și regenerează cu toate numele.
-- Ceasul clientului sau al serverului e greșit: în rețelele offline, configurează un server NTP intern.
+- Ceasul clientului sau al serverului e greșit: în rețelele offline, configurează un server NTP intern (pe server: `chrony`, §5.9).
 
 ### 11.6 Containerul API nu pornește: „users table missing”
 
@@ -730,7 +743,28 @@ docker compose restart search-indexer            # modelul se încarcă în cât
 
 Dacă *Stare sistem* arată multe fragmente „în curs de indexare” mult timp după o actualizare, urmărește progresul în loguri (`bulk_reindex_started`, `transcript_indexed`). Indexarea folosește procesorul, deci durează mai mult cât timp rulează transcrieri.
 
-### 11.8 Verificare că nu există trafic spre internet
+### 11.8 Încărcarea e respinsă
+
+| Mesaj | Cauză |
+|-------|-------|
+| `Formatul .xyz nu e acceptat` | extensie în afara listei: MP3, WAV, M4A, MP4, OGG, FLAC, WEBM |
+| `Fișierul depășește limita de … MB` | peste `MAX_FILE_SIZE_BYTES` (§8); un MP4 cu video ajunge ușor la limită — extrage sunetul: `ffmpeg -i video.mp4 -vn -c:a copy audio.m4a` |
+| `fișierul MP4 nu conține sunet` | video fără pistă audio |
+| `fișierul nu poate fi citit ca audio` | fișier corupt sau cu altă extensie decât formatul real |
+
+Fișierele respinse apar în lista de înregistrări cu statusul „Eșuat” și motivul respingerii.
+
+### 11.9 502 Bad Gateway după o actualizare sau o repornire de containere
+
+nginx rezolvă adresele containerelor `api` și `frontend` o singură dată, la pornire. Dacă acestea sunt recreate (actualizare, `docker compose up -d` după o modificare în `.env`), primesc alte IP-uri, iar nginx încearcă în continuare adresele vechi.
+
+```bash
+docker compose restart nginx
+```
+
+Installerul face asta automat; comanda e necesară doar după operații manuale.
+
+### 11.10 Verificare că nu există trafic spre internet
 
 ```bash
 # niciun container nu trebuie să încerce conexiuni externe
@@ -787,4 +821,11 @@ sudo docker compose up -d --no-build --pull never
 # Administrator
 sudo docker compose exec api python -m src.cli.create_admin \
     --username admin --email admin@firma.ro --update-existing --disable-default-operator
+
+# (Opțional) Utilitare de administrare, din depozitul apt local al pachetului (Ubuntu 24.04)
+R=/opt/meetrec/packages/extra/noble; T=$(mktemp -d); mkdir -p $T/lists/partial $T/archives/partial
+echo "deb [trusted=yes] file:$R/base ./" > $T/sources.list    # + vmware / kvm / gui, după caz
+O="-o Dir::Etc::SourceList=$T/sources.list -o Dir::Etc::SourceParts=/dev/null -o Dir::State::Lists=$T/lists -o Dir::Cache::Archives=$T/archives -o APT::Sandbox::User=root"
+sudo apt-get $O update
+sudo apt-get $O install --no-install-recommends $(cat $R/base/packages.txt)
 ```
