@@ -168,6 +168,10 @@ class AudioValidator:
         Dacă mutagen nu găsește durata (ex. M4A de la reportofonul telefoanelor
         Samsung, brand 3gp4: durata 0), o citim cu ffprobe.
         """
+        # MP4 poate fi și video fără sunet: mutagen ar raporta durata filmului,
+        # iar transcrierea ar eșua abia în worker. ffprobe caută un flux audio.
+        if extension == "mp4" and self._ffprobe(file_path) is None:
+            return self._reject("NO_AUDIO_STREAM", "fișierul MP4 nu conține sunet.")
         try:
             audio=mutagen.File(file_path,easy=True)
             info=getattr(audio,"info",None)

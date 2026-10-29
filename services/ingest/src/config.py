@@ -26,7 +26,7 @@ class Settings(BaseSettings):
     max_file_size_bytes: int = 500 * 1024 * 1024  # 500 MB
 
     ### ---Formate audio acceptate ---
-    allowed_audio_formats: set[str] = {"wav", "mp3", "m4a", "ogg", "flac", "webm"}
+    allowed_audio_formats: set[str] = {"wav", "mp3", "m4a", "mp4", "ogg", "flac", "webm"}
 
     ### --- Redis --- 
     redis_url : str= "redis://localhost:6379"

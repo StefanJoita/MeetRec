@@ -41,6 +41,7 @@ class AudioFormat(str, enum.Enum):
     WAV     = "wav"
     MP3     = "mp3"
     M4A     = "m4a"
+    MP4     = "mp4"
     OGG     = "ogg"
     FLAC    = "flac"
     WEBM    = "webm"

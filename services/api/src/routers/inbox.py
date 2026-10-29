@@ -191,7 +191,7 @@ async def create_session(
 )
 async def upload_to_inbox(
     request: Request,
-    file: UploadFile = File(description="Fișierul audio (MP3, WAV, M4A, OGG, FLAC, WEBM)"),
+    file: UploadFile = File(description="Fișierul audio (MP3, WAV, M4A, MP4, OGG, FLAC, WEBM)"),
     session_id: Optional[str] = Form(default=None),
     segment_index: Optional[str] = Form(default=None),
     is_final: Optional[str] = Form(default=None),

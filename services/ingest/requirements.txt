@@ -17,7 +17,7 @@ watchdog==3.0.0
 mutagen==1.47.0
 # Citește metadata din fișiere audio (durată, bitrate, format)
 # fără să încarce tot fișierul în memorie
-# Suportă: MP3, WAV, FLAC, M4A, OGG, WEBM
+# Suportă: MP3, WAV, FLAC, M4A, MP4, OGG, WEBM
 
 pydub==0.25.1
 # Verifică dacă un fișier audio se poate deschide (nu e corupt)
