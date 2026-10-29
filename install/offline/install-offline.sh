@@ -276,6 +276,9 @@ for _ in $(seq 1 60); do
     sleep 3
 done
 [[ "${API_OK:-0}" == 1 ]] && ok "API pornit" || warn "API nu răspunde încă. Verifică: docker compose logs api"
+# nginx rezolvă numele api/frontend o singură dată, la pornire. La o actualizare, containerele
+# recreate primesc alte IP-uri, iar un nginx nerecreat (imagine neschimbată) ar da 502.
+docker compose restart nginx >/dev/null && ok "nginx repornit"
 info "STT worker încarcă modelul Whisper (1-3 minute). Urmărește: docker compose logs -f stt-worker"
 
 # ── 7. Administrator ──────────────────────────────────────────
