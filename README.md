@@ -89,7 +89,8 @@ MeetRec runs **entirely on your own server**, including on air-gapped networks w
 - **Rate limiting** — search 30–60 req/min, export 20 req/hour, per client IP (taken from nginx only from trusted proxies)
 - **Detailed audit log** — logins (successful and failed), uploads, views, searches, exports, edits and deletions, with user, IP and timestamp; stores the **resource name at the time of the action** (still readable after deletion) and **what changed** (e.g. *role: operator → administrator*); searchable, filterable, CSV export
 - **Tamper-proof audit trail** — a database trigger rejects any `UPDATE`, `DELETE` or `TRUNCATE` on the audit log, except retention purges of entries older than one year
-- **Auto-retention** — recordings are deleted automatically N days after upload, audit entries after M days; checked daily
+- **Auto-retention** — recordings are deleted automatically N days after upload, audit entries after M days; checked daily. While backup is enabled, a recording is deleted only after its audio is in the backup
+- **Daily backup** — database dump, incremental copy of the audio files and the configuration (`.env`, certificates) to `BACKUP_HOST_PATH` (separate disk or mounted share); 7 daily + 4 weekly database copies, deleted audio kept 30 days; status, errors and *Backup now* in *Administration → System status*; restore with `restore-backup.sh`
 - **Path traversal protection** — all file operations validated with `pathlib.Path.resolve()`
 - **File validation** — type verified by magic bytes, not just extension; SHA-256 deduplication prevents duplicate uploads
 - **CORS** restricted to explicit origins in production
@@ -206,7 +207,7 @@ Browser                     Drop folder
 | **Ingest** | Python watchdog + asyncpg | File detection, validation, SHA-256 dedup, queuing; Session Watcher for multi-segment sessions |
 | **STT Worker** | WhisperX (faster-whisper) + pyannote + asyncpg | Audio assembly, speech-to-text, word alignment, speaker diarization, per-stage timings, merged WAV storage |
 | **Search Indexer** | Sentence Transformers + pgvector | Semantic embeddings via LISTEN/NOTIFY plus a periodic sweep; re-embeds automatically when the model or context changes |
-| **Audit Retention** | asyncio scheduler | Daily retention deletes, stuck-transcription and abandoned-session cleanup |
+| **Audit Retention** | asyncio scheduler | Daily backup, daily retention deletes, stuck-transcription and abandoned-session cleanup |
 | **Frontend** | React 18 + Vite + TailwindCSS | SPA: upload, browse, search, export, admin |
 | **PostgreSQL** | pgvector/pgvector:pg15 | Relational storage, TSVECTOR FTS, vector search |
 | **Redis** | redis:7-alpine | Async job queue between Ingest and STT Worker |
@@ -413,6 +414,10 @@ Settings marked ✱ can also be changed from **Admin → Settings**; the UI valu
 | `MAX_JOB_ATTEMPTS` ✱ | `2` | Crashes allowed on the same file before it is marked failed |
 | `RETENTION_DAYS` ✱ | `1095` | Delete recordings N days after upload (3 years) |
 | `AUDIT_LOG_RETENTION_DAYS` ✱ | `2190` | Audit log retention (6 years, minimum 1 year) |
+| `BACKUP_HOST_PATH` | `./backups` (installer: `/opt/meetrec-backups`) | Host folder for the daily backup |
+| `BACKUP_ENABLED` / `BACKUP_HOUR` ✱ | `true` / `2` | Daily backup and the hour it runs |
+| `BACKUP_KEEP_DAILY` / `BACKUP_KEEP_WEEKLY` ✱ | `7` / `4` | Database and configuration backups kept |
+| `BACKUP_DELETED_AUDIO_DAYS` ✱ | `30` | Days deleted audio files stay in the backup |
 | `MAX_FILE_SIZE_BYTES` ✱ | `524288000` | Max upload size (500 MB) |
 | `EMBEDDING_CONTEXT_SEGMENTS` | `1` | Neighbouring segments included in each semantic embedding; changing it re-embeds everything in the background |
 | `SESSION_TIMEOUT_SECONDS` | `1800` | Inactivity timeout before an open multi-segment session is auto-dispatched |
@@ -482,7 +487,7 @@ MeetRec is built for organizations where data privacy is non-negotiable.
 - Participant-level access allows granting specific users access to individual recordings only
 - Every user action is audit-logged with IP, timestamp, user identity, resource name and what changed — suitable for legal and compliance evidence; the database refuses to modify or delete audit entries (except retention purges older than one year)
 - Failed logins are logged and accounts are locked after repeated failures
-- Configurable retention: recordings are automatically and permanently deleted after your specified period
+- Configurable retention: recordings are automatically deleted after your specified period (and only once they are in the daily backup)
 - Content-Security-Policy headers set by Nginx in production
 - File uploads validated by magic bytes before any processing occurs
 

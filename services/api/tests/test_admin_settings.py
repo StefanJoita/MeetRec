@@ -6,6 +6,7 @@
 # validarea, consistența și scrierea în DB au teste separate mai jos.
 # ============================================================
 
+import json
 import uuid
 from datetime import datetime, timezone
 from types import SimpleNamespace
@@ -237,7 +238,7 @@ async def test_classification_set_from_interface(http, store, audit):
 
 
 @pytest.mark.asyncio
-async def test_system_status(http, monkeypatch):
+async def test_system_status(http, store, monkeypatch):
     db = login(make_user(is_admin=True))
     counts, failed = MagicMock(), MagicMock()
     counts.all.return_value = [("completed", 7), ("failed", 1)]
@@ -249,6 +250,9 @@ async def test_system_status(http, monkeypatch):
         "available": True, "model": "m|ctx1", "pending_segments": 0}))
     monkeypatch.setattr(admin_router, "_redis_status", AsyncMock(return_value={
         "available": True, "queued": 2, "processing": 1, "workers": [worker]}))
+    last = {"state": "ok", "trigger": "scheduled", "finished_at": "2026-10-29T02:01:00", "db_bytes": 1024}
+    monkeypatch.setattr(admin_router, "_backup_status", AsyncMock(return_value={
+        "enabled": None, "path": "/opt/meetrec-backups", "last": last, "requested": False}))
     monkeypatch.setenv("MEETREC_VERSION", "1.0.0")
 
     resp = await http.get("/api/v1/admin/system")
@@ -259,6 +263,64 @@ async def test_system_status(http, monkeypatch):
     assert body["recordings_by_status"] == {"completed": 7, "failed": 1}
     assert body["queue"]["workers"] == [worker]
     assert body["recent_failures"][0]["title"] == "Ședința X"
+    assert body["backup"] == {"enabled": True, "path": "/opt/meetrec-backups", "last": last, "requested": False}
+
+
+# ── Backup la cerere ─────────────────────────────────────────
+
+@pytest.fixture
+def fake_redis(monkeypatch):
+    import fakeredis.aioredis
+    server = fakeredis.FakeServer()
+    monkeypatch.setattr(admin_router.aioredis, "from_url",
+                        lambda *a, **k: fakeredis.aioredis.FakeRedis(server=server, decode_responses=True))
+    return fakeredis.aioredis.FakeRedis(server=server, decode_responses=True)
+
+
+@pytest.mark.asyncio
+async def test_backup_run_queues_request_and_is_audited(http, audit, fake_redis):
+    login(make_user(is_admin=True))
+
+    resp = await http.post("/api/v1/admin/backup/run")
+
+    assert resp.status_code == 202
+    assert json.loads(await fake_redis.get(admin_router.BACKUP_REQUEST_KEY)) == {"by": "admin"}
+    assert audit.call_args.kwargs["resource_type"] == "backup"
+    assert audit.call_args.kwargs["details"] == {"event": "backup_requested"}
+
+
+@pytest.mark.asyncio
+async def test_backup_run_refused_while_running(http, audit, fake_redis):
+    login(make_user(is_admin=True))
+    await fake_redis.set(admin_router.BACKUP_STATUS_KEY, json.dumps({"state": "running"}))
+
+    resp = await http.post("/api/v1/admin/backup/run")
+
+    assert resp.status_code == 409
+    assert not await fake_redis.exists(admin_router.BACKUP_REQUEST_KEY)
+    audit.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_backup_run_admin_only(http, audit, fake_redis):
+    login(make_user(is_admin=False))
+
+    resp = await http.post("/api/v1/admin/backup/run")
+
+    assert resp.status_code == 403
+    assert not await fake_redis.exists(admin_router.BACKUP_REQUEST_KEY)
+
+
+@pytest.mark.asyncio
+async def test_backup_status_reads_redis(fake_redis, monkeypatch):
+    monkeypatch.setenv("BACKUP_HOST_PATH", "/mnt/backup")
+    await fake_redis.set(admin_router.BACKUP_STATUS_KEY, json.dumps({"state": "failed", "error": "disc plin"}))
+
+    status = await admin_router._backup_status()
+
+    assert status["path"] == "/mnt/backup"
+    assert status["last"] == {"state": "failed", "error": "disc plin"}
+    assert status["requested"] is False
 
 
 # ── Registrul de setări ──────────────────────────────────────

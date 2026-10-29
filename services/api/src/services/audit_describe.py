@@ -95,8 +95,23 @@ def _upload(d: dict) -> Optional[str]:
     return " · ".join(parts) or None
 
 
+def _backup(d: dict) -> Optional[str]:
+    if d.get("event") == "backup_requested":
+        return "backup pornit manual"
+    if d.get("error"):
+        return f"backup eșuat: {d['error']}"
+    parts = ["backup manual" if d.get("trigger") == "manual" else "backup zilnic"]
+    if d.get("db_bytes"):
+        parts.append(f"bază de date {_size(d['db_bytes'])}")
+    if d.get("audio_copied") is not None:
+        parts.append(f"{d['audio_copied']} fișiere audio noi")
+    return " · ".join(parts)
+
+
 def describe(action: str, resource_type: Optional[str], details: Optional[dict]) -> Optional[str]:
     d = details or {}
+    if resource_type == "backup":
+        return _backup(d)
     if action in ("SEARCH", "SEMANTIC_SEARCH") and d.get("query"):
         return f"„{d['query']}”"
     if resource_type == "app_setting" and d.get("key"):

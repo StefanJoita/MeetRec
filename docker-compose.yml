@@ -129,6 +129,12 @@ services:
       RETENTION_DAYS: ${RETENTION_DAYS:-1095}
       AUDIT_LOG_RETENTION_DAYS: ${AUDIT_LOG_RETENTION_DAYS:-2190}
       CLASSIFICATION_LEVEL: ${CLASSIFICATION_LEVEL:-NECLASIFICAT}
+      BACKUP_ENABLED: ${BACKUP_ENABLED:-true}
+      BACKUP_HOUR: ${BACKUP_HOUR:-2}
+      BACKUP_KEEP_DAILY: ${BACKUP_KEEP_DAILY:-7}
+      BACKUP_KEEP_WEEKLY: ${BACKUP_KEEP_WEEKLY:-4}
+      BACKUP_DELETED_AUDIO_DAYS: ${BACKUP_DELETED_AUDIO_DAYS:-30}
+      BACKUP_HOST_PATH: ${BACKUP_HOST_PATH:-./backups}    # doar afișat în Stare sistem
       # De la ce IP-uri acceptă uvicorn X-Forwarded-For (IP-ul real al clientului,
       # folosit de rate limiting și audit). Implicit: subnetul frontend-network,
       # unde stă nginx. NU folosiți "*". Vezi services/api/entrypoint.sh.
@@ -327,10 +333,21 @@ services:
       REDIS_TRANSCRIPTION_QUEUE: ${REDIS_TRANSCRIPTION_QUEUE}
       STUCK_TRANSCRIPTION_HOURS: ${STUCK_TRANSCRIPTION_HOURS:-6}
       ABANDONED_SESSION_HOURS: ${ABANDONED_SESSION_HOURS:-24}
+      # Backup zilnic (src/backup.py); setările se pot schimba și din Administrare → Setări
+      BACKUP_ENABLED: ${BACKUP_ENABLED:-true}
+      BACKUP_HOUR: ${BACKUP_HOUR:-2}
+      BACKUP_KEEP_DAILY: ${BACKUP_KEEP_DAILY:-7}
+      BACKUP_KEEP_WEEKLY: ${BACKUP_KEEP_WEEKLY:-4}
+      BACKUP_DELETED_AUDIO_DAYS: ${BACKUP_DELETED_AUDIO_DAYS:-30}
       LOG_LEVEL: ${LOG_LEVEL}
       TZ: Europe/Bucharest
     volumes:
       - audio_storage:/data/processed
+      # Destinația backup-ului: disc separat sau share montat pe server
+      - ${BACKUP_HOST_PATH:-./backups}:/backups
+      # Configurația inclusă în backup (doar citire)
+      - ./.env:/config/.env:ro
+      - ./nginx/ssl:/config/ssl:ro
     networks:
       - backend-network
     depends_on:

@@ -33,6 +33,7 @@ RESOURCE_GROUPS: Dict[str, Tuple[str, ...]] = {
     "user": ("user", "users_list"),
     "app_setting": ("app_setting",),
     "audit_logs": ("audit_logs",),
+    "backup": ("backup",),
 }
 
 
@@ -181,7 +182,7 @@ async def list_audit_logs(
     page_size: int = Query(20, ge=1, le=100),
     search: Optional[str] = Query(default=None, max_length=100),
     action: Optional[str] = Query(default=None),
-    resource: Optional[str] = Query(default=None, description="recording | user | app_setting | audit_logs"),
+    resource: Optional[str] = Query(default=None, description="recording | user | app_setting | audit_logs | backup"),
     _: User = Depends(get_current_admin),
     db: AsyncSession = Depends(get_db),
 ):

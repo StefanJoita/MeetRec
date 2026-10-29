@@ -7,7 +7,7 @@ import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
 import { SkeletonTable } from '@/components/ui/Skeleton'
 import { useToast } from '@/contexts/ToastContext'
 
-const GROUP_ORDER = ['Securitate', 'Transcriere', 'Joburi', 'Încărcare', 'Retenție']
+const GROUP_ORDER = ['Securitate', 'Transcriere', 'Joburi', 'Încărcare', 'Retenție', 'Backup']
 
 // Scăderea acestor valori poate șterge date la următoarea rulare a retenției
 const DESTRUCTIVE_ON_DECREASE = new Set(['retention_days', 'audit_log_retention_days'])

@@ -228,6 +228,16 @@ if [[ -n "$BUNDLE_WHISPER" && "$(env_get WHISPER_MODEL)" != "$BUNDLE_WHISPER" ]]
     warn "WHISPER_MODEL din .env ($(env_get WHISPER_MODEL)) diferă de modelul din pachet ($BUNDLE_WHISPER) — actualizez."
     env_set WHISPER_MODEL "$BUNDLE_WHISPER"
 fi
+# Backup zilnic (audit-retention): folder în afara directorului pachetului, ca să rămână
+# la actualizări. Poate fi un disc separat sau un share montat (docs/INSTALL-OFFLINE.md §9.2).
+BACKUP_DIR=$(env_get BACKUP_HOST_PATH)
+if [[ -z "$BACKUP_DIR" || "$BACKUP_DIR" == "./backups" ]]; then
+    BACKUP_DIR=$(ask "Folder pentru backup-ul zilnic (disc separat sau share montat)" "/opt/meetrec-backups")
+    env_set BACKUP_HOST_PATH "$BACKUP_DIR"
+fi
+mkdir -p "$BACKUP_DIR" && chmod 700 "$BACKUP_DIR" \
+    || err "Nu pot crea folderul de backup $BACKUP_DIR (BACKUP_HOST_PATH din .env)."
+ok "Backup zilnic în $BACKUP_DIR"
 SERVER_NAME=$(env_get SERVER_NAME)
 
 # ── 5. Certificate HTTPS ──────────────────────────────────────
