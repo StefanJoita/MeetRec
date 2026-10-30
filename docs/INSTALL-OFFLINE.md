@@ -417,16 +417,62 @@ Browserul afișează un avertisment pe fiecare client, până la acceptarea manu
 
 ### 6.3 Certificatul organizației
 
-Copiază certificatul (inclusiv lanțul intermediar) și cheia:
+Certificatul se poate pune la instalare (opțiunea 3 la pasul 5: installerul se oprește, copiezi fișierele și rulezi din nou `sudo ./install-offline.sh`) sau oricând după instalare, înlocuind certificatul generat de installer.
+
+nginx folosește exact două fișiere, în format PEM (text, `-----BEGIN ...`):
+
+| Fișier | Conținut |
+|--------|----------|
+| `/opt/meetrec/nginx/ssl/fullchain.pem` | certificatul serverului, urmat de certificatele intermediare (în ordinea: server → intermediar(e)); fără CA-ul rădăcină |
+| `/opt/meetrec/nginx/ssl/privkey.pem` | cheia privată, necriptată (fără parolă) |
+
+Dacă CA-ul a livrat fișiere separate:
 
 ```bash
-sudo cp server-cu-lant.pem /opt/meetrec/nginx/ssl/fullchain.pem
-sudo cp server.key        /opt/meetrec/nginx/ssl/privkey.pem
-sudo chmod 600 /opt/meetrec/nginx/ssl/privkey.pem
-docker compose restart nginx
+cat server.crt intermediar.crt > fullchain.pem      # serverul primul
 ```
 
-Certificatul trebuie să conțină în SAN numele și IP-ul folosite de utilizatori.
+Dacă a livrat un `.pfx` / `.p12` (Windows):
+
+```bash
+openssl pkcs12 -in server.pfx -clcerts -nokeys -out server.crt
+openssl pkcs12 -in server.pfx -cacerts -nokeys -out intermediar.crt
+openssl pkcs12 -in server.pfx -nocerts -nodes  -out privkey.pem
+cat server.crt intermediar.crt > fullchain.pem
+```
+
+Dacă cheia are parolă: `openssl pkey -in server.key -out privkey.pem` (cere parola o dată).
+
+Verifică înainte de copiere:
+
+```bash
+# cheia corespunde certificatului: cele două valori trebuie să fie identice
+openssl x509 -in fullchain.pem -noout -pubkey | sha256sum
+openssl pkey -in privkey.pem -pubout | sha256sum
+
+# numele și IP-urile din certificat (SAN) și valabilitatea
+openssl x509 -in fullchain.pem -noout -ext subjectAltName -dates
+```
+
+SAN-ul trebuie să conțină **toate** numele și IP-urile cu care utilizatorii deschid aplicația (de ex. `meetrec.firma.local` și `192.168.10.5`); altfel browserul afișează avertisment și înregistrarea din browser nu primește acces la microfon.
+
+Copiere și aplicare:
+
+```bash
+cd /opt/meetrec
+sudo cp nginx/ssl/fullchain.pem nginx/ssl/fullchain.pem.bak 2>/dev/null   # păstrează certificatul vechi
+sudo cp nginx/ssl/privkey.pem   nginx/ssl/privkey.pem.bak   2>/dev/null
+sudo cp fullchain.pem nginx/ssl/fullchain.pem
+sudo cp privkey.pem   nginx/ssl/privkey.pem
+sudo chmod 644 nginx/ssl/fullchain.pem
+sudo chmod 600 nginx/ssl/privkey.pem
+sudo docker compose restart nginx
+sudo docker compose logs --tail 20 nginx          # fără erori „SSL” / „PEM”
+```
+
+Dacă nginx nu pornește, revino la `.bak` și repornește-l.
+
+**Pe clienți:** certificatul CA-ului organizației (rădăcina) e de obicei deja distribuit prin domeniu (GPO). Dacă nu, se importă ca în §6.1, în locul `meetrec-ca.crt`. Certificatele din `nginx/ssl/` intră și în backup-ul zilnic al configurației (§9.2) și se păstrează la actualizare (§10).
 
 ### 6.4 Numele serverului (DNS)
 
