@@ -17,6 +17,7 @@
 # ca răspunsul să nu dezvăluie dacă un cont există.
 #
 # Redis indisponibil → nu blocăm login-ul (limita per IP rămâne activă).
+# Protecția oprită din Setări (limiter.enabled = False) → nicio blocare.
 # ============================================================
 
 from typing import Optional
@@ -26,6 +27,7 @@ import structlog
 from redis.exceptions import RedisError
 
 from src.config import settings
+from src.limiter import limiter
 
 logger = structlog.get_logger()
 
@@ -46,6 +48,8 @@ class LoginLockout:
         return f"{_KEY_PREFIX}{username}"
 
     async def is_locked(self, username: str) -> bool:
+        if not limiter.enabled:
+            return False
         try:
             count = await self.redis.get(self._key(username))
         except RedisError as e:
@@ -55,6 +59,8 @@ class LoginLockout:
 
     async def register_failure(self, username: str) -> bool:
         """Numără un eșec. Returnează True dacă acest eșec a blocat contul."""
+        if not limiter.enabled:
+            return False
         key = self._key(username)
         try:
             async with self.redis.pipeline(transaction=True) as pipe:

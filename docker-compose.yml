@@ -112,6 +112,7 @@ services:
       JWT_SECRET_KEY: ${JWT_SECRET_KEY}
       JWT_ALGORITHM: ${JWT_ALGORITHM}
       JWT_EXPIRE_MINUTES: ${JWT_EXPIRE_MINUTES}
+      RATE_LIMIT_ENABLED: ${RATE_LIMIT_ENABLED:-true}   # implicit; se schimbă din Administrare → Setări
       APP_ENV: ${APP_ENV}
       LOG_LEVEL: ${LOG_LEVEL}
       # Setările schimbabile din Administrare → Setări: API-ul afișează valoarea

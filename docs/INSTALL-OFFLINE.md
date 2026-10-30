@@ -574,6 +574,7 @@ Fișierul `/opt/meetrec/.env`. După orice modificare: `docker compose up -d`.
 | `BACKUP_KEEP_DAILY` / `BACKUP_KEEP_WEEKLY` ✱ | `7` / `4` | câte backup-uri zilnice / săptămânale ale bazei de date și configurației se păstrează |
 | `BACKUP_DELETED_AUDIO_DAYS` ✱ | `30` | cât rămân în backup fișierele audio șterse din aplicație |
 | `EMBEDDING_CONTEXT_SEGMENTS` | `1` | câte segmente vecine intră în vectorul fiecărui segment la căutarea după sens; la schimbare, toți vectorii se recalculează automat, în fundal |
+| `RATE_LIMIT_ENABLED` ✱ | `true` | protecția la încercări repetate: limitele pe IP din tabelul de mai jos și blocarea contului după 5 parole greșite. Se oprește din interfață doar temporar (ex. scanare de vulnerabilități) |
 | `JWT_EXPIRE_MINUTES` | `480` | durata sesiunii |
 | `NGINX_HTTPS_PORT` | `443` | portul HTTPS |
 | `FRONTEND_SUBNET` | `172.30.10.0/24` | subnetul rețelei Docker `frontend-network` (nginx, frontend, API); schimbă-l doar dacă se suprapune cu o rețea a organizației |
@@ -590,6 +591,8 @@ Fișierul `/opt/meetrec/.env`. După orice modificare: `docker compose up -d`.
 | `GET /api/v1/search/semantic` | 30 / minut per IP |
 | `GET /api/v1/export/recording/{id}` | 20 / oră per IP |
 | `/api/v1/inbox/*` | fără limită (înregistrarea din browser trimite câte un segment la 5 minute, cu reîncercări) |
+
+**Scanări de vulnerabilități.** Un scaner (Burp, ZAP etc.) lovește rapid aceste limite: primește 429 și blochează contul cu care testează autentificarea. Pe durata scanării, dezactivează *Administrare → Setări → Securitate → Protecție la încercări repetate* (se aplică imediat, fără restart; apare în jurnalul de audit). Conturile deja blocate se deblochează singure în 15 minute sau imediat, cu `sudo docker compose exec redis redis-cli --scan --pattern 'login_failures:*' | xargs -r -n1 sudo docker compose exec -T redis redis-cli DEL`. **După scanare, reactivează setarea.**
 
 Schimbarea `FRONTEND_SUBNET` cere recrearea rețelei: `docker compose down && docker compose up -d` (volumele de date rămân).
 

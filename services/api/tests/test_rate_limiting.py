@@ -347,3 +347,34 @@ class TestLimiterConfiguration:
     def test_inbox_routes_have_no_limits(self):
         assert not [name for name in limiter._route_limits if name.startswith("src.routers.inbox.")]
         assert not limiter._default_limits
+
+
+# ============================================================
+# 6. Protecția oprită din Administrare → Setări (limiter.enabled = False)
+# ============================================================
+
+class TestLimitsDisabled:
+
+    @pytest.fixture(autouse=True)
+    def limits_off(self):
+        limiter.enabled = False
+        yield
+        limiter.enabled = True
+
+    @pytest.mark.asyncio
+    async def test_no_429_per_ip(self, auth_backend):
+        async with make_client(NGINX_IP) as client:
+            for i in range(10):
+                resp = await login(client, f"user{i}", "gresit", forwarded_for="10.0.9.1")
+                assert resp.status_code == 401
+
+    @pytest.mark.asyncio
+    async def test_no_username_lockout(self, auth_backend, fake_redis, mock_db):
+        async with make_client(NGINX_IP) as client:
+            for i in range(10):
+                await login(client, "ion", "gresit", forwarded_for=f"10.0.9.{i + 10}")
+            resp = await login(client, "ion", PASSWORD, forwarded_for="10.0.9.99")
+
+        assert resp.status_code == 200
+        assert fake_redis.data == {}
+        assert "account_locked" not in audit_events(mock_db)

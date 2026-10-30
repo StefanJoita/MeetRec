@@ -3,6 +3,7 @@
 # FastAPI Application — Entry Point
 # ============================================================
 
+import asyncio
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -13,6 +14,7 @@ import structlog
 
 from src.config import settings
 from src.limiter import limiter
+from src.services import rate_limits
 from src.routers import recordings, transcript, search, auth, export, audit, inbox, users, admin
 
 logger = structlog.get_logger()
@@ -24,8 +26,10 @@ logger = structlog.get_logger()
 async def lifespan(app: FastAPI):
     # ── STARTUP ──────────────────────────────────────────────
     logger.info("api_starting", env=settings.app_env, port=settings.api_port)
-    # Aici am conecta la DB, am verifica Redis, etc.
+    # Protecția la încercări repetate: setarea din Administrare → Setări
+    rate_limit_task = asyncio.create_task(rate_limits.refresh_loop())
     yield
+    rate_limit_task.cancel()
     # ── SHUTDOWN ─────────────────────────────────────────────
     logger.info("api_stopping")
 
