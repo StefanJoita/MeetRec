@@ -38,7 +38,7 @@ from src.middleware.auth import get_current_admin, get_current_user
 from src.models.audit_log import User
 from src.models.recording import Recording, RecordingStatus
 from src.models.transcript import Transcript, TranscriptStatus
-from src.services import app_settings as registry
+from src.services import app_settings as registry, rate_limits
 from src.services.queue_service import WORKER_STATUS_PREFIX, QueueService, get_queue_service
 
 logger = structlog.get_logger(__name__)
@@ -166,6 +166,8 @@ async def update_setting(
                     details={"key": key, "old": old, "new": new})
     await db.commit()
     logger.info("app_setting_updated", key=key, old=old, new=new, by=admin.username)
+    if key == rate_limits.KEY:
+        rate_limits.apply(new)
     return await _list_settings(db)
 
 
@@ -188,6 +190,8 @@ async def reset_setting(
                     details={"key": key, "old": old, "new": new, "reset": True})
     await db.commit()
     logger.info("app_setting_reset", key=key, old=old, new=new, by=admin.username)
+    if key == rate_limits.KEY:
+        rate_limits.apply(new)
     return await _list_settings(db)
 
 

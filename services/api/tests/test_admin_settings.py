@@ -362,3 +362,58 @@ class TestRegistry:
         assert params["updated_by"] == user_id
         assert "ON CONFLICT" in str(stmt.compile(dialect=__import__(
             "sqlalchemy.dialects.postgresql", fromlist=["dialect"]).dialect()))
+
+
+@pytest.mark.asyncio
+async def test_rate_limits_toggled_from_interface(http, store, audit):
+    from src.limiter import limiter
+    login(make_user(is_admin=True))
+    try:
+        resp = await http.put("/api/v1/admin/settings/rate_limit_enabled", json={"value": False})
+        assert resp.status_code == 200
+        assert limiter.enabled is False                  # aplicat imediat, fără restart
+        assert audit.call_args.kwargs["details"] == {"key": "rate_limit_enabled", "old": True, "new": False}
+
+        resp = await http.delete("/api/v1/admin/settings/rate_limit_enabled")
+        assert resp.status_code == 200
+        assert limiter.enabled is True                   # înapoi la valoarea din .env
+    finally:
+        limiter.enabled = True
+
+
+@pytest.mark.asyncio
+async def test_rate_limits_refresh_reads_setting(monkeypatch):
+    from src.limiter import limiter
+    from src.services import rate_limits
+
+    class _Session:
+        async def __aenter__(self):
+            return None
+
+        async def __aexit__(self, *exc):
+            return False
+
+    async def effective_value(db, key):
+        assert key == "rate_limit_enabled"
+        return False
+
+    monkeypatch.setattr(rate_limits, "session_factory", _Session)
+    monkeypatch.setattr(registry, "effective_value", effective_value)
+    try:
+        await rate_limits.refresh()
+        assert limiter.enabled is False
+    finally:
+        limiter.enabled = True
+
+
+@pytest.mark.asyncio
+async def test_rate_limits_refresh_keeps_state_when_db_down(monkeypatch):
+    from src.limiter import limiter
+    from src.services import rate_limits
+
+    def broken():
+        raise OSError("db down")
+
+    monkeypatch.setattr(rate_limits, "session_factory", broken)
+    await rate_limits.refresh()
+    assert limiter.enabled is True

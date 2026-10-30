@@ -66,6 +66,14 @@ SETTINGS: List[SettingDef] = [
         "Imediat (ceilalți utilizatori îl văd în cel mult un minut).", max=100,
     ),
     SettingDef(
+        "rate_limit_enabled", "RATE_LIMIT_ENABLED", "bool", True, "Securitate",
+        "Protecție la încercări repetate",
+        "Limitează requesturile pe IP (autentificare 5/minut, căutare, export) și blochează "
+        "contul 15 minute după 5 parole greșite. Dezactivați doar temporar, de exemplu pe "
+        "durata unei scanări de vulnerabilități, apoi reactivați.",
+        "Imediat.",
+    ),
+    SettingDef(
         "diarization_enabled", "DIARIZATION_ENABLED", "bool", False, "Transcriere",
         "Identificarea vorbitorilor (diarizare)",
         "Separă vorbitorii în transcriere (Vorbitor 1, Vorbitor 2...). Necesită modelul "
