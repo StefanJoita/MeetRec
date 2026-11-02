@@ -43,7 +43,8 @@ ask() {  # ask "Întrebare" "implicit" → răspuns
     echo "${answer:-$default}"
 }
 
-env_get() { grep "^$1=" .env | tail -1 | cut -d= -f2- | sed 's/[[:space:]]*#.*//' | tr -d '"'; }
+# Cheie lipsă → gol (fără "|| true", grep fără potrivire oprește scriptul prin set -e/pipefail)
+env_get() { { grep "^$1=" .env || true; } | tail -1 | cut -d= -f2- | sed 's/[[:space:]]*#.*//' | tr -d '"'; }
 env_set() {  # env_set CHEIE valoare  (valoarea nu conține '|')
     if grep -q "^$1=" .env; then
         sed -i "s|^$1=.*|$1=$2|" .env

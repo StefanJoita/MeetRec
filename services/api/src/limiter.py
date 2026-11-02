@@ -17,9 +17,6 @@
 #
 # NU adăugați limite pe /inbox/* — clientul desktop urcă multe segmente în
 # paralel de pe același IP.
-#
-# limiter.enabled se pornește/oprește din Administrare → Setări
-# („Protecție la încercări repetate”, src/services/rate_limits.py).
 # ============================================================
 
 from slowapi import Limiter
