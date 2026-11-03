@@ -1,4 +1,5 @@
 export function formatTime(seconds: number): string {
+  if (!Number.isFinite(seconds) || seconds < 0) return '--:--'
   const m = Math.floor(seconds / 60)
   const s = Math.floor(seconds % 60)
   const h = Math.floor(m / 60)

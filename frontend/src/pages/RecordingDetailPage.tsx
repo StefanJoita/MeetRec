@@ -362,6 +362,7 @@ export default function RecordingDetailPage() {
           <AudioPlayer
             ref={audioPlayerRef}
             recordingId={id!}
+            fallbackDuration={recording.duration_seconds}
             onTimeUpdate={(t) => { currentTimeRef.current = t }}
           />
         </div>

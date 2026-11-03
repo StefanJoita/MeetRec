@@ -27,7 +27,7 @@ from src.schemas.recording import (
     RecordingUpdate, RecordingResponse,
     PaginatedRecordings, ParticipantUserInfo, SpeakerMappingUpdate,
 )
-from src.services.recording_service import RecordingService, RecordingDeletionError
+from src.services.recording_service import RecordingService, RecordingDeletionError, playback_path
 from src.services.queue_service import cancel_quietly
 from src.middleware.audit import diff, log_audit, recording_details, snapshot, user_display_name
 from pydantic import BaseModel
@@ -319,8 +319,14 @@ async def stream_audio(
     if not path.exists():
         raise HTTPException(status_code=404, detail="Fișierul audio nu a fost găsit pe disc.")
 
-    media_type, _ = mimetypes.guess_type(str(path))
-    media_type = media_type or "audio/mpeg"
+    # Copia de redare MP3 (ingest/playback.py) a fiecărui MP4: browserele fără codecurile
+    # H.264/AAC nu redau MP4-ul. Originalul rămâne pentru transcriere și export.
+    playback = playback_path(path)
+    if playback.is_file():
+        path, media_type = playback, "audio/mpeg"
+    else:
+        media_type, _ = mimetypes.guess_type(str(path))
+        media_type = media_type or "audio/mpeg"
     file_size = os.path.getsize(path)
 
     range_header = request.headers.get("Range")

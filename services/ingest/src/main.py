@@ -23,6 +23,7 @@ from src.publisher import JobPublisher
 from src.processor import FileProcessor
 from src.watcher import InboxWatcher
 from src.session_watcher import SessionWatcher
+from src.playback import PlaybackPreparer
 
 logger=get_logger(__name__)
 
@@ -47,11 +48,18 @@ async def startup()-> tuple[DatabaseClient, InboxWatcher, SessionWatcher]:
         sys.exit(1)
 
     #Asamblam procesorul cu toate dependintele sale
+    # Copii de redare pentru browser (playback.py): în fundal, câte una,
+    # inclusiv pentru înregistrările MP4/M4A existente
+    playback = PlaybackPreparer()
+    playback.start()
+    asyncio.create_task(playback.backfill(database))
+
     processor=FileProcessor(
         validator=AudioValidator(),
         storage=StorageManager(),
         publisher=publisher,
         database=database,
+        playback=playback,
     )
 
     #Pornim watcher-ul care monitorizeaza inbox-ul

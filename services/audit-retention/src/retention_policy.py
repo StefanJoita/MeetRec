@@ -22,6 +22,9 @@ import structlog
 
 from src.config import settings
 
+# Copia de redare pentru browser, creată de ingest lângă original (ingest/src/playback.py)
+PLAYBACK_SUFFIX = ".play.mp3"
+
 logger = structlog.get_logger(__name__)
 
 
@@ -102,6 +105,12 @@ async def delete_recording(
 
     # Pas 2: ștergem fișierul DUPĂ ce DB-ul a confirmat
     # Dacă unlink() eșuează, logăm dar NU facem rollback DB
+    if file_path:
+        # copia de redare pentru browser (ingest/playback.py), dacă există
+        try:
+            file_path.with_name(file_path.stem + PLAYBACK_SUFFIX).unlink(missing_ok=True)
+        except OSError as e:
+            logger.warning("playback_copy_delete_failed", path=str(file_path), error=str(e))
     if file_path and file_path.exists():
         try:
             file_path.unlink()

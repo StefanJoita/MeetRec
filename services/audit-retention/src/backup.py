@@ -34,6 +34,7 @@ import structlog
 from src import runtime_settings
 from src.config import settings
 from src.database import DatabaseClient
+from src.retention_policy import PLAYBACK_SUFFIX
 
 logger = structlog.get_logger(__name__)
 
@@ -89,8 +90,13 @@ def _files(root: Path) -> Dict[Path, int]:
     return {
         p.relative_to(root): p.stat().st_size
         for p in root.rglob("*")
-        if p.is_file() and not p.name.endswith(_PARTIAL)
+        if p.is_file() and not p.name.endswith(_PARTIAL) and not _derived(p.name)
     }
+
+
+def _derived(name: str) -> bool:
+    """Copiile de redare (ingest/playback.py) se refac din original: nu intră în backup."""
+    return name.endswith(PLAYBACK_SUFFIX) or name.endswith(PLAYBACK_SUFFIX + ".tmp")
 
 
 def sync_audio(source: Path, mirror: Path, deleted_root: Path, today: date) -> Dict[str, int]:

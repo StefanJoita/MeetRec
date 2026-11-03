@@ -287,6 +287,20 @@ class DatabaseClient:
             )
             return row["status"] if row else None
 
+    async def list_playback_candidates(self, formats: List[str]) -> List[str]:
+        """Căile fișierelor din aceste formate (copia de redare, playback.py), cele mai noi întâi."""
+        async with self._pool.acquire() as conn:
+            rows = await conn.fetch(
+                """
+                SELECT file_path FROM recordings
+                WHERE audio_format::text = ANY($1::text[])
+                  AND file_path IS NOT NULL AND status::text <> 'rejected'
+                ORDER BY created_at DESC
+                """,
+                formats,
+            )
+        return [r["file_path"] for r in rows]
+
     async def find_recording_by_session_id(self, session_id: str) -> Optional[str]:
         """
         Returnează recording_id-ul înregistrării principale a unei sesiuni, sau None.

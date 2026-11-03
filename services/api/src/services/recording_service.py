@@ -27,6 +27,15 @@ from src.schemas.recording import (
 _ALLOWED_SORT_FIELDS = {"created_at", "meeting_date", "title", "duration_seconds", "file_size_bytes"}
 
 
+
+# Copia de redare pentru browser, creată de ingest lângă original (ingest/src/playback.py)
+PLAYBACK_SUFFIX = ".play.mp3"
+
+
+def playback_path(original: Path) -> Path:
+    """<dir>/<uuid>.mp4 → <dir>/<uuid>.play.mp3"""
+    return original.with_name(original.stem + PLAYBACK_SUFFIX)
+
 class RecordingDeletionError(Exception):
     """Semnalează că înregistrarea nu poate fi ștearsă complet de pe storage."""
 
@@ -192,6 +201,9 @@ class RecordingService:
         await self.db.delete(recording)
         await self.db.flush()
 
+        if file_path:
+            # copia de redare pentru browser (ingest/playback.py), dacă există
+            playback_path(file_path).unlink(missing_ok=True)
         if file_path and file_path.is_file():
             try:
                 file_path.unlink()

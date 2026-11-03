@@ -85,6 +85,17 @@ class TestAudioMirror:
         assert result["audio_copied"] == 1 and result["audio_copied_bytes"] == 2
         assert result["audio_files"] == 2
 
+    def test_playback_copies_are_not_backed_up(self, isolated):
+        audio, dest, _ = isolated
+        write(audio / "2026/11/03/abc.mp4", b"original")
+        write(audio / "2026/11/03/abc.play.mp3", b"copie")
+        write(audio / "2026/11/03/def.play.mp3.tmp", b"in lucru")
+
+        result = sync_audio(audio, dest / "audio", dest / "audio-deleted", date(2026, 11, 3))
+
+        assert result["audio_files"] == 1
+        assert sorted(p.name for p in (dest / "audio").rglob("*") if p.is_file()) == ["abc.mp4"]
+
     def test_incomplete_copy_is_redone(self, isolated):
         audio, dest, _ = isolated
         write(audio / "a.wav", b"complet")

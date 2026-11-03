@@ -81,3 +81,23 @@ class TestRefresh:
 
         assert await runtime_settings.refresh(pool_with(conn)) == {}
         assert settings.audit_log_retention_days == 999
+
+
+class TestDeletePlaybackCopy:
+
+    @pytest.mark.asyncio
+    async def test_retention_deletes_original_and_playback_copy(self, tmp_path):
+        from datetime import date
+        from src.retention_policy import RecordingToDelete, delete_recording
+
+        original = tmp_path / "abc.mp4"
+        original.write_bytes(b"v")
+        copy = tmp_path / "abc.play.mp3"
+        copy.write_bytes(b"a")
+        conn = AsyncMock()
+        conn.execute.return_value = "DELETE 1"
+        rec = RecordingToDelete(id="r1", title="t", file_path=str(original), retain_until=date(2020, 1, 1))
+
+        assert await delete_recording(pool_with(conn), rec) is True
+
+        assert not original.exists() and not copy.exists()

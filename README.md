@@ -401,6 +401,18 @@ and `large-v3-turbo` unless `WHISPER_MODELS` is set explicitly when running `bui
 
 Reference measurement (CPU, `large-v3-turbo`, diarization in parallel): 3 min 42 s of audio processed in 4 min 36 s — transcription 2 min 34 s, diarization 4 min 25 s. Real timings for every recording are shown in **Admin → Processing times**.
 
+### Playback of MP4 recordings
+
+The player is the browser's built-in `<audio>` element, which decodes MP4 (H.264 video, AAC audio) with the
+operating system's codecs. Some clients lack them (e.g. Windows N without the Media Feature Pack, Firefox on Linux
+without codecs): the player does not start and the duration shows as `NaN`, even though transcription works. For every
+MP4 recording (e.g. Cisco Meeting Server recordings) the `ingest` service therefore creates, once and in the
+background, an audio-only MP3 copy next to the original (`<uuid>.play.mp3`, CBR mono 64 kbps, ~29 MB per hour), which
+every browser decodes on its own. The copy is served to the player only; transcription and export use the original.
+It is created after the transcription job is queued, one at a time, single-threaded and at the lowest CPU/disk
+priority; it is deleted with the recording, is not included in backups, and is created for existing MP4 recordings
+when `ingest` starts.
+
 ### Key optional settings
 
 Settings marked ✱ can also be changed from **Admin → Settings**; the UI value overrides `.env`.

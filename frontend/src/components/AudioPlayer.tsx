@@ -7,6 +7,9 @@ import { getAudioToken, buildAudioUrl } from '@/api/recordings'
 interface AudioPlayerProps {
   recordingId: string
   onTimeUpdate?: (currentTime: number) => void
+  // Durata din baza de date: folosită când browserul nu o poate afla din fișier
+  // (unele MP4-uri raportează NaN/Infinity)
+  fallbackDuration?: number | null
 }
 
 export interface AudioPlayerHandle {
@@ -17,7 +20,7 @@ const SPEEDS   = [0.75, 1, 1.25, 1.5, 2]
 const SKIP_SEC = 15
 
 const AudioPlayer = forwardRef<AudioPlayerHandle, AudioPlayerProps>(function AudioPlayer(
-  { recordingId, onTimeUpdate },
+  { recordingId, onTimeUpdate, fallbackDuration },
   ref,
 ) {
   const audioRef    = useRef<HTMLAudioElement>(null)
@@ -91,8 +94,13 @@ const AudioPlayer = forwardRef<AudioPlayerHandle, AudioPlayerProps>(function Aud
     onTimeUpdateRef.current?.(t)
   }, [])
 
+  const updateDuration = () => {
+    const d = audioRef.current?.duration
+    setDuration(d !== undefined && Number.isFinite(d) && d > 0 ? d : (fallbackDuration ?? 0))
+  }
+
   const handleLoadedMetadata = () => {
-    setDuration(audioRef.current?.duration ?? 0)
+    updateDuration()
     setError(false)
   }
 
@@ -147,6 +155,7 @@ const AudioPlayer = forwardRef<AudioPlayerHandle, AudioPlayerProps>(function Aud
         src={audioSrc}
         onTimeUpdate={handleTimeUpdate}
         onLoadedMetadata={handleLoadedMetadata}
+        onDurationChange={updateDuration}
         onEnded={() => setPlaying(false)}
         onError={() => setError(true)}
         preload="metadata"

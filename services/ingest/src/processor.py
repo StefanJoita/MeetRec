@@ -16,7 +16,7 @@
 # ============================================================
 import json
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 from src.config import settings
 from src.logger import get_logger
@@ -24,6 +24,7 @@ from src.validator import AudioMetadata, AudioValidator
 from src.storage import StorageError, StorageManager
 from src.database import DatabaseClient
 from src.publisher import JobPublisher, TranscriptionJob
+from src.playback import PlaybackPreparer
 
 logger=get_logger(__name__)
 
@@ -45,11 +46,14 @@ class FileProcessor:
             storage:StorageManager,
             database:DatabaseClient,
             publisher:JobPublisher,
+            playback: Optional[PlaybackPreparer] = None,
     ):
             self.validator=validator
             self.storage=storage
             self.database=database
             self.publisher=publisher
+            # Copia de redare pentru browser (MP4 cu video etc.), în fundal
+            self.playback=playback
     
 
     async def _refresh_max_file_size(self) -> None:
@@ -228,6 +232,10 @@ class FileProcessor:
                 error_message=f"Redis unavailable: {e}",
             )
             return False
+
+        # După publicarea jobului: copia de redare nu întârzie transcrierea
+        if self.playback is not None:
+            self.playback.schedule(stored_path)
 
         logger.info(
             "processing_completed",

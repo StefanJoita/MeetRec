@@ -644,6 +644,7 @@ Serviciul `audit-retention` face zilnic, la `BACKUP_HOUR` (implicit 02:00), un b
 
 - **Baza de date și configurația:** se păstrează cel mai nou backup din fiecare dintre ultimele 7 zile și din fiecare dintre ultimele 4 săptămâni (`BACKUP_KEEP_DAILY`, `BACKUP_KEEP_WEEKLY`). Un backup manual înlocuiește backup-ul din aceeași zi.
 - **Fișierele audio:** o singură copie, completată la fiecare backup cu fișierele noi (fișierele audio nu se modifică după încărcare). Un fișier șters din aplicație — manual sau de retenție — e mutat în `audio-deleted/` și șters de acolo după `BACKUP_DELETED_AUDIO_DAYS` zile (implicit 30).
+- **Copiile de redare** (`<uuid>.play.mp3`, lângă fiecare fișier MP4: doar sunetul, pentru playerul din browser) nu intră în backup: serviciul de ingest le reface singur la pornire, după o restaurare.
 - **Legătura cu retenția:** cât timp backup-ul e activ, retenția (§8, `RETENTION_DAYS`) șterge o înregistrare doar după ce fișierul ei audio a ajuns în backup.
 - **Dacă serverul era oprit** la ora backup-ului, backup-ul rulează la pornire. Un backup eșuat se reia a doua zi sau manual.
 - **Backup-urile nu sunt criptate.** Conțin înregistrările, transcrierile și secretele din `.env`: folderul primește permisiuni `700` (doar root), iar accesul la destinație trebuie restricționat la fel ca la server.
