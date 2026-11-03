@@ -223,11 +223,19 @@ fi
     warn "MEETREC_VERSION din .env ($(env_get MEETREC_VERSION)) diferă de pachet ($VERSION) — actualizez."
     env_set MEETREC_VERSION "$VERSION"
 }
-# Imaginea stt-worker are modelul în tag (meetrec/stt-worker:<versiune>-<model>)
+# Imaginea stt-worker are modelul implicit în tag (meetrec/stt-worker:<versiune>-<model>)
 BUNDLE_WHISPER=$(grep '^Model Whisper:' MANIFEST.txt | awk '{print $3}')
 if [[ -n "$BUNDLE_WHISPER" && "$(env_get WHISPER_MODEL)" != "$BUNDLE_WHISPER" ]]; then
     warn "WHISPER_MODEL din .env ($(env_get WHISPER_MODEL)) diferă de modelul din pachet ($BUNDLE_WHISPER) — actualizez."
     env_set WHISPER_MODEL "$BUNDLE_WHISPER"
+fi
+# Modelele incluse în imagine: lista din Administrare → Setări → Model de transcriere.
+# Pachetele vechi n-au linia → doar modelul implicit.
+BUNDLE_WHISPER_MODELS=$({ grep '^Modele Whisper:' MANIFEST.txt || true; } | awk '{print $3}')
+BUNDLE_WHISPER_MODELS="${BUNDLE_WHISPER_MODELS:-$BUNDLE_WHISPER}"
+if [[ -n "$BUNDLE_WHISPER_MODELS" && "$(env_get WHISPER_MODELS)" != "$BUNDLE_WHISPER_MODELS" ]]; then
+    env_set WHISPER_MODELS "$BUNDLE_WHISPER_MODELS"
+    ok "Modele Whisper în pachet: $BUNDLE_WHISPER_MODELS (se alege din Administrare → Setări)"
 fi
 # Backup zilnic (audit-retention): folder în afara directorului pachetului, ca să rămână
 # la actualizări. Poate fi un disc separat sau un share montat (docs/INSTALL-OFFLINE.md §9.2).

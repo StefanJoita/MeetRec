@@ -73,7 +73,7 @@ class DatabaseUploader:
                 rows = await conn.fetch(runtime_settings.QUERY, list(runtime_settings.ALL_KEYS))
             except asyncpg.UndefinedTableError:
                 return {}            # API-ul n-a aplicat încă migrarea 010
-        return runtime_settings.parse_rows(rows)
+        return runtime_settings.sanitize(runtime_settings.parse_rows(rows))
 
     async def get_transcript_id(self, recording_id: str) -> Optional[str]:
         """Returnează UUID-ul transcriptului asociat înregistrării."""

@@ -207,6 +207,7 @@ SERVER_NAME=192.168.1.100     # or meetrec.company.com
 | `POSTGRES_PASSWORD` | `change_me_in_production` | Database password |
 | `SERVER_NAME` | `meeting-transcriber.local` | Server domain or IP |
 | `WHISPER_MODEL` | `large-v3` | Transcription model baked into the image: `small`/`medium`/`large-v3`/`large-v3-turbo` (changing it requires a rebuild) |
+| `WHISPER_MODELS` | empty (= `WHISPER_MODEL`) | Several models in the image, comma-separated (e.g. `large-v3,large-v3-turbo`); the one used is picked in **Admin → Settings** (changing the list requires a rebuild) |
 | `REDIS_PASSWORD` | *(generate)* | Redis password (URL-safe characters, e.g. `openssl rand -hex 24`) |
 | `APP_ENV` | `development` | `production` disables the `/docs` OpenAPI UI |
 | `WHISPER_PRIMARY_LANGUAGE` | `ro` | Primary language for transcriptions |

@@ -392,11 +392,12 @@ All settings are read from `.env`. Copy `.env.example` to get started.
 | `large-v3` | 2.9 GB | Slow | **Default** — best accuracy |
 | `large-v3-turbo` | 1.6 GB | Several times faster than `large-v3` on CPU | Close to `large-v3`; recommended for CPU servers |
 
-Set with `WHISPER_MODEL=large-v3` in `.env`. Only that model is baked into the `stt-worker` image (tagged
-`meetrec/stt-worker:<version>-<model>`), so changing it requires `install/models/download-models.py --whisper-model <name>`
-and rebuilding `stt-worker`. Several models can sit side by side in `services/stt-worker/models/whisper/` — e.g. `small`
-for development on a laptop and `large-v3` for production. The offline bundle uses `large-v3` unless
-`WHISPER_MODEL` is set explicitly when running `build-bundle.sh` (e.g. `WHISPER_MODEL=large-v3-turbo`).
+`WHISPER_MODELS` in `.env` lists the models baked into the `stt-worker` image (comma-separated; empty = only
+`WHISPER_MODEL`), and `WHISPER_MODEL` is the default one (the image is tagged `meetrec/stt-worker:<version>-<model>`).
+The model actually used is picked in **Admin → Settings → Transcription model** from the models in the image; the worker
+reloads it between jobs. Adding a model to the image requires `install/models/download-models.py --whisper-model <name>`
+(several names can be comma-separated) and rebuilding `stt-worker`. The offline bundle includes both `large-v3` (default)
+and `large-v3-turbo` unless `WHISPER_MODELS` is set explicitly when running `build-bundle.sh` (e.g. `WHISPER_MODELS=large-v3-turbo`).
 
 Reference measurement (CPU, `large-v3-turbo`, diarization in parallel): 3 min 42 s of audio processed in 4 min 36 s — transcription 2 min 34 s, diarization 4 min 25 s. Real timings for every recording are shown in **Admin → Processing times**.
 
@@ -406,7 +407,8 @@ Settings marked ✱ can also be changed from **Admin → Settings**; the UI valu
 
 | Variable | Default | Description |
 |---|---|---|
-| `WHISPER_MODEL` | `large-v3` | Whisper model (must match the model baked into the image) |
+| `WHISPER_MODEL` ✱ | `large-v3` | Default Whisper model (must be baked into the image) |
+| `WHISPER_MODELS` | empty (= `WHISPER_MODEL`) | Whisper models baked into the image, offered in **Admin → Settings** |
 | `WHISPER_THREADS` | `0` (all cores) | CPU threads for transcription; halved automatically while diarization runs in parallel |
 | `DIARIZATION_ENABLED` ✱ | `false` | Speaker identification (requires the pyannote model in the image) |
 | `DIARIZATION_PARALLEL` ✱ | `true` | Run diarization in parallel with transcription |

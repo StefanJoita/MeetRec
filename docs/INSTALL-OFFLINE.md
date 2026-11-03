@@ -173,7 +173,7 @@ cp .env.example .env
 
 Celelalte valori (parole etc.) se generează pe serverul offline. Nu copia acest `.env` pe server.
 
-**Modelul Whisper al pachetului** e `large-v3`, indiferent de `WHISPER_MODEL` din `.env`. Pe mașina de pregătire, `.env` poate folosi un model mic pentru dezvoltare (ex. `small`), fără să afecteze pachetul. Alt model pentru pachet se cere explicit, de exemplu varianta rapidă, recomandată pe CPU: `WHISPER_MODEL=large-v3-turbo bash install/offline/build-bundle.sh`. În imaginea `stt-worker` intră doar modelul ales, iar tag-ul imaginii îl conține (`meetrec/stt-worker:<versiune>-<model>`), deci imaginea de dezvoltare și cea a pachetului nu se suprascriu.
+**Modelele Whisper ale pachetului** sunt `large-v3` și `large-v3-turbo`, indiferent de `WHISPER_MODEL` din `.env`; modelul folosit se alege după instalare din *Administrare → Setări → Model de transcriere*. `large-v3` e modelul implicit (cel cu care pornește o instalare nouă). Pe mașina de pregătire, `.env` poate folosi un model mic pentru dezvoltare (ex. `small`), fără să afecteze pachetul. Alte modele se cer explicit: `WHISPER_MODELS` (lista) și `WHISPER_MODEL` (implicitul, adăugat automat în listă), de exemplu doar varianta rapidă: `WHISPER_MODEL=large-v3-turbo WHISPER_MODELS=large-v3-turbo bash install/offline/build-bundle.sh`. În imaginea `stt-worker` intră doar modelele din listă, iar tag-ul imaginii conține modelul implicit (`meetrec/stt-worker:<versiune>-<model>`), deci imaginea de dezvoltare și cea a pachetului nu se suprascriu.
 
 ### 3.2 (Opțional) Diarizare — token HuggingFace
 
@@ -209,7 +209,7 @@ Durata: 30–60 de minute la prima rulare (descărcarea PyTorch și a modelelor)
 **Rezultat:**
 
 ```
-dist/meetrec-offline-<versiune>.tar          (~7 GB cu large-v3-turbo, ~9 GB cu large-v3)
+dist/meetrec-offline-<versiune>.tar          (~10 GB cu ambele modele; ~7 GB doar cu large-v3-turbo, ~9 GB doar cu large-v3)
 dist/meetrec-offline-<versiune>.tar.sha256
 ```
 
@@ -221,7 +221,7 @@ python install/models/download-models.py                     # necesită: pip in
 bash install/models/download-models-docker.sh
 ```
 
-Opțiuni: `--whisper-model large-v3-turbo` (sau `medium`, `small`), `--skip-diarization`. Modelele Whisper descărcate se adună în `services/stt-worker/models/whisper/` (ex. `small` și `large-v3`); fiecare build folosește doar unul.
+Opțiuni: `--whisper-model large-v3-turbo` (sau `medium`, `small`, ori mai multe separate prin virgulă: `--whisper-model large-v3,large-v3-turbo`), `--skip-diarization`. Modelele Whisper descărcate se adună în `services/stt-worker/models/whisper/` (ex. `small`, `large-v3`, `large-v3-turbo`); fiecare build include doar modelele din `WHISPER_MODELS` (gol = doar `WHISPER_MODEL`).
 
 ### 3.4 Structura pachetului
 
@@ -308,7 +308,8 @@ Dacă `.env` nu există, e creat din `.env.example` cu:
 | `REDIS_PASSWORD` | parolă aleatoare (48 hex) |
 | `JWT_SECRET_KEY` | cheie aleatoare (64 hex) |
 | `SERVER_NAME` | întrebat; implicit primul IP al serverului |
-| `WHISPER_MODEL` | din `MANIFEST.txt` (modelul inclus în imagine) |
+| `WHISPER_MODEL` | din `MANIFEST.txt` → `Model Whisper` (modelul implicit) |
+| `WHISPER_MODELS` | din `MANIFEST.txt` → `Modele Whisper` (toate modelele din imagine; actualizat și la upgrade) |
 | `DIARIZATION_ENABLED` | întrebat, dacă modelul pyannote e inclus; altfel `false` |
 | `APP_ENV` | `production` |
 | `MEETREC_VERSION` | versiunea pachetului |
@@ -525,9 +526,10 @@ Fișierul `/opt/meetrec/.env`. După orice modificare: `docker compose up -d`.
 
 **Din interfață (Administrare → Setări)** se pot schimba, fără `.env` și fără restart manual, setările marcate cu ✱ în tabel. Valoarea din interfață are prioritate față de `.env`; butonul „Implicit” revine la valoarea din `.env`. Fiecare modificare apare în jurnalul de audit (cine, valoarea veche, valoarea nouă).
 
-- Diarizarea pornită/oprită și diarizarea în paralel cer reîncărcarea modelelor: worker-ul de transcriere se repornește singur când nu are nimic în lucru (1-3 minute).
+- Modelul de transcriere, diarizarea pornită/oprită și diarizarea în paralel cer reîncărcarea modelelor: worker-ul de transcriere se repornește singur când nu are nimic în lucru (1-3 minute).
 - Celelalte se aplică la următoarea transcriere, la următoarea verificare (cel mult 15 minute) sau la următoarea rulare a retenției (zilnic).
-- Nu se pot schimba din interfață: secretele, rețeaua, căile, versiunea și modelul Whisper (fiecare imagine `stt-worker` conține un singur model).
+- Modelul de transcriere se alege doar dintre modelele incluse în pachet (`Modele Whisper` din `MANIFEST.txt`). Cu `large-v3-turbo` transcrierea e de 2-4 ori mai rapidă și folosește ~2 GB RAM mai puțin; `large-v3` e puțin mai precis la nume proprii, termeni tehnici și audio slab. Modelul folosit apare la fiecare transcriere în *Administrare → Procesări*, util pentru comparație.
+- Nu se pot schimba din interfață: secretele, rețeaua, căile și versiunea.
 
 **Niveluri de clasificare.**
 
@@ -556,7 +558,8 @@ Fișierul `/opt/meetrec/.env`. După orice modificare: `docker compose up -d`.
 | Variabilă | Implicit | Descriere |
 |-----------|----------|-----------|
 | `SERVER_NAME` | IP-ul serverului | numele afișat (certificatele se generează separat, §6) |
-| `WHISPER_MODEL` | `large-v3` | **trebuie** să fie modelul inclus în imagine; alt model cere un pachet nou |
+| `WHISPER_MODEL` ✱ | `large-v3` | modelul implicit; **trebuie** să fie inclus în imagine |
+| `WHISPER_MODELS` | din `MANIFEST.txt` | modelele incluse în imagine (lista din *Setări*); alt set de modele cere un pachet nou |
 | `WHISPER_COMPUTE_TYPE` | `int8` | `int8` (rapid, CPU) sau `float32` |
 | `WHISPER_THREADS` | `0` (toate nucleele) | fire pentru transcriere; cu diarizarea în paralel, jumătate din nuclee |
 | `DIARIZATION_ENABLED` ✱ | `true`/`false` | funcționează doar dacă `MANIFEST.txt` are `Diarizare: da` |
@@ -773,7 +776,7 @@ Installerul folosește automat binarele statice (`packages/docker/static/`). Con
 
 1. **Dezactivează diarizarea** (identificarea vorbitorilor), care încarcă un model suplimentar: `DIARIZATION_ENABLED=false` în `.env`, apoi `docker compose up -d`.
 2. **Mai mult RAM** pentru server sau pentru mașina virtuală (recomandat: 16 GB+ pentru `large-v3`). Închide alte servicii care rulează pe același server.
-3. **Model mai mic:** un pachet nou, generat cu `--whisper-model medium` (§3.3), și `WHISPER_MODEL=medium` în `.env`. Modelul e inclus în imagine, deci nu poate fi schimbat doar din `.env`.
+3. **Model mai mic:** dacă pachetul conține `large-v3-turbo`, alege-l din *Administrare → Setări → Model de transcriere* (~2 GB RAM mai puțin decât `large-v3`). Un model și mai mic (`medium`) cere un pachet nou, generat cu `WHISPER_MODELS=medium` (§3.3).
 4. **Fișier mai scurt:** împarte înregistrarea în părți mai mici și încarcă-le separat.
 
 Apoi apasă **„Reîncearcă”** pe înregistrare. Contorul de încercări pornește de la zero.

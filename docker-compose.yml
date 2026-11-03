@@ -118,6 +118,7 @@ services:
       # din .env ca implicită (aceleași valori implicite ca serviciile care le folosesc)
       MEETREC_VERSION: ${MEETREC_VERSION:-1.2.0}
       WHISPER_MODEL: ${WHISPER_MODEL:-large-v3}
+      WHISPER_MODELS: ${WHISPER_MODELS:-}   # modelele din imaginea stt-worker (lista din Setări)
       DIARIZATION_ENABLED: ${DIARIZATION_ENABLED:-false}
       DIARIZATION_PARALLEL: ${DIARIZATION_PARALLEL:-true}
       MIN_SPEAKERS: ${MIN_SPEAKERS:-}
@@ -210,8 +211,10 @@ services:
       context: ./services/stt-worker
       dockerfile: Dockerfile
       args:
-        # Doar acest model Whisper intră în imagine (vezi Dockerfile)
+        # Doar aceste modele Whisper intră în imagine (vezi Dockerfile).
+        # WHISPER_MODELS gol = doar WHISPER_MODEL (modelul implicit).
         WHISPER_MODEL: ${WHISPER_MODEL:-large-v3}
+        WHISPER_MODELS: ${WHISPER_MODELS:-}
     # Tag-ul conține modelul: imaginea de dev (ex. small) și cea a pachetului
     # offline (large-v3) nu se suprascriu una pe alta pe aceeași mașină.
     image: meetrec/stt-worker:${MEETREC_VERSION:-1.2.0}-${WHISPER_MODEL:-large-v3}

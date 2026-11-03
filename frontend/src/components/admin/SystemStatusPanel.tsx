@@ -126,7 +126,7 @@ export default function SystemStatusPanel() {
         <dl className="text-sm grid grid-cols-2 gap-y-1">
           <dt className="text-gray-500">MeetRec</dt>
           <dd className="text-gray-900">{data.version ?? '—'}</dd>
-          <dt className="text-gray-500">Model Whisper (.env)</dt>
+          <dt className="text-gray-500">Model Whisper ales</dt>
           <dd className="text-gray-900">{data.whisper_model_configured ?? '—'}</dd>
         </dl>
       </Card>

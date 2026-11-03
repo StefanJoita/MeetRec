@@ -11,9 +11,11 @@
 # Serviciile care folosesc setările (stt-worker, audit-retention, ingest)
 # citesc ele însele tabelul app_settings; API-ul doar îl scrie și îl afișează.
 #
-# Nu sunt aici, intenționat: secretele (parole, JWT), căile, rețeaua, versiunea,
-# modelul Whisper (fiecare imagine stt-worker conține un singur model, ales de
-# docker-compose din .env) și limba (doar modelul de aliniere pentru română e inclus).
+# Nu sunt aici, intenționat: secretele (parole, JWT), căile, rețeaua, versiunea
+# și limba (doar modelul de aliniere pentru română e inclus).
+#
+# Modelul Whisper se alege doar dintre modelele incluse în imaginea stt-worker
+# (WHISPER_MODELS din .env, scris de installer din MANIFEST.txt).
 # ============================================================
 
 import os
@@ -36,7 +38,7 @@ NGINX_MAX_UPLOAD_MB = 600   # client_max_body_size din nginx: o limită mai mare
 class SettingDef:
     key: str
     env: str
-    type: str                     # "int" | "bool" | "optional_int" | "text"
+    type: str                     # "int" | "bool" | "optional_int" | "text" | "choice"
     default: Any
     group: str
     label: str
@@ -46,6 +48,14 @@ class SettingDef:
     max: Optional[int] = None     # la "text": lungimea maximă
     unit: Optional[str] = None
     from_env: Optional[Callable[[str], Any]] = None   # conversie specială din variabila de mediu
+    # la "choice": variantele permise, citite la fiecare cerere (depind de .env)
+    choices: Optional[Callable[[], List["Choice"]]] = None
+
+
+@dataclass(frozen=True)
+class Choice:
+    value: str
+    label: str
 
 
 _NEXT_JOB = "La următoarea transcriere."
@@ -57,6 +67,30 @@ _NEXT_BACKUP = "La următorul backup."
 
 DEFAULT_CLASSIFICATION = "NECLASIFICAT"
 
+DEFAULT_WHISPER_MODEL = "large-v3"
+# Descrierea afișată în listă; modelele necunoscute apar doar cu numele
+WHISPER_MODEL_LABELS = {
+    "large-v3-turbo": "large-v3-turbo — rapid (de 2-4 ori mai rapid, calitate apropiată)",
+    "large-v3": "large-v3 — precizie maximă (mai lent, mai multă memorie)",
+    "medium": "medium — mediu",
+    "small": "small — mic (doar pentru teste)",
+}
+
+
+def _normalize_model(name: str) -> str:
+    name = name.strip()
+    return "large-v3" if name == "large" else name
+
+
+def whisper_models() -> List[Choice]:
+    """Modelele Whisper incluse în imaginea stt-worker (WHISPER_MODELS, altfel WHISPER_MODEL)."""
+    raw = os.environ.get("WHISPER_MODELS", "").split("#", 1)[0]
+    names = [_normalize_model(n) for n in raw.split(",") if n.strip()]
+    if not names:
+        names = [_normalize_model(os.environ.get("WHISPER_MODEL", "") or DEFAULT_WHISPER_MODEL)]
+    unique = list(dict.fromkeys(names))
+    return [Choice(n, WHISPER_MODEL_LABELS.get(n, n)) for n in unique]
+
 SETTINGS: List[SettingDef] = [
     SettingDef(
         "classification_level", "CLASSIFICATION_LEVEL", "text", DEFAULT_CLASSIFICATION, "Securitate",
@@ -64,6 +98,15 @@ SETTINGS: List[SettingDef] = [
         "Afișat pe fiecare pagină a aplicației, inclusiv la autentificare, și pe fiecare pagină "
         "a documentelor exportate (PDF, DOCX, TXT).",
         "Imediat (ceilalți utilizatori îl văd în cel mult un minut).", max=100,
+    ),
+    SettingDef(
+        "whisper_model", "WHISPER_MODEL", "choice", DEFAULT_WHISPER_MODEL, "Transcriere",
+        "Model de transcriere",
+        "large-v3-turbo e de câteva ori mai rapid, cu o calitate apropiată; large-v3 e puțin "
+        "mai precis (nume proprii, termeni tehnici, audio slab), dar procesarea durează mai mult "
+        "și folosește mai multă memorie. Lista conține doar modelele incluse în pachet. "
+        "Modelul folosit apare la fiecare transcriere în Administrare → Procesări.",
+        _WORKER_RESTART, from_env=_normalize_model, choices=whisper_models,
     ),
     SettingDef(
         "diarization_enabled", "DIARIZATION_ENABLED", "bool", False, "Transcriere",
@@ -184,6 +227,8 @@ def env_value(d: SettingDef) -> Any:
         return d.default
     if d.type == "text":
         return raw
+    if d.type == "choice":
+        return d.from_env(raw) if d.from_env else raw
     try:
         if d.from_env:
             return d.from_env(raw)
@@ -205,6 +250,11 @@ def validate(d: SettingDef, value: Any) -> Any:
             raise SettingValidationError("Valoarea este obligatorie.")
         if d.max is not None and len(value) > d.max:
             raise SettingValidationError(f"Maximum {d.max} de caractere.")
+        return value
+    if d.type == "choice":
+        allowed = [c.value for c in d.choices()] if d.choices else []
+        if not isinstance(value, str) or value not in allowed:
+            raise SettingValidationError("Valoare nepermisă. Variante: " + ", ".join(allowed) + ".")
         return value
     if d.type == "bool":
         if not isinstance(value, bool):

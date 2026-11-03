@@ -77,6 +77,57 @@ class TestRestartNeeded:
         assert runtime_settings.restart_needed({}) == []    # nimic în tabel = valorile din .env
 
 
+class TestWhisperModel:
+
+    @pytest.fixture
+    def models_dir(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(settings, "whisper_model_path", tmp_path)
+        for name in ("models--Systran--faster-whisper-large-v3",
+                     "models--mobiuslabsgmbh--faster-whisper-large-v3-turbo"):
+            (tmp_path / "whisper" / name).mkdir(parents=True)
+        return tmp_path
+
+    def test_model_in_image_is_kept(self, models_dir):
+        values = {"whisper_model": "large-v3-turbo", "max_speakers": 3}
+
+        assert runtime_settings.sanitize(values) == values
+        assert runtime_settings.model_available("large")          # alias pentru large-v3
+
+    def test_model_missing_from_image_is_dropped(self, models_dir):
+        assert runtime_settings.sanitize({"whisper_model": "medium", "max_speakers": 3}) == {"max_speakers": 3}
+        assert runtime_settings.sanitize({"whisper_model": 5}) == {}
+
+    def test_turbo_folder_does_not_count_as_large_v3(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(settings, "whisper_model_path", tmp_path)
+        (tmp_path / "whisper" / "models--mobiuslabsgmbh--faster-whisper-large-v3-turbo").mkdir(parents=True)
+
+        assert not runtime_settings.model_available("large-v3")
+
+    async def test_model_change_restarts_worker(self):
+        runtime_settings.mark_loaded()
+        other = "large-v3-turbo" if settings.whisper_model != "large-v3-turbo" else "large-v3"
+        consumer = make_consumer({"whisper_model": other})
+
+        await consumer._refresh_settings()
+
+        consumer._exit_process.assert_called_once()
+
+    async def test_unavailable_model_does_not_restart_in_loop(self, models_dir):
+        runtime_settings.mark_loaded()
+        conn = AsyncMock()
+        conn.fetch.return_value = [{"key": "whisper_model", "value": '"medium"'}]
+        acq = AsyncMock()
+        acq.__aenter__.return_value = conn
+        uploader = DatabaseUploader()
+        uploader._pool = MagicMock(acquire=MagicMock(return_value=acq))
+        consumer = make_consumer({})
+        consumer._uploader = uploader
+
+        await consumer._refresh_settings()
+
+        consumer._exit_process.assert_not_called()
+
+
 class TestConsumerRefresh:
 
     async def test_job_settings_applied_between_jobs(self):

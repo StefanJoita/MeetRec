@@ -54,8 +54,18 @@ VERSION="${VERSION:-1.2.0}"
 # ex. WHISPER_MODEL=medium bash install/offline/build-bundle.sh
 WHISPER_MODEL="${WHISPER_MODEL:-large-v3}"
 [[ "$WHISPER_MODEL" == "large" ]] && WHISPER_MODEL=large-v3
+# Toate modelele incluse în pachet; cel folosit se alege din Administrare → Setări.
+# Implicit ambele modele mari. Doar unul: WHISPER_MODELS=large-v3-turbo.
+# Modelul implicit (WHISPER_MODEL) e adăugat în listă dacă lipsește.
+WHISPER_MODELS="${WHISPER_MODELS:-large-v3,large-v3-turbo}"
+_models=()
+for _m in $(echo "$WHISPER_MODEL,$WHISPER_MODELS" | tr ',' ' '); do
+    [[ "$_m" == "large" ]] && _m=large-v3
+    [[ " ${_models[*]} " == *" $_m "* ]] || _models+=("$_m")
+done
+WHISPER_MODELS=$(IFS=,; echo "${_models[*]}")
 export MEETREC_VERSION="$VERSION"
-export WHISPER_MODEL   # suprascrie .env la docker compose build (build arg + tag imagine)
+export WHISPER_MODEL WHISPER_MODELS   # suprascriu .env la docker compose build (build args + tag imagine)
 
 NAME="meetrec-offline-$VERSION"
 DIST="${BUNDLE_DIR:-$REPO_ROOT/dist}"   # alt disc: BUNDLE_DIR=/d/meetrec-dist (pachetul are ~2x dimensiunea imaginilor)
@@ -71,20 +81,24 @@ command -v docker >/dev/null || err "Docker nu este instalat."
 docker info >/dev/null 2>&1 || err "Docker daemon nu rulează."
 docker compose version >/dev/null 2>&1 || err "Lipsește Docker Compose v2 (docker compose)."
 for cmd in curl gzip sha256sum tar; do command -v "$cmd" >/dev/null || err "Lipsește comanda: $cmd"; done
-ok "Docker $(docker version --format '{{.Server.Version}}'), versiune pachet: $VERSION, Whisper: $WHISPER_MODEL"
+ok "Docker $(docker version --format '{{.Server.Version}}'), versiune pachet: $VERSION, Whisper: $WHISPER_MODELS (implicit $WHISPER_MODEL)"
 
 # ── 2. Modele ML ──────────────────────────────────────────────
 step "2/7 Modele ML"
-if compgen -G "services/stt-worker/models/whisper/models--*--faster-whisper-$WHISPER_MODEL" >/dev/null \
+missing_whisper=0
+for _m in "${_models[@]}"; do
+    compgen -G "services/stt-worker/models/whisper/models--*--faster-whisper-$_m" >/dev/null || missing_whisper=1
+done
+if [[ $missing_whisper == 0 ]] \
    && ls services/stt-worker/models/torch/hub/checkpoints/wav2vec2_fairseq_base_ls960_asr_ls960.pth >/dev/null 2>&1 \
    && ls -d services/search-indexer/models/models--sentence-transformers--* >/dev/null 2>&1; then
     ok "Modele găsite în services/*/models/"
 else
-    info "Descarc modelele (Whisper $WHISPER_MODEL, aliniere, embeddings)..."
+    info "Descarc modelele (Whisper $WHISPER_MODELS, aliniere, embeddings)..."
     extra=()
     [[ -z "$(env_value HF_TOKEN)" && -z "${HF_TOKEN:-}" ]] && extra=(--skip-diarization)
     HF_TOKEN="${HF_TOKEN:-$(env_value HF_TOKEN)}" \
-        bash install/models/download-models-docker.sh --whisper-model "$WHISPER_MODEL" "${extra[@]}"
+        bash install/models/download-models-docker.sh --whisper-model "$WHISPER_MODELS" "${extra[@]}"
 fi
 if ls -d services/stt-worker/models/huggingface/hub/models--pyannote--* >/dev/null 2>&1; then
     DIARIZATION_INCLUDED=da
@@ -110,7 +124,7 @@ mkdir -p "$OUT/images"
 ALL_IMAGES=()
 for svc in "${BUILT_SERVICES[@]}"; do
     if [[ "$svc" == stt-worker ]]; then
-        ALL_IMAGES+=("meetrec/$svc:$VERSION-$WHISPER_MODEL")   # tag cu modelul (docker-compose.yml)
+        ALL_IMAGES+=("meetrec/$svc:$VERSION-$WHISPER_MODEL")   # tag cu modelul implicit (docker-compose.yml)
     else
         ALL_IMAGES+=("meetrec/$svc:$VERSION")
     fi
@@ -184,6 +198,7 @@ REDIS_PASSWORD=x docker compose -f "$OUT/docker-compose.yml" --env-file "$OUT/.e
     echo "Commit:          $(git rev-parse --short HEAD 2>/dev/null || echo necunoscut)"
     echo "Platformă:       $PLATFORM"
     echo "Model Whisper:   $WHISPER_MODEL"
+    echo "Modele Whisper:  $WHISPER_MODELS"
     echo "Diarizare:       $DIARIZATION_INCLUDED"
     echo ""
     echo "Imagini:"
@@ -192,8 +207,12 @@ REDIS_PASSWORD=x docker compose -f "$OUT/docker-compose.yml" --env-file "$OUT/.e
     done
     echo ""
     echo "Modele ML incluse în imagini:"
-    # Din models/whisper/ intră în imagine doar modelul pachetului (Dockerfile stt-worker)
-    for d in services/stt-worker/models/whisper/models--*--faster-whisper-"$WHISPER_MODEL" \
+    # Din models/whisper/ intră în imagine doar modelele pachetului (Dockerfile stt-worker)
+    whisper_dirs=()
+    for _m in "${_models[@]}"; do
+        whisper_dirs+=(services/stt-worker/models/whisper/models--*--faster-whisper-"$_m")
+    done
+    for d in "${whisper_dirs[@]}" \
              services/stt-worker/models/huggingface/hub/models--* \
              services/search-indexer/models/models--*; do
         [[ -d "$d" ]] || continue

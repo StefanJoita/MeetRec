@@ -15,6 +15,7 @@ const DESTRUCTIVE_ON_DECREASE = new Set(['retention_days', 'audit_log_retention_
 function formatValue(s: AppSetting, value: SettingValue): string {
   if (s.type === 'bool') return value ? 'Activat' : 'Dezactivat'
   if (s.type === 'text') return String(value)
+  if (s.type === 'choice') return String(value)
   if (value === null) return 'automat'
   return s.unit ? `${value} ${s.unit}` : String(value)
 }
@@ -70,6 +71,7 @@ export default function SettingsPanel() {
   function parsed(s: AppSetting): { value: SettingValue; error?: string } {
     const raw = draftValue(s)
     if (s.type === 'bool') return { value: raw as boolean }
+    if (s.type === 'choice') return { value: String(raw) }
     if (s.type === 'text') {
       const value = String(raw).replace(/\s+/g, ' ').trim()
       if (value === '') return { value, error: 'Valoare obligatorie.' }
@@ -154,6 +156,22 @@ export default function SettingsPanel() {
                         current ? 'translate-x-5' : 'translate-x-0.5'
                       }`} />
                     </button>
+                  ) : s.type === 'choice' ? (
+                    <select
+                      id={`setting-${s.key}`}
+                      value={current as string}
+                      disabled={busy}
+                      onChange={e => setDrafts(d => ({ ...d, [s.key]: e.target.value }))}
+                      className="w-full md:w-80 text-sm border border-gray-300 rounded-lg px-2.5 py-1.5 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    >
+                      {/* valoarea curentă rămâne vizibilă chiar dacă nu mai e în pachet */}
+                      {!(s.choices ?? []).some(c => c.value === current) && (
+                        <option value={current as string}>{String(current)} (nu e în pachet)</option>
+                      )}
+                      {(s.choices ?? []).map(c => (
+                        <option key={c.value} value={c.value}>{c.label}</option>
+                      ))}
+                    </select>
                   ) : s.type === 'text' ? (
                     <div className="flex flex-col">
                       <input

@@ -57,13 +57,13 @@ class Settings(BaseSettings):
     database_url: str
 
     # --- Whisper STT ---
-    # Modelul de folosit: tiny / base / small / medium / large
-    # Compromis: larger = mai precis, mai lent, mai mult RAM
-    #   tiny:   ~1 GB RAM, rapid, calitate scăzută
-    #   base:   ~1 GB RAM
-    #   small:  ~2 GB RAM
-    #   medium: ~5 GB RAM
-    #   large:  ~10 GB RAM  ← recomandat pentru română (acuratețe maximă)
+    # Modelul implicit (din .env). Imaginea poate conține mai multe modele
+    # (WHISPER_MODELS la build); cel folosit se poate schimba din
+    # Administrare → Setări (runtime_settings.py, cheia whisper_model).
+    #   small:          ~2 GB RAM, doar pentru teste
+    #   medium:         ~5 GB RAM
+    #   large-v3-turbo: ~6-8 GB RAM cu tot fluxul, de 2-4 ori mai rapid decât large-v3
+    #   large-v3:       ~8-10 GB RAM cu tot fluxul, precizie maximă
     whisper_model: str = "large"
 
     # Unde sunt descărcate / cachate modelele Whisper

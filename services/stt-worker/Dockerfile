@@ -8,7 +8,7 @@
 #     adaugă complexitate nejustificată pentru un MVP
 #   - Multi-stage devine relevant la producție pentru securitate
 #
-# DIMENSIUNEA IMAGINII FINALE: ~6-7 GB (cu large-v3)
+# DIMENSIUNEA IMAGINII FINALE: ~6-7 GB (cu large-v3), ~8-9 GB cu large-v3 + large-v3-turbo
 #   - python:3.11-slim:          ~130 MB
 #   - ffmpeg:                    ~400 MB
 #   - torch CPU + whisperx dep:  ~1.5 GB
@@ -78,21 +78,29 @@ RUN useradd -m -u 1000 appuser \
 #   models/nltk_data/     → punkt_tab (whisperx/alignment.py)
 # La runtime nu se face NICIO cerere de rețea (HF_HUB_OFFLINE=1).
 #
-# models/whisper/ poate conține mai multe modele (ex. small pentru dev și
-# large-v3 pentru pachetul offline); în imagine intră DOAR WHISPER_MODEL
-# (build arg din docker-compose.yml), ca imaginea să nu crească inutil.
+# models/whisper/ poate conține mai multe modele (ex. small pentru dev, large-v3 și
+# large-v3-turbo pentru pachetul offline); în imagine intră DOAR modelele din
+# WHISPER_MODELS (listă separată prin virgulă, build arg din docker-compose.yml),
+# ca imaginea să nu crească inutil. Gol = doar WHISPER_MODEL. Modelul folosit se
+# alege din Administrare → Setări; WHISPER_MODEL (implicitul) e inclus mereu.
 ARG WHISPER_MODEL=large-v3
-LABEL meetrec.whisper_model="${WHISPER_MODEL}"
+ARG WHISPER_MODELS=
+LABEL meetrec.whisper_model="${WHISPER_MODEL}" \
+      meetrec.whisper_models="${WHISPER_MODELS}"
 RUN --mount=type=bind,source=models,target=/tmp/models \
     set -e; \
-    case "$WHISPER_MODEL" in large) repo=large-v3 ;; *) repo="$WHISPER_MODEL" ;; esac; \
-    src=$(ls -d /tmp/models/whisper/models--*--faster-whisper-"$repo" 2>/dev/null | head -1); \
-    if [ -z "$src" ]; then \
-        echo "EROARE: lipsește modelul Whisper '$WHISPER_MODEL' (models/whisper/models--*--faster-whisper-$repo) — rulează: python install/models/download-models.py --whisper-model $WHISPER_MODEL" >&2; \
-        exit 1; \
-    fi; \
     mkdir -p /app/models/whisper; \
-    cp -a "$src" /app/models/whisper/; \
+    for model in $(echo "${WHISPER_MODELS:-$WHISPER_MODEL},$WHISPER_MODEL" | tr ',' ' '); do \
+        case "$model" in large) repo=large-v3 ;; *) repo="$model" ;; esac; \
+        if ls -d /app/models/whisper/models--*--faster-whisper-"$repo" >/dev/null 2>&1; then continue; fi; \
+        src=$(ls -d /tmp/models/whisper/models--*--faster-whisper-"$repo" 2>/dev/null | head -1); \
+        if [ -z "$src" ]; then \
+            echo "EROARE: lipsește modelul Whisper '$model' (models/whisper/models--*--faster-whisper-$repo) — rulează: python install/models/download-models.py --whisper-model $model" >&2; \
+            exit 1; \
+        fi; \
+        echo "Model Whisper inclus: $model"; \
+        cp -a "$src" /app/models/whisper/; \
+    done; \
     for d in huggingface nltk_data torch; do \
         if [ -d "/tmp/models/$d" ]; then cp -a "/tmp/models/$d" /app/models/; fi; \
     done; \

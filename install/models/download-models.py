@@ -9,6 +9,7 @@
 #
 #   python install/models/download-models.py                 # implicit: large-v3
 #   python install/models/download-models.py --whisper-model medium
+#   python install/models/download-models.py --whisper-model large-v3,large-v3-turbo   # mai multe
 #   python install/models/download-models.py --skip-diarization
 #
 # Dependențe: pip install "huggingface_hub>=0.26,<1.0" nltk
@@ -117,19 +118,26 @@ def download_url(url: str, target_dir: Path) -> Path:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--whisper-model", default=os.environ.get("WHISPER_MODEL", "large-v3"),
-                        choices=sorted(WHISPER_REPOS))
+                        help="Model Whisper sau listă separată prin virgulă "
+                             f"(variante: {', '.join(sorted(WHISPER_REPOS))}).")
     parser.add_argument("--skip-diarization", action="store_true",
                         help="Nu descărca modelul pyannote (diarizarea va fi indisponibilă offline).")
     args = parser.parse_args()
+    whisper_models = list(dict.fromkeys(m.strip() for m in args.whisper_model.split(",") if m.strip()))
+    unknown = [m for m in whisper_models if m not in WHISPER_REPOS]
+    if not whisper_models or unknown:
+        parser.error(f"model Whisper necunoscut: {', '.join(unknown) or '(gol)'} "
+                     f"(variante: {', '.join(sorted(WHISPER_REPOS))})")
 
     # ── 1. Whisper (faster-whisper / CTranslate2) ─────────────
     # whisperx.load_model(download_root=/app/models/whisper) → cache HF în acel director
-    download(
-        WHISPER_REPOS[args.whisper_model],
-        STT_MODELS / "whisper",
-        allow_patterns=["config.json", "preprocessor_config.json", "model.bin",
-                        "tokenizer.json", "vocabulary.*"],
-    )
+    for model in whisper_models:
+        download(
+            WHISPER_REPOS[model],
+            STT_MODELS / "whisper",
+            allow_patterns=["config.json", "preprocessor_config.json", "model.bin",
+                            "tokenizer.json", "vocabulary.*"],
+        )
 
     # ── 2. Aliniere wav2vec2 (română) ─────────────────────────
     # load_align_model(model_dir=None) → cache HF implicit = $HF_HOME/hub

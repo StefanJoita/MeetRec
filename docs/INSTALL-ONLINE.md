@@ -173,6 +173,7 @@ SERVER_NAME=192.168.1.100     # sau meetrec.companie.ro
 | `POSTGRES_PASSWORD` | `change_me_in_production` | Parolă bază de date |
 | `SERVER_NAME` | `meeting-transcriber.local` | Domeniu sau IP server |
 | `WHISPER_MODEL` | `large-v3` | Model transcriere inclus în imagine: `small`/`medium`/`large-v3`/`large-v3-turbo` (schimbarea cere rebuild) |
+| `WHISPER_MODELS` | gol (= `WHISPER_MODEL`) | Mai multe modele în imagine, separate prin virgulă (ex. `large-v3,large-v3-turbo`); cel folosit se alege din **Administrare → Setări** (schimbarea listei cere rebuild) |
 | `REDIS_PASSWORD` | *(de generat)* | Parolă Redis (caractere URL-safe, ex. `openssl rand -hex 24`) |
 | `APP_ENV` | `production` | `production` dezactivează `/docs` OpenAPI |
 | `WHISPER_PRIMARY_LANGUAGE` | `ro` | Limba principală pentru transcrieri |

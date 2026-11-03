@@ -9,14 +9,21 @@
 # RESTART_KEYS — cer reîncărcarea modelelor: worker-ul iese între joburi,
 #                Docker îl repornește (restart: unless-stopped) și la
 #                pornire le citește direct din tabel
+#
+# whisper_model e acceptat doar dacă modelul e inclus în imagine (sanitize);
+# altfel worker-ul rămâne pe modelul din .env, fără să se repornească în buclă.
 # ============================================================
 
 import json
 from typing import Any, Dict, Iterable, List
 
+import structlog
+
 from src.config import settings
 
-RESTART_KEYS = ("diarization_enabled", "diarization_parallel")
+logger = structlog.get_logger(__name__)
+
+RESTART_KEYS = ("whisper_model", "diarization_enabled", "diarization_parallel")
 JOB_KEYS = ("min_speakers", "max_speakers", "max_job_attempts")
 ALL_KEYS = RESTART_KEYS + JOB_KEYS
 
@@ -34,6 +41,29 @@ def parse_rows(rows: Iterable[Any]) -> Dict[str, Any]:
     for row in rows:
         raw = row["value"]
         values[row["key"]] = json.loads(raw) if isinstance(raw, str) else raw
+    return values
+
+
+def model_repo_name(model: str) -> str:
+    """Numele WhisperX → sufixul folderului faster-whisper (Dockerfile: large → large-v3)."""
+    return "large-v3" if model == "large" else model
+
+
+def model_available(model: str) -> bool:
+    """Modelul e în imagine: <WHISPER_MODEL_PATH>/whisper/models--<org>--faster-whisper-<model>."""
+    root = settings.whisper_model_path / "whisper"
+    pattern = f"models--*--faster-whisper-{model_repo_name(model)}"
+    return any(p.is_dir() for p in root.glob(pattern))
+
+
+def sanitize(values: Dict[str, Any]) -> Dict[str, Any]:
+    """Scoate valorile care nu pot fi folosite (ex. un model Whisper care nu e în imagine)."""
+    model = values.get("whisper_model")
+    if model is None:
+        return values
+    if not isinstance(model, str) or not model_available(model):
+        logger.warning("whisper_model_not_in_image", requested=model, using=_ENV["whisper_model"])
+        return {k: v for k, v in values.items() if k != "whisper_model"}
     return values
 
 

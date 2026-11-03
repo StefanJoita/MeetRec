@@ -173,6 +173,42 @@ async def test_reset_returns_to_env(http, store, audit, monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_whisper_model_choices_are_models_in_image(http, store, audit, monkeypatch):
+    monkeypatch.setenv("WHISPER_MODEL", "large-v3")
+    monkeypatch.setenv("WHISPER_MODELS", "large-v3,large-v3-turbo")
+    login(make_user(is_admin=True))
+
+    resp = await http.get("/api/v1/admin/settings")
+
+    item = by_key(resp.json())["whisper_model"]
+    assert item["type"] == "choice" and item["value"] == "large-v3" and item["source"] == "env"
+    assert [c["value"] for c in item["choices"]] == ["large-v3", "large-v3-turbo"]
+    assert by_key(resp.json())["max_job_attempts"]["choices"] is None
+
+    resp = await http.put("/api/v1/admin/settings/whisper_model", json={"value": "large-v3-turbo"})
+
+    assert resp.status_code == 200
+    item = by_key(resp.json())["whisper_model"]
+    assert item["value"] == "large-v3-turbo" and item["source"] == "interfata"
+    assert audit.call_args.kwargs["details"] == {"key": "whisper_model", "old": "large-v3",
+                                                 "new": "large-v3-turbo"}
+
+
+@pytest.mark.asyncio
+async def test_whisper_model_not_in_image_rejected(http, store, audit, monkeypatch):
+    monkeypatch.setenv("WHISPER_MODEL", "large-v3-turbo")
+    monkeypatch.delenv("WHISPER_MODELS", raising=False)       # pachet cu un singur model
+    login(make_user(is_admin=True))
+
+    resp = await http.put("/api/v1/admin/settings/whisper_model", json={"value": "large-v3"})
+
+    assert resp.status_code == 422
+    assert "large-v3-turbo" in resp.json()["detail"]
+    assert store == {}
+    audit.assert_not_awaited()
+
+
+@pytest.mark.asyncio
 async def test_unknown_setting_404(http, store, audit):
     login(make_user(is_admin=True))
 
@@ -338,6 +374,16 @@ class TestRegistry:
         assert registry.env_value(d["min_speakers"]) is None
         assert registry.env_value(d["max_file_size_mb"]) == 300
         assert registry.env_value(d["max_job_attempts"]) == 2      # invalid → implicit
+
+    def test_whisper_models_from_env(self, monkeypatch):
+        monkeypatch.setenv("WHISPER_MODEL", "large")
+        monkeypatch.setenv("WHISPER_MODELS", " large-v3-turbo , large ,large-v3 ")
+
+        assert [c.value for c in registry.whisper_models()] == ["large-v3-turbo", "large-v3"]
+        assert registry.env_value(registry.BY_KEY["whisper_model"]) == "large-v3"
+
+        monkeypatch.setenv("WHISPER_MODELS", "")
+        assert [c.value for c in registry.whisper_models()] == ["large-v3"]
 
     def test_optional_int_accepts_null(self):
         assert registry.validate(registry.BY_KEY["max_speakers"], None) is None

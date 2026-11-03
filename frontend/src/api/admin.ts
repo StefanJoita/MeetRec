@@ -2,16 +2,22 @@ import client from '@/api/client'
 
 export type SettingValue = number | boolean | string | null
 
+export interface SettingChoice {
+  value: string
+  label: string
+}
+
 export interface AppSetting {
   key: string
   group: string
   label: string
   description: string
   applies: string
-  type: 'int' | 'bool' | 'optional_int' | 'text'
+  type: 'int' | 'bool' | 'optional_int' | 'text' | 'choice'
   min: number | null
   max: number | null
   unit: string | null
+  choices?: SettingChoice[] | null   // doar la type 'choice'
   value: SettingValue
   env_value: SettingValue
   source: 'interfata' | 'env'

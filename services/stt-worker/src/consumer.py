@@ -351,7 +351,7 @@ class JobConsumer:
     async def _refresh_settings(self) -> None:
         """
         Aplică setările schimbate din interfață. Rulează doar între joburi.
-        Cele care cer reîncărcarea modelelor (diarizare) opresc procesul;
+        Cele care cer reîncărcarea modelelor (model Whisper, diarizare) opresc procesul;
         Docker îl repornește, iar la pornire noile valori sunt citite din tabel.
         """
         try:

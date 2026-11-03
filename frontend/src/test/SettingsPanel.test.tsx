@@ -116,6 +116,35 @@ describe('SettingsPanel', () => {
     await waitFor(() => expect(api.updateSetting).toHaveBeenCalledWith('retention_days', 365))
   })
 
+  it('modelul de transcriere se alege din lista modelelor din pachet', async () => {
+    api.getSettings.mockResolvedValue([
+      setting({ key: 'whisper_model', group: 'Transcriere', label: 'Model de transcriere',
+                type: 'choice', min: null, max: null, value: 'large-v3', env_value: 'large-v3',
+                choices: [{ value: 'large-v3', label: 'large-v3 — precizie maximă' },
+                          { value: 'large-v3-turbo', label: 'large-v3-turbo — rapid' }] }),
+    ])
+    renderPanel()
+    const select = await screen.findByLabelText('Model de transcriere')
+    expect(screen.getAllByRole('option')).toHaveLength(2)
+    expect(screen.getByRole('button', { name: /Salvează/ })).toBeDisabled()
+
+    await userEvent.selectOptions(select, 'large-v3-turbo')
+    await userEvent.click(screen.getByRole('button', { name: /Salvează/ }))
+
+    await waitFor(() => expect(api.updateSetting).toHaveBeenCalledWith('whisper_model', 'large-v3-turbo'))
+  })
+
+  it('modelul salvat care nu mai e în pachet rămâne vizibil', async () => {
+    api.getSettings.mockResolvedValue([
+      setting({ key: 'whisper_model', group: 'Transcriere', label: 'Model de transcriere',
+                type: 'choice', min: null, max: null, value: 'medium', env_value: 'large-v3',
+                source: 'interfata', choices: [{ value: 'large-v3', label: 'large-v3' }] }),
+    ])
+    renderPanel()
+
+    expect(await screen.findByRole('option', { name: 'medium (nu e în pachet)' })).toBeInTheDocument()
+  })
+
   it('nivelul de secretizare: text liber, fără spații în plus, obligatoriu', async () => {
     api.getSettings.mockResolvedValue([
       setting({ key: 'classification_level', group: 'Securitate', label: 'Nivel de secretizare',

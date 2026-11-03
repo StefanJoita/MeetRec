@@ -49,6 +49,11 @@ config_router = APIRouter(prefix="/config", tags=["config"])
 
 # ── Scheme ───────────────────────────────────────────────────
 
+class SettingChoice(BaseModel):
+    value: str
+    label: str
+
+
 class SettingResponse(BaseModel):
     key: str
     group: str
@@ -59,6 +64,7 @@ class SettingResponse(BaseModel):
     min: Optional[int]
     max: Optional[int]
     unit: Optional[str]
+    choices: Optional[List[SettingChoice]] = None   # doar la type "choice"
     value: Any
     env_value: Any
     source: str                  # "interfata" | "env"
@@ -124,6 +130,8 @@ async def _list_settings(db: AsyncSession) -> List[SettingResponse]:
         result.append(SettingResponse(
             key=d.key, group=d.group, label=d.label, description=d.description,
             applies=d.applies, type=d.type, min=d.min, max=d.max, unit=d.unit,
+            choices=[SettingChoice(value=c.value, label=c.label) for c in d.choices()]
+            if d.choices else None,
             value=row.value if row else registry.env_value(d),
             env_value=registry.env_value(d),
             source="interfata" if row else "env",
@@ -299,7 +307,8 @@ async def system_status(
 
     return {
         "version": os.environ.get("MEETREC_VERSION") or None,
-        "whisper_model_configured": os.environ.get("WHISPER_MODEL") or None,
+        # modelul ales (Administrare → Setări, altfel .env); cel încărcat efectiv e în starea worker-ului
+        "whisper_model_configured": await registry.effective_value(db, "whisper_model"),
         "queue": await _redis_status(),
         "search_index": await _search_index_status(),
         "disk": _disk(),
