@@ -102,3 +102,6 @@ frontend/dist/
 # ── Certificate generate (CA locală, chei) ──────────────────
 nginx/ssl/*
 !nginx/ssl/.gitkeep
+
+# ── Rapoarte de testare locale (nu se versionează) ────────────
+raport-testare/

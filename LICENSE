@@ -1,0 +1,61 @@
+MeetRec — Proprietary Software License
+
+Copyright (c) 2026 Stefan Joita. All rights reserved.
+
+1. Ownership
+
+   MeetRec, including its source code, documentation, installation scripts,
+   configuration files, images and other materials in this repository
+   (the "Software"), is the exclusive property of Stefan Joita
+   (the "Copyright Holder") and is protected by copyright law, including
+   Romanian Law no. 8/1996 on copyright and related rights, and by
+   international treaties.
+
+2. No license granted
+
+   No license or other right is granted to you, by implication, estoppel or
+   otherwise, except as expressly stated in a separate written agreement
+   signed by the Copyright Holder. In particular, without prior written
+   permission of the Copyright Holder you may not:
+
+   a) use, install or run the Software, in whole or in part;
+   b) copy, reproduce, modify, translate or create derivative works of it;
+   c) distribute, sublicense, sell, rent, lend or otherwise make it
+      available to third parties;
+   d) decompile, disassemble or reverse engineer it, except to the extent
+      expressly permitted by applicable law;
+   e) remove or alter any copyright notice or this license.
+
+   The availability of this repository, or of any copy of the Software, does
+   not grant any right to use it. Where the repository is hosted on GitHub,
+   the only rights granted are those strictly required by the GitHub Terms
+   of Service (viewing and forking within GitHub); they do not include any
+   right to use, run, modify or distribute the Software outside GitHub.
+
+3. Third-party components
+
+   The Software uses third-party open-source libraries and models (including
+   WhisperX, faster-whisper, OpenAI Whisper, pyannote.audio and the models
+   downloaded by install/models/download-models.py). These components are not
+   owned by the Copyright Holder and remain subject to their own licenses.
+   Nothing in this license restricts any right you have under those licenses.
+
+4. Disclaimer of warranty
+
+   THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+   IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+   FITNESS FOR A PARTICULAR PURPOSE AND NON-INFRINGEMENT.
+
+5. Limitation of liability
+
+   TO THE MAXIMUM EXTENT PERMITTED BY LAW, IN NO EVENT SHALL THE COPYRIGHT
+   HOLDER BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN
+   ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
+   CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+6. Governing law
+
+   This license is governed by the laws of Romania. Any dispute shall be
+   submitted to the competent courts of Romania.
+
+For licensing inquiries, contact the Copyright Holder.
