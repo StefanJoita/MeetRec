@@ -717,6 +717,14 @@ sudo ln -sfn /opt/meetrec-offline-<nouă> /opt/meetrec
   docker compose exec audit-retention python -m src.fix_session_durations
   docker compose exec audit-retention python -m src.fix_session_durations --apply
   ```
+- **Fișiere audio rămase pe disc de la versiunile anterioare** (bucățile sesiunilor din browser, care nu se ștergeau nici la ștergerea înregistrării, nici la expirarea retenției). Curățarea se rulează o singură dată după actualizare. Prima comandă doar listează fișierele și spațiul ocupat, a doua le șterge. Fișierele mai noi de 24 de ore nu sunt atinse:
+
+  ```bash
+  docker compose exec audit-retention python -m src.cleanup_orphans
+  docker compose exec audit-retention python -m src.cleanup_orphans --apply
+  ```
+
+  Fișierele șterse rămân în backup, în `audio-deleted/`, cât timp sunt păstrate backup-urile (§9.2).
 - **Revenire la versiunea anterioară:** `cd /opt/meetrec-offline-<veche>`, setează `MEETREC_VERSION=<veche>` în `.env`, apoi `docker compose up -d`. Imaginile vechi rămân încărcate până la `docker image prune`. Restaurează și backup-ul bazei de date dacă versiunea nouă a aplicat migrații.
 
 ### 10.1 Dezinstalare și reinstalare de la zero
