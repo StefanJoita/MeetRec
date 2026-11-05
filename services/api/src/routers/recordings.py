@@ -345,8 +345,15 @@ async def stream_audio(
     if range_header:
         try:
             ranges = range_header.replace("bytes=", "").split("-")
-            start = int(ranges[0]) if ranges[0] else 0
-            end = int(ranges[1]) if len(ranges) > 1 and ranges[1] else file_size - 1
+            if not ranges[0]:
+                # bytes=-N: ultimii N octeți (RFC 7233), nu primii N
+                suffix = int(ranges[1])
+                if suffix <= 0:
+                    raise ValueError(range_header)
+                start, end = max(0, file_size - suffix), file_size - 1
+            else:
+                start = int(ranges[0])
+                end = int(ranges[1]) if len(ranges) > 1 and ranges[1] else file_size - 1
         except (ValueError, IndexError):
             raise HTTPException(status_code=416, detail="Range invalid.")
 

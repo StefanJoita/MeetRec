@@ -109,3 +109,28 @@ async def test_delete_removes_session_chunk_files(storage):
     assert await svc.delete(RECORDING_ID) is True
 
     assert not original.exists() and not any(c.exists() for c in chunks)
+
+
+@pytest.mark.asyncio
+async def test_suffix_range_returns_last_bytes(http, storage):
+    """BUG-05: Range: bytes=-N = ultimii N octeți, nu primii."""
+    original = storage / "abc.mp3"
+    original.write_bytes(b"0123456789")
+
+    resp = await http.get(serve(original), headers={"Range": "bytes=-3"})
+
+    assert resp.status_code == 206
+    assert resp.content == b"789"
+    assert resp.headers["content-range"] == "bytes 7-9/10"
+
+
+@pytest.mark.asyncio
+async def test_suffix_range_longer_than_file_returns_whole_file(http, storage):
+    original = storage / "abc.mp3"
+    original.write_bytes(b"0123456789")
+
+    resp = await http.get(serve(original), headers={"Range": "bytes=-50"})
+
+    assert resp.status_code == 206
+    assert resp.content == b"0123456789"
+    assert resp.headers["content-range"] == "bytes 0-9/10"
