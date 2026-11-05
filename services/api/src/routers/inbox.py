@@ -496,6 +496,18 @@ async def complete_session(
                 recording_id, extra_segments_expected, stored_count, missing,
             )
 
+    # ── Blocăm rândul până la commit ───────────────────────────
+    # Session Watcher (ingest) poate trimite aceeași sesiune în același timp, după
+    # SESSION_TIMEOUT_SECONDS. Cu rândul blocat, UPDATE-ul lui (doar pe 'queued')
+    # așteaptă commit-ul nostru și nu mai găsește sesiunea; dacă a trimis-o el
+    # primul, aici statusul nu mai e 'queued' și nu publicăm al doilea job.
+    await db.refresh(recording, with_for_update=True)
+    if recording.status != RecordingStatus.QUEUED:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Sesiunea are deja status '{recording.status}' — a fost trimisă la transcriere.",
+        )
+
     # ── Dispatch la Redis ──────────────────────────────────────
     # Client async: unul sincron ar bloca event loop-ul (toate cererile API) cât
     # durează conexiunea, până la socket_timeout dacă Redis e lent.

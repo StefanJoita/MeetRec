@@ -482,22 +482,30 @@ class DatabaseClient:
             )
             return [str(row["id"]) for row in rows]
 
-    async def mark_session_dispatched(self, recording_id: str) -> None:
+    async def mark_session_dispatched(self, recording_id: str) -> bool:
         """
         Marchează sesiunea ca 'transcribing' ÎNAINTE de a publica jobul în Redis.
         Previne ca Session Watcher să dispatcheze aceeași sesiune de două ori
         (ex: dacă watcher rulează în timp ce jobul e deja în Redis).
+
+        Doar dacă e încă 'queued': altfel a trimis-o deja /complete (API), iar
+        un al doilea job ar transcrie-o încă o dată. Întoarce True dacă a marcat-o.
         """
         async with self._pool.acquire() as conn:
-            await conn.execute(
+            marked = await conn.fetchval(
                 """
                 UPDATE recordings
                 SET status = 'transcribing', last_segment_at = NULL
-                WHERE id = $1
+                WHERE id = $1 AND status = 'queued'
+                RETURNING id
                 """,
                 recording_id,
             )
+        if marked is None:
+            logger.info("session_already_dispatched", recording_id=recording_id)
+            return False
         logger.info("session_dispatched_to_transcription", recording_id=recording_id)
+        return True
 
     @staticmethod
     def _classification(meta: Dict[str, Any]) -> str:

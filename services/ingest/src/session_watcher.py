@@ -96,8 +96,10 @@ class SessionWatcher:
 
         for recording_id in expired_ids:
             try:
-                # Pas 1: marchează ÎNAINTE de publish (idempotență)
-                await self._db.mark_session_dispatched(recording_id)
+                # Pas 1: marchează ÎNAINTE de publish (idempotență); dacă între timp
+                # a trimis-o /complete, nu o mai publicăm o dată
+                if not await self._db.mark_session_dispatched(recording_id):
+                    continue
 
                 # Pas 2: publică jobul în Redis
                 self._publisher.publish_session_job(

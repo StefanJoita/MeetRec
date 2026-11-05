@@ -266,3 +266,54 @@ async def test_session_create_salveaza_descrierea(inbox_client):
     assert recording.participants == ["Ion Pop", "Maria Ionescu"]
     assert str(recording.id) == resp.json()["session_id"]
     db.commit.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_session_complete_refused_if_watcher_dispatched_it_meanwhile(inbox_client):
+    """BUG-04: Session Watcher a trimis sesiunea între timp → fără al doilea job."""
+    session_id = uuid.uuid4()
+    recording = make_recording_mock(session_id, status="queued")
+    db = make_db_with_recording(recording, extra_segments=0)
+
+    async def refresh(obj, *args, **kwargs):
+        if kwargs.get("with_for_update"):
+            obj.status = "transcribing"          # watcher-ul a câștigat cursa
+
+    db.refresh.side_effect = refresh
+    app.dependency_overrides[get_current_user] = lambda: make_operator()
+
+    async def _db_gen():
+        yield db
+
+    app.dependency_overrides[get_db] = _db_gen
+    mock_redis_client = AsyncMock()
+    with patch("src.routers.inbox.aioredis.from_url", return_value=redis_cm(mock_redis_client)):
+        resp = await inbox_client.post(
+            f"/api/v1/inbox/session/{session_id}/complete",
+            json={"total_segments": 1},
+        )
+
+    assert resp.status_code == 409
+    mock_redis_client.lpush.assert_not_called()
+    db.commit.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_session_complete_locks_row_before_dispatch(inbox_client):
+    session_id = uuid.uuid4()
+    recording = make_recording_mock(session_id, status="queued")
+    db = make_db_with_recording(recording, extra_segments=0)
+    app.dependency_overrides[get_current_user] = lambda: make_operator()
+
+    async def _db_gen():
+        yield db
+
+    app.dependency_overrides[get_db] = _db_gen
+    with patch("src.routers.inbox.aioredis.from_url", return_value=redis_cm(AsyncMock())):
+        resp = await inbox_client.post(
+            f"/api/v1/inbox/session/{session_id}/complete",
+            json={"total_segments": 1},
+        )
+
+    assert resp.status_code == 200
+    assert any(c.kwargs.get("with_for_update") for c in db.refresh.call_args_list)
