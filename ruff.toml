@@ -1,0 +1,17 @@
+# ruff.toml — verificare statică pentru serviciile Python (rulată în CI)
+# Doar reguli care prind erori reale, nu stil: sintaxă (E9), pyflakes (F:
+# nume nedefinite, importuri nefolosite), bugbear (B) și async (ASYNC: apeluri
+# blocante sau busy-wait în cod async — ar fi prins QUA-06).
+target-version = "py311"
+extend-exclude = ["desktop-client", "frontend", "raport-testare", "dist", "backups"]
+
+[lint]
+select = ["E9", "F", "B", "ASYNC"]
+ignore = [
+    "B008",   # Depends(...) în argumentele implicite e modelul FastAPI
+    "B904",   # raise ... from err: stil, nu eroare
+]
+
+[lint.per-file-ignores]
+# fixture-urile pytest importate apar ca redefinite în parametrii testelor
+"services/*/tests/*" = ["F811", "F841", "B007", "ASYNC110"]

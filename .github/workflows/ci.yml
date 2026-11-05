@@ -1,0 +1,109 @@
+# .github/workflows/ci.yml
+# ============================================================
+# Verificare automată la fiecare push și pull request:
+#   - ruff (erori statice în serviciile Python, ruff.toml)
+#   - testele fiecărui serviciu Python, cu versiunile EXACTE din imagini
+#     (aceeași imagine de bază + requirements.txt + constraints.txt)
+#   - frontend: verificare de tipuri + build + teste
+# Imaginile Docker complete nu se construiesc aici: modelele ML nu sunt în repo.
+# ============================================================
+name: CI
+
+on:
+  push:
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  ruff:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install ruff==0.14.5
+      - run: ruff check services
+
+  python-tests:
+    name: teste ${{ matrix.service }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - service: api
+            image: python:3.11.17-slim
+          - service: ingest
+            image: python:3.11.17-slim
+            apt: ffmpeg libmagic1
+          - service: audit-retention
+            image: python:3.11.18-slim-bookworm
+          - service: search-indexer
+            image: python:3.11.17-slim
+          - service: stt-worker
+            image: python:3.11.17-slim
+            apt: ffmpeg
+    container: ${{ matrix.image }}
+    defaults:
+      run:
+        working-directory: services/${{ matrix.service }}
+    env:
+      PYTHONDONTWRITEBYTECODE: "1"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Pachete de sistem
+        if: matrix.apt
+        run: apt-get update -qq && apt-get install -y -qq --no-install-recommends ${{ matrix.apt }}
+
+      - name: Dependențe
+        if: matrix.service != 'stt-worker'
+        run: pip install --no-cache-dir -r requirements.txt -c constraints.txt
+
+      # stt-worker: fără whisperx/torch (câțiva GB); testele modulului transcriber,
+      # care le importă, se sar mai jos. Restul versiunilor sunt cele din imagine.
+      - name: Dependențe (stt-worker, fără modelele ML)
+        if: matrix.service == 'stt-worker'
+        run: |
+          grep -vE '^(whisperx|torch|torchaudio|torchvision)==' requirements.txt > /tmp/requirements-ci.txt
+          pip install --no-cache-dir -r /tmp/requirements-ci.txt numpy -c constraints.txt
+
+      - name: Teste
+        if: matrix.service != 'stt-worker'
+        run: |
+          if [ "${{ matrix.service }}" = ingest ]; then
+            mkdir -p /tmp/inbox /tmp/processed
+            export DATABASE_URL=postgresql://ci:ci@localhost/ci INBOX_PATH=/tmp/inbox AUDIO_STORAGE_PATH=/tmp/processed
+          fi
+          python -m pytest tests -q -p no:cacheprovider
+
+      - name: Teste (stt-worker)
+        if: matrix.service == 'stt-worker'
+        run: >
+          python -m pytest tests -q -p no:cacheprovider
+          --ignore=tests/test_transcriber.py
+          --ignore=tests/test_transcriber_parallel.py
+          --ignore=tests/test_transcriber_threads_progress.py
+
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci --no-audit --no-fund
+      - run: npm run build      # tsc + vite build
+      - run: npm test
