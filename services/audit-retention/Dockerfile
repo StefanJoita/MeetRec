@@ -1,6 +1,6 @@
 # bookworm: postgresql-client 15, aceeași versiune ca serverul (pgvector/pgvector:pg15).
 # Un pg_dump mai nou produce dump-uri pe care PostgreSQL 15 nu le poate restaura.
-FROM python:3.11-slim-bookworm
+FROM python:3.11.18-slim-bookworm
 
 LABEL service="audit-retention" \
       description="Retenție, curățenie și backup zilnic (bază de date, audio, configurație)"
@@ -17,8 +17,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc libpq-dev postgresql-client \
     && rm -rf /var/lib/apt/lists/*
 
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+COPY requirements.txt constraints.txt ./
+RUN pip install --no-cache-dir -r requirements.txt -c constraints.txt
 
 COPY src/ ./src/
 

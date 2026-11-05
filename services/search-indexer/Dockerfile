@@ -1,4 +1,4 @@
-FROM python:3.11-slim
+FROM python:3.11.17-slim
 
 LABEL service="search-indexer" \
       description="Generează embeddings semantice pentru transcrieri și expune /embed endpoint"
@@ -14,8 +14,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc libpq-dev \
     && rm -rf /var/lib/apt/lists/*
 
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+COPY requirements.txt constraints.txt ./
+RUN pip install --no-cache-dir -r requirements.txt -c constraints.txt
 
 # ── Model embeddings inclus în imagine (rulare offline) ───────
 # Descărcat pe o mașină cu internet cu: python install/models/download-models.py

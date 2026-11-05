@@ -9,7 +9,7 @@
 # Stratul 1: Imaginea de bază
 # python:3.11-slim = Python 3.11 pe Debian minimal (~150MB)
 # vs python:3.11 = Python complet (~900MB) — nu avem nevoie de tot
-FROM python:3.11-slim
+FROM python:3.11.17-slim
 
 # Stratul 2: Metadate (documentare, nu afectează funcționalitatea)
 LABEL service="ingest" \
@@ -39,8 +39,8 @@ WORKDIR $APP_HOME
 # De ce? Docker caching:
 #   - Dacă requirements.txt nu s-a schimbat → strat din cache
 #   - Dacă ai schimbat doar codul → sare direct la pasul următor
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+COPY requirements.txt constraints.txt ./
+RUN pip install --no-cache-dir -r requirements.txt -c constraints.txt
 
 # Stratul 7: Copiem codul aplicației
 # Acesta se schimbă des → e ultimul strat (pentru cache eficient)

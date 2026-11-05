@@ -11,7 +11,7 @@
 # ============================================================
 
 # ── Stage 1: Builder ─────────────────────────────────────────
-FROM python:3.11-slim AS builder
+FROM python:3.11.17-slim AS builder
 
 WORKDIR /build
 
@@ -23,12 +23,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # Copiem requirements și instalăm într-un director separat
 # (nu în sistem, pentru a putea fi copiate în stage 2)
-COPY requirements.txt .
-RUN pip install --no-cache-dir --prefix=/install -r requirements.txt
+COPY requirements.txt constraints.txt ./
+RUN pip install --no-cache-dir --prefix=/install -r requirements.txt -c constraints.txt
 
 
 # ── Stage 2: Runtime ─────────────────────────────────────────
-FROM python:3.11-slim
+FROM python:3.11.17-slim
 
 WORKDIR /app
 

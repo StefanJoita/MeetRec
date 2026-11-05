@@ -1,0 +1,30 @@
+# services/audit-retention/constraints.txt
+# ============================================================
+# Versiunile EXACTE ale tuturor pachetelor din imaginea audit-retention, inclusiv cele
+# indirecte. requirements.txt fixează doar dependențele directe; fără acest
+# fișier, un rebuild putea aduce alte versiuni fără nicio modificare în cod.
+#
+# Sursa: pip freeze din imaginea meetrec/audit-retention:1.2.3 (2026-11-03).
+# La schimbarea unei versiuni din requirements.txt: construiește imaginea fără
+# "-c constraints.txt", rulează testele, apoi regenerează (păstrând antetul):
+#   docker run --rm --entrypoint pip meetrec/audit-retention:<tag> freeze
+# ============================================================
+annotated-types==0.8.0
+async-timeout==5.0.1
+asyncpg==0.29.0
+fakeredis==2.23.5
+iniconfig==2.3.1
+packaging==26.3
+pluggy==1.7.0
+pydantic==2.14.2
+pydantic-settings==2.2.1
+pydantic_core==2.50.2
+pytest==7.4.3
+pytest-asyncio==0.23.2
+python-dotenv==1.2.4
+redis==5.0.1
+sortedcontainers==2.4.0
+structlog==24.1.0
+tenacity==8.2.3
+typing-inspection==0.4.4
+typing_extensions==4.16.0

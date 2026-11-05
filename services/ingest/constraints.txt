@@ -1,0 +1,43 @@
+# services/ingest/constraints.txt
+# ============================================================
+# Versiunile EXACTE ale tuturor pachetelor din imaginea ingest, inclusiv cele
+# indirecte. requirements.txt fixează doar dependențele directe; fără acest
+# fișier, un rebuild putea aduce alte versiuni fără nicio modificare în cod.
+#
+# Sursa: pip freeze din imaginea meetrec/ingest:1.2.3 (2026-11-03).
+# La schimbarea unei versiuni din requirements.txt: construiește imaginea fără
+# "-c constraints.txt", rulează testele, apoi regenerează (păstrând antetul):
+#   docker run --rm --entrypoint pip meetrec/ingest:<tag> freeze
+# ============================================================
+alembic==1.13.0
+annotated-types==0.8.0
+anyio==4.16.0
+async-timeout==5.0.1
+asyncpg==0.29.0
+certifi==2026.10.23
+greenlet==3.5.6
+h11==0.16.0
+httpcore==1.0.9
+httpx==0.26.0
+idna==3.20
+iniconfig==2.3.1
+Mako==1.4.3
+MarkupSafe==3.0.4
+mutagen==1.47.0
+packaging==26.3
+pluggy==1.7.0
+pydantic==2.10.6
+pydantic-settings==2.7.1
+pydantic_core==2.27.2
+pydub==0.25.1
+pytest==7.4.3
+pytest-asyncio==0.23.2
+pytest-mock==3.12.0
+python-dotenv==1.0.0
+redis==5.0.1
+sniffio==1.3.1
+SQLAlchemy==2.0.23
+structlog==24.1.0
+tenacity==8.2.3
+typing_extensions==4.16.0
+watchdog==3.0.0
