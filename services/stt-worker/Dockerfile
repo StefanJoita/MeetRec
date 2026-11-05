@@ -24,7 +24,8 @@
 #   → Modificarea unui fișier .py nu re-instalează PyTorch (durează 20 min!)
 # ============================================================
 
-FROM python:3.11-slim
+# Versiune Python fixată (aceeași ca în imaginea 1.2.2), ca și pachetele (constraints.txt)
+FROM python:3.11.17-slim
 
 LABEL service="stt-worker" \
       description="Transcriere audio offline cu WhisperX + diarizare vorbitori"
@@ -57,11 +58,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 #   CDN-ul PyTorch de la /cpu conține EXCLUSIV torch+cpu, torchaudio+cpu etc.
 #   Când pip caută torch, îl găsește aici (CPU) înainte să ajungă la PyPI (CUDA).
 #   Pachetele care nu sunt pe CDN (whisperx, asyncpg etc.) vin din PyPI ca fallback.
-COPY requirements.txt .
+#
+# constraints.txt fixează versiunea EXACTĂ a fiecărui pachet, inclusiv a celor
+# indirecte (ctranslate2, transformers, pyannote…): un rebuild nu mai poate
+# schimba motorul de transcriere fără o modificare în repo.
+COPY requirements.txt constraints.txt ./
 RUN pip install --no-cache-dir \
     --index-url https://download.pytorch.org/whl/cpu \
     --extra-index-url https://pypi.org/simple \
-    -r requirements.txt
+    -r requirements.txt -c constraints.txt
 
 # ── User non-root ─────────────────────────────────────────────
 # Creat ÎNAINTE de COPY: folosim COPY --chown în loc de `chown -R` ulterior,

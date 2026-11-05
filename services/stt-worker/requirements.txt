@@ -12,6 +12,9 @@
 #   pip install torch==2.8.0+cpu --index-url https://download.pytorch.org/whl/cpu
 # ============================================================
 
+# Versiunile exacte ale TUTUROR pachetelor (inclusiv indirecte) sunt în constraints.txt,
+# folosit de Dockerfile. La schimbarea unei versiuni de aici, regenerează-l (vezi antetul lui).
+
 # --- STT ---
 # Versiune FIXATĂ: modelele incluse în imagine (install/models/download-models.py) depind de ea —
 #   whisperx 3.8.6 → aliniere "gigant/romanian-wav2vec2",
