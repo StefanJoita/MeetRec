@@ -17,7 +17,6 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 import asyncpg
-from tenacity import retry, stop_after_attempt, wait_exponential
 
 from src.config import settings
 from src.logger import get_logger

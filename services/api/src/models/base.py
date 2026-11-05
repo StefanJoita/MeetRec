@@ -22,11 +22,8 @@
 #-Relatii: poti defini usor relatii intre tabele (ForeignKey, OneToMany, etc)
 #================================================================
 
-import uuid
 from datetime import datetime,timezone
-from sqlalchemy import Column, String, DateTime, Integer, Enum,func
-from sqlalchemy.orm import DeclarativeBase, mapped_column, Mapped
-from sqlalchemy.dialects.postgresql import UUID as PG_UUID  
+from sqlalchemy.orm import DeclarativeBase
 
 
 def utcnow()->datetime:

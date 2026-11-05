@@ -4,7 +4,6 @@ from fastapi import APIRouter, Depends, HTTPException, Request  # noqa: F401
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.database import get_db
-from sqlalchemy.ext.asyncio import AsyncSession
 from src.middleware.auth import get_current_user, get_current_operator_or_above, check_recording_access
 from src.models.audit_log import User
 from src.schemas.recording import TranscriptResponse

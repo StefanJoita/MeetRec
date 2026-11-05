@@ -4,7 +4,7 @@ import enum
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import String, Boolean, Text, TIMESTAMP, Index, Enum as SAEnum
+from sqlalchemy import String, Boolean, TIMESTAMP, Index, Enum as SAEnum
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID, INET, JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.sql import func

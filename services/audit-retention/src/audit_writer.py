@@ -5,7 +5,6 @@
 
 import json
 import uuid
-from datetime import datetime, timezone
 
 import asyncpg
 import structlog

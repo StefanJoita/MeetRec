@@ -6,7 +6,6 @@
 # PostProcessor este pure Python — cel mai ușor de testat.
 # ============================================================
 
-import pytest
 from src.postprocessor import PostProcessor
 from src.transcriber import TranscriptSegment
 

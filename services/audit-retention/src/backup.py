@@ -23,7 +23,7 @@ import re
 import shutil
 import tarfile
 import uuid
-from datetime import date, datetime, timedelta
+from datetime import date, datetime
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Set, Tuple
 

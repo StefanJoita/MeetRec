@@ -48,7 +48,7 @@ from src.cancellation import JobCancelled, cancel_key, raise_if_cancelled
 from src.config import settings
 from src.language_detector import LanguageDetector
 from src.postprocessor import PostProcessor
-from src.transcriber import WhisperTranscriber, TranscriptSegment, _whisper_threads
+from src.transcriber import WhisperTranscriber, _whisper_threads
 from src.uploader import DatabaseUploader, TranscriptMetadata
 
 logger = structlog.get_logger(__name__)
@@ -596,7 +596,7 @@ class JobConsumer:
         - Ștergem fișierul temporar concatenat în finally
         """
         recording_id = job.get("recording_id")
-        language_hint = job.get("language_hint", settings.whisper_primary_language)
+        # language_hint nu se folosește: limba se detectează pe primul segment
 
         logger.info("session_job_started", recording_id=recording_id)
         job_start = time.monotonic()

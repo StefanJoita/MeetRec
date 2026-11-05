@@ -13,7 +13,6 @@
 #   3. API primește {"embedding": [0.1, 0.2, ...]}
 #   4. API face query pgvector cu embedding-ul
 
-from contextlib import asynccontextmanager
 from typing import List
 
 import asyncpg

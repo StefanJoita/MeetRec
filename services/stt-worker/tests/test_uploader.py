@@ -1,6 +1,5 @@
 # services/stt-worker/tests/test_uploader.py
 import uuid
-import pytest
 import pytest_asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 

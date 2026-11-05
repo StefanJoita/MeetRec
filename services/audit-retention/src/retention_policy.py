@@ -11,7 +11,6 @@
 #     Condiție: audit_logs.timestamp < NOW() - interval
 #     Efect: DELETE din DB (nu au fișiere asociate)
 
-import uuid
 from dataclasses import dataclass
 from datetime import date, datetime, timezone, timedelta
 from pathlib import Path

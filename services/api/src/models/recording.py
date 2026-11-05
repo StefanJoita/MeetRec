@@ -11,8 +11,8 @@
 #====================================================================
 
 import uuid
-from datetime import datetime, date, timezone
-from typing import Optional, List
+from datetime import datetime, date
+from typing import TYPE_CHECKING, Optional, List
 from sqlalchemy import String, Integer, BigInteger, Date, Text, ForeignKey
 from sqlalchemy import TIMESTAMP, Enum as SAEnum, JSON, SmallInteger
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID, ARRAY
@@ -22,6 +22,9 @@ from sqlalchemy import UniqueConstraint, exists
 from sqlalchemy.sql.elements import ColumnElement
 
 from src.models.base import Base
+
+if TYPE_CHECKING:   # doar pentru adnotări: modelele se referă unul la altul
+    from src.models.transcript import Transcript
 
 #Enumurile din Python - sincronizate cu enumurile din init.sql
 import enum

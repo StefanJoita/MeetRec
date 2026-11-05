@@ -17,7 +17,7 @@ import os
 import uuid
 from datetime import datetime, timezone
 from typing import AsyncGenerator
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock
 
 import pytest
 import pytest_asyncio

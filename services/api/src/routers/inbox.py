@@ -21,7 +21,6 @@ import os
 import re
 import uuid as uuid_lib
 from datetime import date, datetime, timezone
-from pathlib import Path
 from typing import Optional
 
 import redis.asyncio as aioredis

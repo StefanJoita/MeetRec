@@ -10,14 +10,14 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional, List
 from fastapi import APIRouter, Depends, HTTPException, Query, status, Request
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import StreamingResponse
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.database import get_db
 from src.config import settings
 from src.middleware.auth import (
-    decode_token, create_audio_token, decode_audio_token,
+    create_audio_token, decode_audio_token,
     get_current_user, get_current_admin, get_current_operator_or_above,
     check_recording_access,
 )

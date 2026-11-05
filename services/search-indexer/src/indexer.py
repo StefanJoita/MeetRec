@@ -85,7 +85,7 @@ class TranscriptIndexer:
         async with self._pool.acquire() as conn:
             await conn.executemany(
                 "UPDATE transcript_segments SET embedding = $1::vector, embedding_model = $2 WHERE id = $3",
-                [(_vector_to_pg_str(emb), signature, rows[i]["id"]) for emb, i in zip(embeddings, stale)],
+                [(_vector_to_pg_str(emb), signature, rows[i]["id"]) for emb, i in zip(embeddings, stale, strict=True)],
             )
 
         logger.info("transcript_indexed", transcript_id=transcript_id, segments_indexed=len(stale))

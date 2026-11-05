@@ -81,7 +81,8 @@ class ChangeListener:
 
         try:
             # Așteptăm până la stop() sau până cade conexiunea — asyncpg procesează notificările automat
-            while self._running and not self._conn.is_closed():
+            # sondare intenționată: is_closed() nu are un eveniment la care să așteptăm
+            while self._running and not self._conn.is_closed():  # noqa: ASYNC110
                 await asyncio.sleep(1)
             if self._running:
                 logger.warning("listener_connection_lost")

@@ -23,7 +23,7 @@ from src.logger import get_logger
 from src.validator import AudioMetadata, AudioValidator
 from src.storage import StorageError, StorageManager
 from src.database import DatabaseClient
-from src.publisher import JobPublisher, TranscriptionJob
+from src.publisher import JobPublisher
 from src.playback import PlaybackPreparer
 
 logger=get_logger(__name__)

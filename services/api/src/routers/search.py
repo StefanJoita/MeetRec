@@ -19,7 +19,6 @@
 # ============================================================
 
 import time
-import uuid
 from datetime import date
 from typing import List, Optional
 from fastapi import APIRouter, Depends, Query, Request

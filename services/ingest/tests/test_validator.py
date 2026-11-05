@@ -9,12 +9,11 @@
 #   - mock: înlocuim dependențe reale cu "false" controlate
 # ============================================================
 
-import hashlib
 import pytest
 from pathlib import Path
 from unittest.mock import patch, MagicMock
 
-from src.validator import AudioValidator, ValidationResult
+from src.validator import AudioValidator
 
 
 # ============================================================

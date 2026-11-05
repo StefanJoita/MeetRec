@@ -63,7 +63,7 @@ STOPWORDS = {
     "fie", "fost", "i", "ii", "îi", "in", "în", "intr", "într", "la", "le", "li", "lui", "m", "ma",
     "mă", "mai", "mi", "ne", "nici", "nu", "o", "pe", "pentru", "prin", "s", "sa", "să", "se",
     "si", "și", "sunt", "te", "tot", "toate", "un", "una", "unei", "unui", "va", "vă", "cum",
-    "cine", "când", "cand", "unde", "despre", "spre", "sau", "ori", "ce", "că",
+    "cine", "când", "cand", "unde", "despre", "spre", "sau", "ori", "că",
 }
 _OPERATORS = re.compile(r'"|(^|\s)-\S|\sOR\s')
 

@@ -6,7 +6,7 @@
 import math
 import uuid
 from pathlib import Path
-from typing import Optional, List
+from typing import Optional
 
 import structlog
 from sqlalchemy import select, func, desc, asc
@@ -17,8 +17,7 @@ logger = structlog.get_logger()
 
 from src.models.audit_log import User
 from src.models.recording import (
-    Recording, RecordingAudioSegment, RecordingParticipant, RecordingStatus,
-    participant_access_clause,
+    Recording, RecordingAudioSegment, RecordingParticipant, participant_access_clause,
 )
 from src.schemas.recording import (
     RecordingUpdate, RecordingResponse,

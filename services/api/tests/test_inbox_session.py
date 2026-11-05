@@ -8,9 +8,8 @@
 #   - Dacă totul e OK → status devine 'transcribing' (200)
 # ============================================================
 
-import json
 import uuid
-from unittest.mock import AsyncMock, MagicMock, patch, call
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 import pytest_asyncio

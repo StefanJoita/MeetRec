@@ -13,8 +13,8 @@
 # ============================================================
 
 import uuid
-from datetime import date, datetime, timezone
-from unittest.mock import AsyncMock, MagicMock, patch, PropertyMock
+from datetime import date
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 import pytest_asyncio

@@ -2,7 +2,7 @@
 import uuid
 import enum
 from datetime import datetime
-from typing import Optional, List
+from typing import TYPE_CHECKING, Optional, List
 
 from sqlalchemy import Boolean, String, Integer, Text, Numeric, ForeignKey, TIMESTAMP, Index, Enum as SAEnum
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
@@ -10,6 +10,9 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
 
 from src.models.base import Base
+
+if TYPE_CHECKING:   # doar pentru adnotări: modelele se referă unul la altul
+    from src.models.recording import Recording
 
 
 class TranscriptStatus(str, enum.Enum):

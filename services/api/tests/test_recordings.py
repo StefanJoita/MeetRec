@@ -16,7 +16,6 @@
 
 import uuid
 from datetime import date, datetime, timezone
-from typing import Optional, List
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
