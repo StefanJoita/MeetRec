@@ -105,3 +105,18 @@ async def test_recording_classification(user_meta, stored):
 
     [insert] = [c.args for c in conn.execute.call_args_list if "INSERT INTO recordings" in c.args[0]]
     assert "classification" in insert[0] and insert[-1] == stored
+
+
+@pytest.mark.asyncio
+async def test_publish_failure_marks_transcript_failed_too():
+    """BUG-03: transcriptul rămânea 'pending', iar „Reîncearcă” era refuzat."""
+    client, conn = make_client()
+
+    await client.mark_failed_by_id("rec-1", "Redis unavailable: timeout")
+
+    sqls = [c.args[0] for c in conn.execute.call_args_list]
+    assert any("UPDATE recordings" in s and "'failed'" in s for s in sqls)
+    [transcript_sql] = [c.args for c in conn.execute.call_args_list if "UPDATE transcripts" in c.args[0]]
+    assert "status = 'failed'" in transcript_sql[0] and "status <> 'completed'" in transcript_sql[0]
+    assert transcript_sql[1:] == ("Redis unavailable: timeout", "rec-1")
+    conn.transaction.assert_called_once()

@@ -420,17 +420,30 @@ class DatabaseClient:
         """
         Marchează o înregistrare ca eșuată după ID.
         Apelat când publicarea în Redis eșuează după ce înregistrarea a fost creată în DB.
+
+        Marchează eșuat și transcriptul: „Reîncearcă” (API) cere transcriptul
+        'failed'; altfel rămânea 'pending' și reîncercarea era refuzată.
         """
         async with self._pool.acquire() as conn:
-            await conn.execute(
-                """
-                UPDATE recordings
-                SET status = 'failed', error_message = $1, updated_at = NOW()
-                WHERE id = $2
-                """,
-                error_message,
-                recording_id,
-            )
+            async with conn.transaction():
+                await conn.execute(
+                    """
+                    UPDATE recordings
+                    SET status = 'failed', error_message = $1, updated_at = NOW()
+                    WHERE id = $2
+                    """,
+                    error_message,
+                    recording_id,
+                )
+                await conn.execute(
+                    """
+                    UPDATE transcripts
+                    SET status = 'failed', error_message = $1, completed_at = NOW()
+                    WHERE recording_id = $2 AND status <> 'completed'
+                    """,
+                    error_message,
+                    recording_id,
+                )
 
     async def update_last_segment_at(self, recording_id: str) -> None:
         """

@@ -48,10 +48,16 @@ class TranscriptService:
         if not recording:
             return False
 
-        # Verificăm că transcriptul e în stare 'failed' sau 'cancelled'
+        # Verificăm că transcriptul e în stare 'failed' sau 'cancelled'.
+        # Excepție: înregistrare eșuată cu transcriptul rămas 'pending' — jobul n-a
+        # ajuns niciodată în coadă (Redis indisponibil la preluare, versiuni vechi
+        # de ingest care nu marcau și transcriptul).
         transcript = await self.get_by_recording_id(recording_id)
         retryable = (TranscriptStatus.FAILED.value, TranscriptStatus.CANCELLED.value)
-        if not transcript or transcript.status not in retryable:
+        never_queued = (transcript is not None
+                        and transcript.status == TranscriptStatus.PENDING.value
+                        and recording.status == RecordingStatus.FAILED.value)
+        if not transcript or (transcript.status not in retryable and not never_queued):
             return False
 
         # Resetăm statusurile

@@ -100,3 +100,24 @@ async def test_retry_refused_while_processing():
         return_value=MagicMock(status=TranscriptStatus.PROCESSING.value))
 
     assert await service.retry(recording.id) is False
+
+
+@pytest.mark.asyncio
+async def test_retry_failed_recording_with_pending_transcript():
+    """BUG-03: jobul n-a ajuns în coadă (Redis indisponibil la preluare) → se poate reîncerca."""
+    recording = _make_recording()
+
+    job = await _retry_and_capture_job(recording, transcript_status=TranscriptStatus.PENDING.value)
+
+    assert job["recording_id"] == str(recording.id)
+
+
+@pytest.mark.asyncio
+async def test_retry_refused_while_transcription_in_progress():
+    """Transcript 'pending' pentru o înregistrare încă în coadă: nu se publică a doua oară."""
+    recording = _make_recording()
+    recording.status = RecordingStatus.QUEUED.value
+    service = TranscriptService(_make_db(recording))
+    service.get_by_recording_id = AsyncMock(return_value=MagicMock(status=TranscriptStatus.PENDING.value))
+
+    assert await service.retry(recording.id) is False
