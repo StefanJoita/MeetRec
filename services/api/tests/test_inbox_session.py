@@ -77,6 +77,14 @@ async def inbox_client():
     app.dependency_overrides.clear()
 
 
+def redis_cm(client):
+    """aioredis.from_url(...) folosit ca `async with` → clientul mock-uit."""
+    cm = MagicMock()
+    cm.__aenter__ = AsyncMock(return_value=client)
+    cm.__aexit__ = AsyncMock(return_value=False)
+    return cm
+
+
 # ── Teste ─────────────────────────────────────────────────────
 
 @pytest.mark.asyncio
@@ -100,15 +108,11 @@ async def test_session_complete_redis_pica_db_ramane_queued(inbox_client):
 
     app.dependency_overrides[get_db] = _db_gen
 
-    import redis as redis_sync_module
+    from redis.exceptions import RedisError
 
-    with patch("src.routers.inbox.redis_sync") as mock_redis_module:
-        # Simulăm că Redis pică
-        mock_redis_client = MagicMock()
-        mock_redis_client.lpush.side_effect = redis_sync_module.RedisError("Connection refused")
-        mock_redis_module.from_url.return_value = mock_redis_client
-        mock_redis_module.RedisError = redis_sync_module.RedisError
-
+    mock_redis_client = AsyncMock()
+    mock_redis_client.lpush.side_effect = RedisError("Connection refused")   # Redis pică
+    with patch("src.routers.inbox.aioredis.from_url", return_value=redis_cm(mock_redis_client)):
         resp = await inbox_client.post(
             f"/api/v1/inbox/session/{session_id}/complete",
             json={"total_segments": 1},
@@ -145,19 +149,14 @@ async def test_session_complete_redis_ok_db_commit_dupa(inbox_client):
     # Urmărim ordinea apelurilor: Redis.lpush trebuie să vină ÎNAINTE de db.commit
     call_order = []
 
-    import redis as redis_sync_module
+    mock_redis_client = AsyncMock()
 
-    with patch("src.routers.inbox.redis_sync") as mock_redis_module:
+    async def track_lpush(*args, **kwargs):
+        call_order.append("redis_lpush")
+        return 1
 
-        mock_redis_client = MagicMock()
-
-        def track_lpush(*args, **kwargs):
-            call_order.append("redis_lpush")
-            return 1
-
-        mock_redis_client.lpush.side_effect = track_lpush
-        mock_redis_module.from_url.return_value = mock_redis_client
-        mock_redis_module.RedisError = redis_sync_module.RedisError
+    mock_redis_client.lpush.side_effect = track_lpush
+    with patch("src.routers.inbox.aioredis.from_url", return_value=redis_cm(mock_redis_client)):
 
         original_commit = db.commit
 
@@ -185,6 +184,8 @@ async def test_session_complete_redis_ok_db_commit_dupa(inbox_client):
 
     # Statusul trebuie să fie transcribing după succesul complet
     assert recording.status == "transcribing"
+    # O anulare veche, încă neconsumată, ar opri imediat noul job (QUA-06)
+    mock_redis_client.delete.assert_awaited_once_with(f"transcription:cancel:{recording.id}")
 
 
 @pytest.mark.asyncio

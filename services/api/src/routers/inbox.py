@@ -23,7 +23,8 @@ from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Optional
 
-import redis as redis_sync
+import redis.asyncio as aioredis
+from redis.exceptions import RedisError
 from fastapi import APIRouter, Depends, Form, HTTPException, Request, UploadFile, File, status
 from pydantic import BaseModel
 from sqlalchemy import select, func
@@ -36,6 +37,7 @@ from src.middleware.auth import get_current_operator_or_above
 from src.models.recording import Recording, RecordingAudioSegment, RecordingStatus
 from src.models.transcript import Transcript
 from src.services import app_settings
+from src.services.queue_service import cancel_key
 from src.services.classification import DEFAULT_CLASSIFICATION, ClassificationCode, CLASSIFICATION_LABELS
 
 router = APIRouter(
@@ -495,20 +497,23 @@ async def complete_session(
             )
 
     # ── Dispatch la Redis ──────────────────────────────────────
+    # Client async: unul sincron ar bloca event loop-ul (toate cererile API) cât
+    # durează conexiunea, până la socket_timeout dacă Redis e lent.
+    job = json.dumps({
+        "recording_id": recording_id,
+        "session_mode": True,
+        "language_hint": "ro",
+    })
     try:
-        r = redis_sync.from_url(
+        async with aioredis.from_url(
             settings.redis_url,
             decode_responses=True,
             socket_timeout=5,
-        )
-        job = json.dumps({
-            "recording_id": recording_id,
-            "session_mode": True,
-            "language_hint": "ro",
-        })
-        r.lpush(settings.redis_transcription_queue, job)
-        r.close()
-    except redis_sync.RedisError as e:
+        ) as r:
+            # O anulare anterioară încă neconsumată ar opri imediat noul job
+            await r.delete(cancel_key(recording_id))
+            await r.lpush(settings.redis_transcription_queue, job)
+    except RedisError as e:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail=f"Redis temporar indisponibil: {e}. Reîncearcă.",
