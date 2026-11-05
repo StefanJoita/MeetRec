@@ -510,14 +510,21 @@ class DatabaseUploader:
         segments: list,
         metadata: "TranscriptMetadata",
         merged_file_path: Optional[str] = None,
-    ) -> None:
+    ) -> List[str]:
         """
         Salvează rezultatele transcrierii unei sesiuni complete (audio concatenat).
 
         Spre deosebire de save_results() care gestionează sesiuni multi-part
         cu verificări de pending_count, aceasta marchează direct tot ca 'completed':
         - Am transcris întregul audio concatenat → nu mai sunt segmente în așteptare
-        - Nu există recording_audio_segments de marcat (am transcris fișierul concatenat temp)
+
+        Cu merged_file_path, fișierul lipit devine singura sursă audio a înregistrării:
+        rândurile din recording_audio_segments se șterg, iar funcția întoarce căile
+        bucăților (bucata 0 + 1..N), pe care apelantul le șterge de pe disc DUPĂ commit.
+        Altfel bucățile n-ar mai fi șterse niciodată (nici la ștergere, nici la retenție),
+        iar o reluare a jobului ar lipi bucățile 1..N a doua oară după fișierul lipit.
+
+        Durata nu se recalculează: ingest o ține deja = suma tuturor bucăților.
         """
         segment_tuples = [
             (
@@ -555,18 +562,35 @@ class DatabaseUploader:
                     segment_tuples,
                 )
 
-                # ── 2. Marcăm toate segmentele audio ca 'completed' ───
-                # save_results() marchează segmentele individuale, dar calea
-                # de sesiune transcrie fișierul concatenat fără a trece prin
-                # save_results — le marcăm explicit aici.
-                await conn.execute(
-                    """
-                    UPDATE recording_audio_segments
-                    SET status = 'completed'
-                    WHERE recording_id = $1
-                    """,
-                    recording_id,
-                )
+                # ── 2. Bucățile audio ─────────────────────────────────
+                chunk_paths: List[str] = []
+                if merged_file_path:
+                    # Fișierul lipit conține tot audio-ul: bucățile nu mai sunt necesare.
+                    primary = await conn.fetchval(
+                        "SELECT file_path FROM recordings WHERE id = $1",
+                        recording_id,
+                    )
+                    rows = await conn.fetch(
+                        """
+                        DELETE FROM recording_audio_segments
+                        WHERE recording_id = $1
+                        RETURNING file_path
+                        """,
+                        recording_id,
+                    )
+                    candidates = [primary] + [r["file_path"] for r in rows]
+                    chunk_paths = [p for p in dict.fromkeys(candidates)
+                                   if p and p != merged_file_path]
+                else:
+                    # Fără fișier lipit, bucățile rămân sursa audio
+                    await conn.execute(
+                        """
+                        UPDATE recording_audio_segments
+                        SET status = 'completed'
+                        WHERE recording_id = $1
+                        """,
+                        recording_id,
+                    )
 
                 # ── 3. Marcăm transcript ca 'completed' ───────────────
                 await conn.execute(
@@ -595,33 +619,20 @@ class DatabaseUploader:
                     metadata.diarization_parallel,
                 )
 
-                # ── 4. Marcăm recording ca 'completed', actualizăm durata și calea audio ──
-                # Durata reală = suma duratelor măsurate de ingest din fișierele audio,
-                # NU din end_time-ul Whisper (care poate supraevalua ultimul segment).
-                dur_row = await conn.fetchrow(
-                    """
-                    SELECT r.duration_seconds + COALESCE(SUM(ras.duration_seconds), 0) AS total
-                    FROM recordings r
-                    LEFT JOIN recording_audio_segments ras ON ras.recording_id = r.id
-                    WHERE r.id = $1
-                    GROUP BY r.duration_seconds
-                    """,
-                    recording_id,
-                )
-                total_duration = int(dur_row["total"] or 0)
+                # ── 4. Marcăm recording ca 'completed' și actualizăm calea audio ──
+                # duration_seconds rămâne cel scris de ingest (suma bucăților); o
+                # recalculare aici le-ar număra de două ori pe bucățile 1..N.
                 if merged_file_path:
                     await conn.execute(
                         """
                         UPDATE recordings
                         SET status = 'completed',
                             updated_at = NOW(),
-                            duration_seconds = $2,
-                            file_path = $3,
+                            file_path = $2,
                             audio_format = 'wav'
                         WHERE id = $1
                         """,
                         recording_id,
-                        total_duration,
                         merged_file_path,
                     )
                 else:
@@ -629,12 +640,10 @@ class DatabaseUploader:
                         """
                         UPDATE recordings
                         SET status = 'completed',
-                            updated_at = NOW(),
-                            duration_seconds = $2
+                            updated_at = NOW()
                         WHERE id = $1
                         """,
                         recording_id,
-                        total_duration,
                     )
 
         logger.info(
@@ -643,6 +652,7 @@ class DatabaseUploader:
             recording_id=recording_id,
             segments_count=len(segments),
             word_count=metadata.word_count,
-            total_duration_sec=total_duration,  # din audio files, nu din Whisper
             merged_file_path=merged_file_path,
+            chunks_released=len(chunk_paths),
         )
+        return chunk_paths

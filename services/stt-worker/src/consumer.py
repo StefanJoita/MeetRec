@@ -36,6 +36,7 @@ import socket
 import sys
 import threading
 import time
+from pathlib import Path
 from typing import Optional
 
 import redis.asyncio as aioredis
@@ -56,6 +57,18 @@ logger = structlog.get_logger(__name__)
 # Reîmprospătată la cel mult 30 s (BLMOVE) sau la câteva secunde în timpul unui job; expiră dacă procesul moare.
 STATUS_PREFIX = "stt_worker:status:"
 STATUS_TTL_SECONDS = 120
+
+
+def _remove_chunk_files(paths, recording_id: str) -> None:
+    """Șterge fișierele bucăților unei sesiuni după lipire. Un eșec doar se loghează."""
+    for path in paths or []:
+        try:
+            Path(path).unlink(missing_ok=True)
+        except OSError as e:
+            logger.error("session_chunk_delete_failed", recording_id=recording_id,
+                         path=str(path), error=str(e))
+    if paths:
+        logger.info("session_chunks_deleted", recording_id=recording_id, count=len(paths))
 
 
 class JobConsumer:
@@ -635,13 +648,17 @@ class JobConsumer:
             merged_path = None  # nu mai ștergem în finally
 
             # ── 6. Salvăm în DB (cu calea permanentă) ───────────────────
-            await self._uploader.save_session_results(
+            chunk_paths = await self._uploader.save_session_results(
                 transcript_id=transcript_id,
                 recording_id=recording_id,
                 segments=segments,
                 metadata=metadata,
                 merged_file_path=str(permanent_path),
             )
+
+            # ── 7. Ștergem bucățile: fișierul lipit e acum singura sursă ─
+            # Abia după commit — dacă salvarea eșua, jobul se relua din bucăți.
+            _remove_chunk_files(chunk_paths, recording_id)
 
             logger.info(
                 "session_job_completed",

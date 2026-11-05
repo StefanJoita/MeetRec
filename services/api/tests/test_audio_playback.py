@@ -82,9 +82,30 @@ async def test_delete_removes_playback_copy(storage):
     original.write_bytes(b"v")
     playback_path(original).write_bytes(b"a")
     db = AsyncMock()
+    db.execute = AsyncMock(return_value=MagicMock())   # nicio bucată de sesiune
     svc = RecordingService(db)
     svc.get_by_id = AsyncMock(return_value=MagicMock(file_path=str(original)))
 
     assert await svc.delete(RECORDING_ID) is True
 
     assert not original.exists() and not playback_path(original).exists()
+
+
+@pytest.mark.asyncio
+async def test_delete_removes_session_chunk_files(storage):
+    """Ștergerea unei sesiuni nelipite șterge și bucățile 1..N (BUG-01)."""
+    original = storage / "s.webm"
+    original.write_bytes(b"0")
+    chunks = [storage / f"s_{i}.webm" for i in (1, 2)]
+    for c in chunks:
+        c.write_bytes(b"x")
+    db = AsyncMock()
+    result = MagicMock()
+    result.scalars.return_value.all.return_value = [str(c) for c in chunks]
+    db.execute = AsyncMock(return_value=result)
+    svc = RecordingService(db)
+    svc.get_by_id = AsyncMock(return_value=MagicMock(file_path=str(original)))
+
+    assert await svc.delete(RECORDING_ID) is True
+
+    assert not original.exists() and not any(c.exists() for c in chunks)

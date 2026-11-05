@@ -95,13 +95,21 @@ async def delete_recording(
     # Pas 1: ștergem din DB PRIMUL
     # Dacă DB eșuează, fișierul rămâne intact (nicio pierdere de date)
     async with pool.acquire() as conn:
-        result = await conn.execute(
-            "DELETE FROM recordings WHERE id = $1",
-            rec.id,
-        )
+        async with conn.transaction():
+            # Bucățile unei sesiuni încă nelipite: rândurile dispar prin CASCADE,
+            # fișierele le ștergem după commit, ca pe fișierul principal
+            chunk_rows = await conn.fetch(
+                "SELECT file_path FROM recording_audio_segments WHERE recording_id = $1",
+                rec.id,
+            )
+            result = await conn.execute(
+                "DELETE FROM recordings WHERE id = $1",
+                rec.id,
+            )
         if result == "DELETE 0":
             logger.warning("recording_already_deleted", recording_id=rec.id)
             return False
+    chunk_paths = [Path(r["file_path"]) for r in chunk_rows if r["file_path"]]
 
     # Pas 2: ștergem fișierul DUPĂ ce DB-ul a confirmat
     # Dacă unlink() eșuează, logăm dar NU facem rollback DB
@@ -124,6 +132,12 @@ async def delete_recording(
             )
     else:
         logger.warning("audio_file_not_found", path=str(rec.file_path), recording_id=rec.id)
+    for path in chunk_paths:
+        try:
+            path.unlink(missing_ok=True)
+        except OSError as e:
+            logger.error("orphaned_file_after_retention_delete", path=str(path),
+                         recording_id=rec.id, error=str(e))
 
     logger.info(
         "recording_deleted",

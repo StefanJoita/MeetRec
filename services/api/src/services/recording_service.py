@@ -17,7 +17,8 @@ logger = structlog.get_logger()
 
 from src.models.audit_log import User
 from src.models.recording import (
-    Recording, RecordingParticipant, RecordingStatus, participant_access_clause,
+    Recording, RecordingAudioSegment, RecordingParticipant, RecordingStatus,
+    participant_access_clause,
 )
 from src.schemas.recording import (
     RecordingUpdate, RecordingResponse,
@@ -197,6 +198,13 @@ class RecordingService:
             return False
 
         file_path = Path(recording.file_path) if recording.file_path else None
+        # Bucățile unei sesiuni încă nelipite (netranscrise / eșuate): rândurile
+        # dispar prin ON DELETE CASCADE, fișierele trebuie șterse explicit
+        chunk_result = await self.db.execute(
+            select(RecordingAudioSegment.file_path)
+            .where(RecordingAudioSegment.recording_id == recording_id)
+        )
+        chunk_paths = [Path(p) for p in chunk_result.scalars().all() if p]
 
         await self.db.delete(recording)
         await self.db.flush()
@@ -204,13 +212,15 @@ class RecordingService:
         if file_path:
             # copia de redare pentru browser (ingest/playback.py), dacă există
             playback_path(file_path).unlink(missing_ok=True)
-        if file_path and file_path.is_file():
+        for path in ([file_path] if file_path else []) + chunk_paths:
+            if not path.is_file():
+                continue
             try:
-                file_path.unlink()
+                path.unlink()
             except OSError as exc:
                 logger.error(
                     "orphaned_file_after_delete",
-                    path=str(file_path),
+                    path=str(path),
                     recording_id=str(recording_id),
                     error=str(exc),
                 )

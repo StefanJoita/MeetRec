@@ -14,6 +14,17 @@ from src.config import settings
 from src.retention_policy import fetch_expired_recordings
 
 
+def make_conn():
+    """Conexiune asyncpg mock-uită, cu conn.transaction() ca async context manager."""
+    conn = AsyncMock()
+    tx = AsyncMock()
+    tx.__aenter__ = AsyncMock(return_value=None)
+    tx.__aexit__ = AsyncMock(return_value=False)
+    conn.transaction = MagicMock(return_value=tx)
+    conn.fetch.return_value = []
+    return conn
+
+
 def pool_with(conn):
     acq = AsyncMock()
     acq.__aenter__ = AsyncMock(return_value=conn)
@@ -94,10 +105,49 @@ class TestDeletePlaybackCopy:
         original.write_bytes(b"v")
         copy = tmp_path / "abc.play.mp3"
         copy.write_bytes(b"a")
-        conn = AsyncMock()
+        conn = make_conn()
         conn.execute.return_value = "DELETE 1"
         rec = RecordingToDelete(id="r1", title="t", file_path=str(original), retain_until=date(2020, 1, 1))
 
         assert await delete_recording(pool_with(conn), rec) is True
 
         assert not original.exists() and not copy.exists()
+
+
+class TestDeleteSessionChunks:
+
+    @pytest.mark.asyncio
+    async def test_retention_deletes_session_chunk_files(self, tmp_path):
+        """Bucățile unei sesiuni nelipite nu rămân pe disc după expirare (BUG-01)."""
+        from datetime import date
+        from src.retention_policy import RecordingToDelete, delete_recording
+
+        original = tmp_path / "s.webm"
+        original.write_bytes(b"0")
+        chunks = [tmp_path / f"s_{i}.webm" for i in (1, 2)]
+        for c in chunks:
+            c.write_bytes(b"x")
+        conn = make_conn()
+        conn.fetch.return_value = [{"file_path": str(c)} for c in chunks]
+        conn.execute.return_value = "DELETE 1"
+        rec = RecordingToDelete(id="r1", title="t", file_path=str(original), retain_until=date(2020, 1, 1))
+
+        assert await delete_recording(pool_with(conn), rec) is True
+
+        assert not original.exists() and not any(c.exists() for c in chunks)
+        conn.transaction.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_chunks_kept_when_recording_already_deleted(self, tmp_path):
+        from datetime import date
+        from src.retention_policy import RecordingToDelete, delete_recording
+
+        chunk = tmp_path / "s_1.webm"
+        chunk.write_bytes(b"x")
+        conn = make_conn()
+        conn.fetch.return_value = [{"file_path": str(chunk)}]
+        conn.execute.return_value = "DELETE 0"
+        rec = RecordingToDelete(id="r1", title="t", file_path=None, retain_until=date(2020, 1, 1))
+
+        assert await delete_recording(pool_with(conn), rec) is False
+        assert chunk.exists()

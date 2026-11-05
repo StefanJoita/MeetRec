@@ -841,6 +841,25 @@ class TestIdempotentReprocessing:
         assert {row["text"] for row in db.segments.values()} == {"reluat"}
 
     @pytest.mark.asyncio
+    async def test_session_merge_releases_chunks_and_keeps_duration(self):
+        """Fișierul lipit devine singura sursă; durata scrisă de ingest nu se mai adună (BUG-02)."""
+        uploader, db = make_uploader_with_fake_db()
+        db.chunk_paths = ["/data/processed/chunk1.webm", "/data/processed/chunk2.webm"]
+        merged = f"/data/processed/{RECORDING_ID}_merged.wav"
+
+        released = await uploader.save_session_results(
+            TRANSCRIPT_ID, RECORDING_ID, [make_segment(0)], make_metadata(), merged_file_path=merged)
+
+        assert released == ["/data/processed/chunk0.webm", "/data/processed/chunk1.webm",
+                            "/data/processed/chunk2.webm"]
+        assert db.chunk_paths == [] and db.primary_path == merged
+        assert all("duration_seconds" not in sql for sql in db.recording_updates)
+
+        # Reluare: doar fișierul lipit (fără bucățile 1..N a doua oară), nimic de șters
+        assert await uploader.save_session_results(
+            TRANSCRIPT_ID, RECORDING_ID, [make_segment(0)], make_metadata(), merged_file_path=merged) == []
+
+    @pytest.mark.asyncio
     async def test_multipart_segment_job_does_not_delete_other_parts(self):
         """Job pe un segment audio suplimentar: segmentele celorlalte părți rămân."""
         uploader, db = make_uploader_with_fake_db(audio_segments={RECORDING_ID})
@@ -862,8 +881,22 @@ class FakeSegmentsDB:
     def __init__(self, audio_segments: set):
         self.segments: dict = {}                 # (transcript_id, segment_index) → rând
         self.audio_segments = audio_segments     # recording_id-uri cu recording_audio_segments
+        self.primary_path = "/data/processed/chunk0.webm"   # recordings.file_path
+        self.chunk_paths: list = []              # recording_audio_segments.file_path
+        self.recording_updates: list = []        # SQL-ul UPDATE recordings
+
+    async def fetch(self, sql, *args):
+        assert "DELETE FROM recording_audio_segments" in sql
+        rows = [{"file_path": p} for p in self.chunk_paths]
+        self.chunk_paths = []
+        return rows
 
     async def execute(self, sql, *args):
+        if "UPDATE recordings" in sql:
+            self.recording_updates.append(sql)
+            if "file_path = $2" in sql:
+                self.primary_path = args[1]
+            return
         if "DELETE FROM transcript_segments" not in sql:
             return
         transcript_id = args[0]
@@ -882,6 +915,8 @@ class FakeSegmentsDB:
             self.segments.setdefault((transcript_id, idx), {"text": text, "start": start})
 
     async def fetchval(self, sql, *args):
+        if "SELECT file_path FROM recordings" in sql:
+            return self.primary_path
         return 0
 
     async def fetchrow(self, sql, *args):
@@ -912,3 +947,47 @@ def make_metadata() -> TranscriptMetadata:
         language="ro", model_used="whisper-large-v3",
     )
 
+
+
+# ============================================================
+# TEST: bucățile unei sesiuni se șterg după lipire (BUG-01)
+# ============================================================
+
+class TestSessionChunkCleanup:
+
+    def _session_consumer(self, tmp_path, monkeypatch):
+        from src.config import settings
+        monkeypatch.setattr(settings, "audio_storage_path", tmp_path)
+        chunks = [tmp_path / f"chunk{i}.webm" for i in range(3)]
+        for c in chunks:
+            c.write_bytes(b"x")
+        merged_tmp = tmp_path / "tmp_merged.wav"
+        merged_tmp.write_bytes(b"wav")
+
+        consumer, mocks = make_mock_consumer()
+        mocks["uploader"].get_transcript_status = AsyncMock(return_value="pending")
+        mocks["uploader"].get_all_session_segments = AsyncMock(return_value=[str(c) for c in chunks])
+        mocks["uploader"].save_session_results = AsyncMock(return_value=[str(c) for c in chunks])
+        consumer._assembler = MagicMock(assemble=AsyncMock(return_value=merged_tmp))
+        return consumer, mocks, chunks
+
+    @pytest.mark.asyncio
+    async def test_chunks_deleted_after_session_saved(self, tmp_path, monkeypatch):
+        consumer, mocks, chunks = self._session_consumer(tmp_path, monkeypatch)
+
+        await consumer._process_job({"recording_id": RECORDING_ID, "session_mode": True})
+
+        assert not any(c.exists() for c in chunks)
+        assert (tmp_path / f"{RECORDING_ID}_merged.wav").exists()
+        mocks["uploader"].mark_failed.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_chunks_kept_when_save_fails(self, tmp_path, monkeypatch):
+        """Salvarea eșuată → jobul se poate relua din bucăți."""
+        consumer, mocks, chunks = self._session_consumer(tmp_path, monkeypatch)
+        mocks["uploader"].save_session_results.side_effect = RuntimeError("db down")
+
+        await consumer._process_job({"recording_id": RECORDING_ID, "session_mode": True})
+
+        assert all(c.exists() for c in chunks)
+        mocks["uploader"].mark_failed.assert_awaited_once()

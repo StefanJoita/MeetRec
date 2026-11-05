@@ -711,6 +711,12 @@ sudo ln -sfn /opt/meetrec-offline-<nouă> /opt/meetrec
 - Installerul repornește nginx după pornirea serviciilor. Dacă actualizezi manual (`docker compose up -d` cu imagini noi), rulează și `docker compose restart nginx` (§11.9).
 - Dacă versiunea nouă schimbă modelul de căutare după sens sau contextul (ex. de la 1.0.2 la 1.0.3), search-indexer recalculează în fundal vectorii tuturor transcrierilor. Între timp, căutarea exactă funcționează normal; progresul apare în *Administrare → Stare sistem*.
 - Dacă rețeaua Docker `mt-frontend` existentă are alt subnet decât `FRONTEND_SUBNET` (instalări anterioare, fără subnet fix), installerul oprește containerele și o recreează. Volumele de date nu sunt afectate.
+- **Durata sesiunilor din browser transcrise între 26 octombrie 2026 și această corecție** poate fi prea mare (bucățile 2..N erau numărate de două ori). După actualizare, corecția se rulează o singură dată. Prima comandă doar listează duratele greșite, a doua le salvează:
+
+  ```bash
+  docker compose exec audit-retention python -m src.fix_session_durations
+  docker compose exec audit-retention python -m src.fix_session_durations --apply
+  ```
 - **Revenire la versiunea anterioară:** `cd /opt/meetrec-offline-<veche>`, setează `MEETREC_VERSION=<veche>` în `.env`, apoi `docker compose up -d`. Imaginile vechi rămân încărcate până la `docker image prune`. Restaurează și backup-ul bazei de date dacă versiunea nouă a aplicat migrații.
 
 ### 10.1 Dezinstalare și reinstalare de la zero
