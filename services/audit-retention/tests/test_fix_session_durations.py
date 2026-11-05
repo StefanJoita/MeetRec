@@ -36,3 +36,39 @@ def test_only_wrong_durations_are_corrected(tmp_path):
 
     assert fixes == [("bad", "Ședința bad", 480, 390)]
     assert unreadable == [str(tmp_path / "lipsa_merged.wav")]
+
+
+# ── Rularea automată din retenție ─────────────────────────────
+
+import pytest
+from unittest.mock import AsyncMock, MagicMock
+
+from src.fix_session_durations import fix_session_durations
+
+
+def pool_with(conn):
+    acq = AsyncMock()
+    acq.__aenter__ = AsyncMock(return_value=conn)
+    acq.__aexit__ = AsyncMock(return_value=False)
+    return MagicMock(acquire=MagicMock(return_value=acq))
+
+
+@pytest.mark.asyncio
+async def test_fix_updates_only_wrong_durations(tmp_path):
+    write_wav(tmp_path / "bad_merged.wav", 390)
+    conn = AsyncMock()
+    conn.fetch.return_value = [row("bad", tmp_path / "bad_merged.wav", 480)]
+
+    assert await fix_session_durations(pool_with(conn)) == 1
+    conn.executemany.assert_awaited_once()
+    assert conn.executemany.call_args[0][1] == [("bad", 390)]
+
+
+@pytest.mark.asyncio
+async def test_fix_dry_run_writes_nothing(tmp_path):
+    write_wav(tmp_path / "bad_merged.wav", 390)
+    conn = AsyncMock()
+    conn.fetch.return_value = [row("bad", tmp_path / "bad_merged.wav", 480)]
+
+    assert await fix_session_durations(pool_with(conn), dry_run=True) == 1
+    conn.executemany.assert_not_called()

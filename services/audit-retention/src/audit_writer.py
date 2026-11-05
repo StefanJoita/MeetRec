@@ -55,6 +55,23 @@ async def log_audit_purge(pool: asyncpg.Pool, deleted_count: int) -> None:
         )
 
 
+async def log_orphan_files_purge(pool: asyncpg.Pool, deleted_count: int, deleted_bytes: int) -> None:
+    """Urmă în audit_logs: fișiere audio fără înregistrare, șterse automat."""
+    if deleted_count == 0:
+        return
+
+    async with pool.acquire() as conn:
+        await conn.execute(
+            """
+            INSERT INTO audit_logs (id, action, resource_type, details, success, user_ip)
+            VALUES ($1, 'RETENTION_DELETE', 'audio_files', $2, true, '127.0.0.1')
+            """,
+            str(uuid.uuid4()),
+            json.dumps({"deleted_count": deleted_count, "deleted_bytes": deleted_bytes,
+                        "reason": "orphan_audio_files"}),
+        )
+
+
 async def log_abandoned_session_deleted(
     pool: asyncpg.Pool,
     recording_id: str,

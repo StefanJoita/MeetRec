@@ -29,7 +29,7 @@ RECORDING_TYPES = ("recording", "recording_participant", "recording_speaker_mapp
 
 # Filtrul „Resursă” din interfață → tipurile din jurnal
 RESOURCE_GROUPS: Dict[str, Tuple[str, ...]] = {
-    "recording": RECORDING_TYPES + ("transcript", "recordings_list"),
+    "recording": RECORDING_TYPES + ("transcript", "recordings_list", "audio_files"),
     "user": ("user", "users_list"),
     "app_setting": ("app_setting",),
     "audit_logs": ("audit_logs",),

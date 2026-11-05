@@ -711,20 +711,7 @@ sudo ln -sfn /opt/meetrec-offline-<nouă> /opt/meetrec
 - Installerul repornește nginx după pornirea serviciilor. Dacă actualizezi manual (`docker compose up -d` cu imagini noi), rulează și `docker compose restart nginx` (§11.9).
 - Dacă versiunea nouă schimbă modelul de căutare după sens sau contextul (ex. de la 1.0.2 la 1.0.3), search-indexer recalculează în fundal vectorii tuturor transcrierilor. Între timp, căutarea exactă funcționează normal; progresul apare în *Administrare → Stare sistem*.
 - Dacă rețeaua Docker `mt-frontend` existentă are alt subnet decât `FRONTEND_SUBNET` (instalări anterioare, fără subnet fix), installerul oprește containerele și o recreează. Volumele de date nu sunt afectate.
-- **Durata sesiunilor din browser transcrise între 26 octombrie 2026 și această corecție** poate fi prea mare (bucățile 2..N erau numărate de două ori). După actualizare, corecția se rulează o singură dată. Prima comandă doar listează duratele greșite, a doua le salvează:
-
-  ```bash
-  docker compose exec audit-retention python -m src.fix_session_durations
-  docker compose exec audit-retention python -m src.fix_session_durations --apply
-  ```
-- **Fișiere audio rămase pe disc de la versiunile anterioare** (bucățile sesiunilor din browser, care nu se ștergeau nici la ștergerea înregistrării, nici la expirarea retenției). Curățarea se rulează o singură dată după actualizare. Prima comandă doar listează fișierele și spațiul ocupat, a doua le șterge. Fișierele mai noi de 24 de ore nu sunt atinse:
-
-  ```bash
-  docker compose exec audit-retention python -m src.cleanup_orphans
-  docker compose exec audit-retention python -m src.cleanup_orphans --apply
-  ```
-
-  Fișierele șterse rămân în backup, în `audio-deleted/`, cât timp sunt păstrate backup-urile (§9.2).
+- **Corecții automate după actualizarea de la o versiune anterioară** (nu cer nicio comandă): la prima trecere a retenției, imediat după pornire, se corectează durata sesiunilor din browser transcrise după 26 octombrie 2026 (bucățile 2..N erau numărate de două ori) și se șterg fișierele audio rămase pe disc fără înregistrare (bucățile sesiunilor, care nu se ștergeau nici la ștergerea înregistrării, nici la expirarea retenției). Curățarea continuă apoi la fiecare trecere a retenției; fișierele mai noi de 24 de ore nu sunt atinse. Ștergerea apare în *Administrare → Jurnal de audit* („Ștergere automată”, „Fișiere audio fără înregistrare”), iar fișierele rămân în backup, în `audio-deleted/`, cât timp sunt păstrate backup-urile (§9.2).
 - **Revenire la versiunea anterioară:** `cd /opt/meetrec-offline-<veche>`, setează `MEETREC_VERSION=<veche>` în `.env`, apoi `docker compose up -d`. Imaginile vechi rămân încărcate până la `docker image prune`. Restaurează și backup-ul bazei de date dacă versiunea nouă a aplicat migrații.
 
 ### 10.1 Dezinstalare și reinstalare de la zero

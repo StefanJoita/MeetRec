@@ -57,6 +57,7 @@ const RESOURCE_LABELS: Record<string, string> = {
   app_setting: 'Setare',
   audit_logs: 'Jurnal de audit',
   backup: 'Backup',
+  audio_files: 'Fișiere audio fără înregistrare',
 }
 
 const RESOURCE_FILTERS: { value: AuditResourceGroup | ''; label: string }[] = [

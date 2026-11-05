@@ -186,6 +186,47 @@ class TestRetentionGate:
         delete.assert_called_once()
 
 
+class TestRetentionMaintenance:
+
+    @pytest.mark.asyncio
+    async def test_orphans_and_durations_handled_in_retention_run(self, monkeypatch):
+        import src.retention_scheduler as rs
+        from src.cleanup_orphans import OrphanPurge
+        monkeypatch.setattr(rs, "fetch_expired_recordings", AsyncMock(return_value=[]))
+        monkeypatch.setattr(rs, "delete_expired_audit_logs", AsyncMock(return_value=0))
+        monkeypatch.setattr(rs, "log_audit_purge", AsyncMock())
+        monkeypatch.setattr(rs.runtime_settings, "refresh", AsyncMock(return_value={}))
+        purge = AsyncMock(return_value=OrphanPurge(deleted=3, deleted_bytes=1000))
+        monkeypatch.setattr(rs, "purge_orphan_files", purge)
+        log = AsyncMock()
+        monkeypatch.setattr(rs, "log_orphan_files_purge", log)
+        fix = AsyncMock(return_value=2)
+        monkeypatch.setattr(rs, "fix_session_durations", fix)
+        monkeypatch.setattr(settings, "retention_dry_run", False)
+
+        await RetentionScheduler(MagicMock())._run_once()
+
+        purge.assert_awaited_once()
+        log.assert_awaited_once()
+        assert log.call_args[0][1:] == (3, 1000)
+        fix.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_maintenance_failure_does_not_break_retention(self, monkeypatch):
+        import src.retention_scheduler as rs
+        monkeypatch.setattr(rs, "fetch_expired_recordings", AsyncMock(return_value=[]))
+        monkeypatch.setattr(rs, "delete_expired_audit_logs", AsyncMock(return_value=0))
+        monkeypatch.setattr(rs, "log_audit_purge", AsyncMock())
+        monkeypatch.setattr(rs.runtime_settings, "refresh", AsyncMock(return_value={}))
+        monkeypatch.setattr(rs, "purge_orphan_files", AsyncMock(side_effect=OSError("disk")))
+        fix = AsyncMock(return_value=0)
+        monkeypatch.setattr(rs, "fix_session_durations", fix)
+
+        await RetentionScheduler(MagicMock())._run_once()      # nu aruncă
+
+        fix.assert_awaited_once()
+
+
 class TestSchedule:
 
     def test_runs_once_a_day_after_the_hour(self):

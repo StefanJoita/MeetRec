@@ -13,7 +13,9 @@ from src.retention_policy import (
     delete_recording,
     delete_expired_audit_logs,
 )
-from src.audit_writer import log_retention_delete, log_audit_purge
+from src.audit_writer import log_retention_delete, log_audit_purge, log_orphan_files_purge
+from src.cleanup_orphans import purge_orphan_files
+from src.fix_session_durations import fix_session_durations
 from src.backup import is_backed_up
 from src import runtime_settings
 
@@ -81,9 +83,27 @@ class RetentionScheduler:
         deleted_logs = await delete_expired_audit_logs(pool)
         await log_audit_purge(pool, deleted_logs)
 
+        # ── 3. Întreținere: fișiere audio orfane, durate de sesiune ────────
+        # Un eșec aici nu oprește retenția (pașii 1-2 s-au făcut deja).
+        orphans = corrected = 0
+        try:
+            purge = await purge_orphan_files(pool, settings.audio_storage_path,
+                                             dry_run=settings.retention_dry_run)
+            orphans = purge.deleted
+            if not settings.retention_dry_run:
+                await log_orphan_files_purge(pool, purge.deleted, purge.deleted_bytes)
+        except Exception as e:
+            logger.error("orphan_cleanup_failed", error=str(e))
+        try:
+            corrected = await fix_session_durations(pool, dry_run=settings.retention_dry_run)
+        except Exception as e:
+            logger.error("session_duration_fix_failed", error=str(e))
+
         logger.info(
             "retention_run_completed",
             deleted_recordings=deleted_recordings,
             waiting_for_backup=waiting_backup,
             deleted_audit_logs=deleted_logs,
+            deleted_orphan_files=orphans,
+            corrected_session_durations=corrected,
         )
