@@ -114,6 +114,12 @@ class AudioFileHandler(FileSystemEventHandler):
         # complet copiat. Așteptăm să se stabilizeze.
         self._wait_for_file_stable(file_path)
 
+        # Șters între timp (ex. API-ul a respins încărcarea: prea mare / duplicat)
+        if not file_path.exists():
+            logger.info("file_disappeared_before_processing", file=file_path.name)
+            self._processing.discard(str(file_path))
+            return
+
         # Programam procesarea pe event loop-ul principal fara blocare.
         # In felul acesta evitam deadlock-uri la startup si pastram pool-urile
         # async (ex: asyncpg) pe acelasi event loop.

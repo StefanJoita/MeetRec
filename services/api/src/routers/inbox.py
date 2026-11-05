@@ -17,6 +17,7 @@
 import asyncio
 import hashlib
 import json
+import os
 import re
 import uuid as uuid_lib
 from datetime import date, datetime, timezone
@@ -285,8 +286,13 @@ async def upload_to_inbox(
     max_bytes = await app_settings.effective_value(db, "max_file_size_mb") * app_settings.MIB
     sha256 = hashlib.sha256()
     size = 0
+    # Fișierul se scrie sub un nume ascuns (ignorat de watcher-ul ingest) și
+    # primește numele final abia după ce sidecar-ul cu metadatele e pe disc.
+    # Altfel ingest putea prelua fișierul înaintea sidecar-ului: înregistrare
+    # fără titlu/participanți și cu clasificarea implicită în locul celei alese.
+    part = inbox_path / f".{dest.name}.{uuid_lib.uuid4().hex}.part"
     try:
-        with dest.open("wb") as out:
+        with part.open("wb") as out:
             while chunk := file.file.read(1024 * 1024):
                 size += len(chunk)
                 if size > max_bytes:
@@ -294,13 +300,13 @@ async def upload_to_inbox(
                 sha256.update(chunk)
                 out.write(chunk)
     except OSError as e:
-        dest.unlink(missing_ok=True)
+        part.unlink(missing_ok=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Nu s-a putut salva fișierul: {e}",
         )
     if size > max_bytes:
-        dest.unlink(missing_ok=True)
+        part.unlink(missing_ok=True)
         raise HTTPException(
             status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
             detail=f"Fișierul depășește limita de {max_bytes // app_settings.MIB} MB.",
@@ -316,7 +322,7 @@ async def upload_to_inbox(
             .where(Recording.file_hash_sha256 == sha256.hexdigest())
         )).first()
         if duplicate is not None:
-            dest.unlink(missing_ok=True)
+            part.unlink(missing_ok=True)
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
                 detail={
@@ -357,12 +363,28 @@ async def upload_to_inbox(
     if existing_recording_id is not None:
         meta["existing_recording_id"] = existing_recording_id
 
+    # Numele final, verificat din nou: între timp poate fi apărut un fișier cu același nume
+    while dest.exists():
+        dest = inbox_path / f"{original_stem}_{counter}{original_suffix}"
+        counter += 1
+
     sidecar_path = dest.with_suffix(dest.suffix + ".meetrec-meta.json")
     try:
         sidecar_path.write_text(json.dumps(meta, ensure_ascii=False), encoding="utf-8")
     except OSError as e:
         import logging
         logging.getLogger(__name__).warning("sidecar_write_failed: %s", e)
+
+    # Abia acum fișierul devine vizibil pentru ingest (redenumire atomică)
+    try:
+        os.replace(part, dest)
+    except OSError as e:
+        part.unlink(missing_ok=True)
+        sidecar_path.unlink(missing_ok=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Nu s-a putut salva fișierul: {e}",
+        )
 
     # ── Jurnal: fișier simplu sau începutul unei sesiuni nepre-înregistrate ──
     # Segmentele următoare ale sesiunii nu se jurnalizează (zeci pe ședință):

@@ -68,3 +68,34 @@ def test_process_existing_files_skips_sidecar(monkeypatch, tmp_path):
     processed_file = handler._handle_new_file.call_args[0][0]
     assert processed_file == audio
     loop.close()
+
+
+def test_file_deleted_while_waiting_is_not_processed(tmp_path):
+    """BUG-06: API-ul a șters fișierul (413 / 409) după ce watcher-ul l-a detectat."""
+    loop = asyncio.new_event_loop()
+    handler = AudioFileHandler(processor=DummyProcessor(), event_loop=loop)
+    audio = tmp_path / "respins.wav"
+    audio.write_bytes(b"abc")
+
+    with patch.object(handler, "_wait_for_file_stable", side_effect=lambda p: p.unlink()), patch(
+        "src.watcher.asyncio.run_coroutine_threadsafe"
+    ) as run_threadsafe:
+        handler._handle_new_file(audio)
+
+    assert run_threadsafe.call_count == 0
+    assert str(audio) not in handler._processing
+    loop.close()
+
+
+def test_api_part_file_is_ignored(tmp_path):
+    """Fișierul în curs de scriere de API (.<nume>.<id>.part) nu e preluat."""
+    loop = asyncio.new_event_loop()
+    handler = AudioFileHandler(processor=DummyProcessor(), event_loop=loop)
+    part = tmp_path / ".sedinta.wav.0123abcd.part"
+    part.write_bytes(b"abc")
+
+    with patch("src.watcher.asyncio.run_coroutine_threadsafe") as run_threadsafe:
+        handler._handle_new_file(part)
+
+    assert run_threadsafe.call_count == 0
+    loop.close()

@@ -82,3 +82,31 @@ async def test_file_over_admin_limit_returns_413(http, tmp_path, monkeypatch):
     assert resp.status_code == 413
     assert "1 MB" in resp.json()["detail"]
     assert list(tmp_path.iterdir()) == []
+
+
+@pytest.mark.asyncio
+async def test_sidecar_written_before_audio_gets_final_name(http, tmp_path, monkeypatch):
+    """BUG-06: când fișierul audio apare cu numele final, sidecar-ul există deja."""
+    import os
+    import src.routers.inbox as inbox
+
+    monkeypatch.setattr(settings, "inbox_path", tmp_path)
+    db = login_as(make_user(participant=False))
+    with_existing(db, None)
+    seen = {}
+    real_replace = os.replace
+
+    def spy_replace(src, dst):
+        seen["part_hidden"] = os.path.basename(src).startswith(".")
+        seen["sidecar_ready"] = os.path.exists(str(dst) + ".meetrec-meta.json")
+        seen["final_absent"] = not os.path.exists(dst)
+        real_replace(src, dst)
+
+    monkeypatch.setattr(inbox.os, "replace", spy_replace)
+
+    resp = await http.post("/api/v1/inbox/upload", files={"file": ("sedinta.wav", AUDIO)},
+                           data={"title": "Ședința CA"})
+
+    assert resp.status_code == 202
+    assert seen == {"part_hidden": True, "sidecar_ready": True, "final_absent": True}
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["sedinta.wav", "sedinta.wav.meetrec-meta.json"]
